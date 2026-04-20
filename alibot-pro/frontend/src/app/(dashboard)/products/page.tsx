@@ -513,8 +513,8 @@ export default function ProductsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => router.push('/quick-post')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] text-[12px] text-white/55 hover:text-white/80 transition-all"
+            onClick={() => router.push('/products/discover')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-blue-500/30 bg-blue-500/[0.08] hover:bg-blue-500/[0.14] text-[12px] text-blue-400 hover:text-blue-300 font-medium transition-all"
           >
             <Search size={12} />
             גלה מוצרים
