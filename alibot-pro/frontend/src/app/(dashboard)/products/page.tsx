@@ -223,7 +223,7 @@ function ActionBtn({
         : <Icon size={13} />
       }
       {/* Tooltip */}
-      <span className="absolute bottom-full mb-1.5 right-1/2 translate-x-1/2 px-2 py-0.5 bg-[#1a1c2a] border border-white/10 text-[10px] text-white/70 rounded-md whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-20">
+      <span className="absolute bottom-full mb-1.5 right-1/2 translate-x-1/2 px-2 py-0.5 bg-[var(--bg-tertiary)] border border-[var(--border)] text-[10px] text-[var(--text-muted)] rounded-md whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none z-20">
         {label}
       </span>
     </button>
@@ -612,7 +612,7 @@ export default function ProductsPage() {
                     isActive
                       ? tab.color
                         ? `${colorMap[tab.color]} text-white`
-                        : 'bg-[#1a1d2e] text-white border border-white/[0.15]'
+                        : 'bg-[var(--bg-tertiary)] text-[var(--text)] border border-[var(--border-hover)]'
                       : 'text-white/40 hover:text-white/70 hover:bg-white/[0.05]'
                   }`}
                 >
@@ -634,8 +634,8 @@ export default function ProductsPage() {
                   onClick={() => setPostFilter(f)}
                   className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all ${
                     postFilter === f
-                      ? 'bg-white/[0.08] text-white/80'
-                      : 'text-white/30 hover:text-white/55'
+                      ? 'bg-[var(--bg-tertiary)] text-[var(--text)] border border-[var(--border)]'
+                      : 'text-white/30 hover:text-white/55 border border-transparent'
                   }`}
                 >
                   <FileText size={10} />

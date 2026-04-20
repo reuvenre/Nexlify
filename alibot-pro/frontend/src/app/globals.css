@@ -194,6 +194,13 @@ input:-webkit-autofill {
 /* Sidebar active */
 [data-theme="light"] .bg-blue-600\/20 { background-color: rgba(37,99,235,0.10) !important; }
 
+/* Dark hex colors not covered elsewhere — catch-all for light mode */
+[data-theme="light"] .bg-\[\#1a1d2e\] { background-color: #eaecf4 !important; }
+[data-theme="light"] .bg-\[\#1a1c2a\] { background-color: #eaecf4 !important; }
+[data-theme="light"] .bg-\[\#16182a\] { background-color: #eaecf4 !important; }
+[data-theme="light"] .bg-\[\#1e2035\] { background-color: #f0f2f9 !important; }
+[data-theme="light"] .bg-\[\#17192b\] { background-color: #eaecf4 !important; }
+
 /* Discover / product cards */
 [data-theme="light"] .bg-\[\#13151f\] { background-color: #f8f9fc !important; }
 [data-theme="light"] .bg-orange-500\/\[0\.15\] { background-color: rgba(249,115,22,0.10) !important; }
