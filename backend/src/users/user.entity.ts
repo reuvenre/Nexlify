@@ -20,6 +20,12 @@ export class User {
   @Column({ nullable: true })
   footer_text: string;
 
+  @Column({ default: 'user' })
+  role: 'user' | 'admin';
+
+  @Column({ default: 'free' })
+  plan: 'free' | 'starter' | 'growth' | 'autopilot' | 'scale';
+
   @Column({ nullable: true })
   refresh_token_hash: string;
 

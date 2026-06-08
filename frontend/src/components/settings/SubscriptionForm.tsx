@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Zap } from 'lucide-react';
+import { Check, Zap, ShieldCheck } from 'lucide-react';
+import { useAuth } from '@/lib/hooks/useAuth';
 
 type Billing = 'monthly' | 'annual';
 
@@ -14,7 +15,6 @@ const PLANS = [
     credits: 500,
     groups: '1',
     groupsLabel: '1 קבוצות',
-    current: false,
     popular: false,
     features: ['AliExpress', 'טלגרם', 'כותב תוכן AI', 'פרסום אוטומטי'],
     includesLabel: 'כולל',
@@ -27,7 +27,6 @@ const PLANS = [
     credits: 1500,
     groups: '5',
     groupsLabel: '5 קבוצות',
-    current: true,
     popular: true,
     features: ['פרסום חוזר אוטומטי', 'אינטגרציית אמזון', 'מעקב פוסטים', 'וואטסאפ', 'פייסבוק', 'אינסטגרם', 'משפר תמונות AI'],
     includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
@@ -40,7 +39,6 @@ const PLANS = [
     credits: 3000,
     groups: '10',
     groupsLabel: '10 קבוצות',
-    current: false,
     popular: false,
     features: ['מצב טייס אוטומטי', 'גילוי מוצרים AI'],
     includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
@@ -53,7 +51,6 @@ const PLANS = [
     credits: 6000,
     groups: '∞',
     groupsLabel: 'ללא הגבלה',
-    current: false,
     popular: false,
     features: ['פינטרסט'],
     includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
@@ -62,22 +59,25 @@ const PLANS = [
 
 export function SubscriptionForm() {
   const [billing, setBilling] = useState<Billing>('monthly');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="space-y-6" dir="rtl">
       {/* Header banner */}
-      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 flex items-center gap-3">
-        <span className="text-xs bg-blue-600 text-white rounded-full px-2.5 py-0.5 font-semibold">ניסיון</span>
-        <span className="text-xs text-white/60">מתאפס ב 25 באפר׳</span>
-        <div className="mr-auto flex items-center gap-3 text-xs text-white/50">
-          <span>מתאפס ב 25 באפר׳</span>
-          <span>·</span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-            0 /חודש
-          </span>
+      {isAdmin ? (
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 flex items-center gap-3">
+          <ShieldCheck size={16} className="text-emerald-400 shrink-0" />
+          <p className="text-xs text-emerald-300">
+            אתה מנהל המערכת — יש לך גישה מלאה לכל הפיצ׳רים בכל התוכניות, ללא הגבלה.
+          </p>
         </div>
-      </div>
+      ) : (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 flex items-center gap-3">
+          <span className="text-xs bg-blue-600 text-white rounded-full px-2.5 py-0.5 font-semibold">התוכנית הנוכחית</span>
+          <span className="text-xs text-white/60">{PLANS.find((p) => p.id === user?.plan)?.name ?? 'חינמי'}</span>
+        </div>
+      )}
 
       {/* Billing toggle */}
       <div className="flex items-center justify-center gap-3">
@@ -102,11 +102,12 @@ export function SubscriptionForm() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {PLANS.map((plan) => {
           const price = billing === 'annual' ? plan.priceAnnual : plan.priceMonthly;
+          const isCurrent = !isAdmin && user?.plan === plan.id;
           return (
             <div
               key={plan.id}
               className={`relative flex flex-col rounded-2xl border p-5 transition-all
-                ${plan.current
+                ${isCurrent
                   ? 'bg-blue-600/10 border-blue-500/50 ring-1 ring-blue-500/30'
                   : 'bg-surface-secondary border-edge hover:border-white/20'}`}
             >
@@ -142,15 +143,15 @@ export function SubscriptionForm() {
 
               {/* CTA button */}
               <button
-                disabled={plan.current}
+                disabled={isCurrent}
                 className={`w-full py-2.5 rounded-xl text-sm font-semibold mb-4 transition-all
-                  ${plan.current
+                  ${isCurrent
                     ? 'bg-blue-600 text-white cursor-default'
                     : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
               >
-                {plan.current ? 'התוכנית הנוכחית' : 'לרכישה'}
+                {isCurrent ? 'התוכנית הנוכחית' : 'לרכישה'}
               </button>
-              {!plan.current && (
+              {!isCurrent && (
                 <p className="text-[9px] text-white/25 text-center -mt-3 mb-3">ניתן לבטל בכל עת, ללא התחייבות</p>
               )}
 

@@ -1,9 +1,14 @@
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
+export type UserRole = 'user' | 'admin';
+export type PlanTier = 'free' | 'starter' | 'growth' | 'autopilot' | 'scale';
+
 export interface User {
   id: string;
   email: string;
   footer_text?: string;
+  role: UserRole;
+  plan: PlanTier;
   created_at: string;
 }
 

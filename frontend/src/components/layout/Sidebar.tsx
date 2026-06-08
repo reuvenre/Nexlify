@@ -7,8 +7,16 @@ import { useTheme } from '@/lib/hooks/useTheme';
 import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut, Bot, Tag,
-  ShoppingCart, Sun, Moon, Sparkles, Package, Inbox,
+  ShoppingCart, Sun, Moon, Sparkles, Package, Inbox, ShieldCheck,
 } from 'lucide-react';
+
+const PLAN_LABELS: Record<string, string> = {
+  free: 'חינמי',
+  starter: 'Starter',
+  growth: 'Growth',
+  autopilot: 'Autopilot',
+  scale: 'Scale',
+};
 
 const NAV_SECTIONS = [
   {
@@ -151,8 +159,17 @@ export function Sidebar() {
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-white/65 truncate leading-tight">{username}</p>
             <div className="flex items-center gap-1 mt-0.5">
-              <Sparkles size={8} className="text-blue-400 shrink-0" />
-              <p className="text-2xs text-blue-400/70 leading-none">Pro</p>
+              {user?.role === 'admin' ? (
+                <>
+                  <ShieldCheck size={8} className="text-emerald-400 shrink-0" />
+                  <p className="text-2xs text-emerald-400/70 leading-none">מנהל מערכת</p>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={8} className="text-blue-400 shrink-0" />
+                  <p className="text-2xs text-blue-400/70 leading-none">{PLAN_LABELS[user?.plan ?? 'free']}</p>
+                </>
+              )}
             </div>
           </div>
 

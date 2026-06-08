@@ -17,21 +17,21 @@ export class RecommendationsController {
     @Query('agent_type') agentType?: string,
     @Query('category') category?: string,
   ) {
-    return this.recommendations.list(req.user.userId, { status, agent_type: agentType, category });
+    return this.recommendations.list(req.user.id, { status, agent_type: agentType, category });
   }
 
   @Get(':id')
   async get(@Req() req: any, @Param('id') id: string) {
-    return this.recommendations.get(req.user.userId, id);
+    return this.recommendations.get(req.user.id, id);
   }
 
   @Patch(':id/approve')
   async approve(@Req() req: any, @Param('id') id: string, @Body() dto: ReviewRecommendationDto) {
-    return this.recommendations.approve(req.user.userId, id, dto.note);
+    return this.recommendations.approve(req.user.id, id, dto.note);
   }
 
   @Patch(':id/reject')
   async reject(@Req() req: any, @Param('id') id: string, @Body() dto: ReviewRecommendationDto) {
-    return this.recommendations.reject(req.user.userId, id, dto.note);
+    return this.recommendations.reject(req.user.id, id, dto.note);
   }
 }

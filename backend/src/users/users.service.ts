@@ -93,6 +93,8 @@ export class UsersService {
       id: user.id,
       email: user.email,
       footer_text: user.footer_text,
+      role: user.role,
+      plan: user.plan,
       created_at: user.created_at,
     };
   }
