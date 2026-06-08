@@ -14,5 +14,6 @@ import { RatesModule } from '../rates/rates.module';
   ],
   providers: [EarningsService],
   controllers: [EarningsController],
+  exports: [EarningsService],
 })
 export class EarningsModule {}

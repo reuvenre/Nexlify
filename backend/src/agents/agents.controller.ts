@@ -3,6 +3,10 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OrchestratorAgent } from './orchestrator.agent';
+import { SiteManagerAgent } from './site-manager.agent';
+import { FrontendArchitectAgent } from './frontend-architect.agent';
+import { BackendArchitectAgent } from './backend-architect.agent';
+import { SecurityAgent } from './security.agent';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AgentRun } from './agent-run.entity';
@@ -13,6 +17,10 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 export class AgentsController {
   constructor(
     private readonly orchestrator: OrchestratorAgent,
+    private readonly siteManager: SiteManagerAgent,
+    private readonly frontendArchitect: FrontendArchitectAgent,
+    private readonly backendArchitect: BackendArchitectAgent,
+    private readonly security: SecurityAgent,
     private readonly campaigns: CampaignsService,
     @InjectRepository(AgentRun)
     private readonly runRepo: Repository<AgentRun>,
@@ -24,6 +32,30 @@ export class AgentsController {
     const userId = req.user.userId;
     const campaign = await this.campaigns.get(userId, body.campaign_id);
     return this.orchestrator.run(campaign as any, userId);
+  }
+
+  /** Manually trigger the Site Manager strategic review */
+  @Post('site-manager/run')
+  async runSiteManager(@Req() req: any) {
+    return this.siteManager.review(req.user.userId);
+  }
+
+  /** Manually trigger a Frontend Architect codebase review */
+  @Post('frontend-architect/run')
+  async runFrontendArchitect(@Req() req: any) {
+    return this.frontendArchitect.review(req.user.userId);
+  }
+
+  /** Manually trigger a Backend Architect codebase review */
+  @Post('backend-architect/run')
+  async runBackendArchitect(@Req() req: any) {
+    return this.backendArchitect.review(req.user.userId);
+  }
+
+  /** Manually trigger a Security Officer scan */
+  @Post('security/run')
+  async runSecurityScan(@Req() req: any) {
+    return this.security.scan(req.user.userId);
   }
 
   /** List recent agent runs for the authenticated user */

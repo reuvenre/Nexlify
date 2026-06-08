@@ -15,7 +15,8 @@ const PRODUCT_FIELDS =
   'product_id,product_title,original_price,sale_price,' +
   'target_original_price,target_sale_price,target_sale_price_currency,' +
   'discount,product_main_image_url,' +
-  'product_detail_url,evaluate_rate,first_level_category_name,lastest_volume';
+  'product_detail_url,evaluate_rate,first_level_category_name,lastest_volume,' +
+  'commission_rate,hot_product_commission_rate';
 
 const HOT_FIELDS =
   'product_id,product_title,original_price,sale_price,' +
@@ -347,6 +348,10 @@ export class ProductsService {
       // Parse as an integer; AliExpress product pages may show a higher cumulative total.
       const ordersCount = parseInt(String(p.lastest_volume || '0').replace(/,/g, ''), 10) || 0;
 
+      // commission_rate / hot_product_commission_rate come back as percentage strings (e.g. "5.00%").
+      const rawCommission = String(p.commission_rate || p.hot_product_commission_rate || '').replace('%', '').trim();
+      const commissionRate = parseFloat(rawCommission) || 0;
+
       return {
         product_id: String(p.product_id),
         title: p.product_title,
@@ -360,6 +365,7 @@ export class ProductsService {
         rating,
         currency: resolvedCurrency,
         sale_price_usd: +usdSale.toFixed(2),
+        commission_rate: commissionRate,
       };
     });
   }
@@ -401,6 +407,7 @@ export class ProductsService {
         rating: +(4.2 + (i % 5) * 0.15).toFixed(1),
         currency,
         sale_price_usd: +usdSale.toFixed(2),
+        commission_rate: +(3 + (i % 6)).toFixed(1),
       };
     });
   }

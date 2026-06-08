@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { User } from '../users/user.entity';
+import { AuditLogService } from '../audit/audit-log.service';
 
 const REFRESH_COOKIE = 'refresh_token';
 const REFRESH_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
@@ -20,6 +21,7 @@ export class AuthService {
     private jwt: JwtService,
     private config: ConfigService,
     private mail: MailService,
+    private audit: AuditLogService,
   ) {}
 
   // ── Token helpers ──────────────────────────────────────────────────────────
@@ -68,9 +70,18 @@ export class AuthService {
 
   async login(email: string, password: string, res: any) {
     const user = await this.users.findByEmail(email);
-    if (!user) throw new UnauthorizedException('Invalid credentials');
-    const valid = await this.users.validatePassword(user, password);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    const valid = user ? await this.users.validatePassword(user, password) : false;
+
+    if (!user || !valid) {
+      await this.audit.record({
+        user_id: user?.id,
+        event_type: 'login_failed',
+        metadata: { email },
+      });
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    await this.audit.record({ user_id: user.id, event_type: 'login_success', metadata: { email } });
     return this.issueTokens(user, res);
   }
 

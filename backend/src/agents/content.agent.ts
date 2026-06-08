@@ -44,7 +44,7 @@ export class ContentAgent {
     const tools: Anthropic.Tool[] = [
       {
         name: 'get_recent_posts',
-        description: 'Get recent successful posts for this user to learn style and patterns that work well.',
+        description: 'Get recent successful posts for this user — including each post\'s opening line — to learn style/patterns that work AND to avoid repeating the same hooks.',
         input_schema: {
           type: 'object' as const,
           properties: {
@@ -67,7 +67,7 @@ export class ContentAgent {
     const messages: Anthropic.MessageParam[] = [
       {
         role: 'user',
-        content: `First, check recent successful posts to understand what style resonates with this audience.
+        content: `First, check recent successful posts — note their opening_line values so you can write a FRESH hook that doesn't repeat them.
 Then write an optimized Telegram marketing post for this product.
 
 Product details:
@@ -83,7 +83,8 @@ Requirements:
 - Use HTML: <b> for prices/headlines, <i> for subtle emphasis
 - Length: 80–130 words
 - Do NOT include a URL/link (it will be appended automatically)
-- Include FOMO and strong call-to-action`,
+- Include FOMO and strong call-to-action
+- Open with a hook that is clearly DIFFERENT from the opening_line values of the recent posts you reviewed — vary the angle (price shock, use-case, social proof, urgency, curiosity) so the channel doesn't feel repetitive`,
       },
     ];
 
@@ -124,6 +125,7 @@ Requirements:
 
             const samples = posts.map((p) => ({
               title: p.product_title,
+              opening_line: p.generated_text?.split(/[\n.!?]/)[0]?.replace(/<[^>]+>/g, '').trim().substring(0, 80),
               text_preview: p.generated_text?.substring(0, 200),
               sent_at: p.sent_at,
             }));

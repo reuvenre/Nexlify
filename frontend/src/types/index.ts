@@ -269,6 +269,46 @@ export interface UpdateChannelInput {
   is_active?: boolean;
 }
 
+// ─── Recommendations (agent inbox) ──────────────────────────────────────────
+
+export type RecommendationAgentType = 'site_manager' | 'frontend_architect' | 'backend_architect' | 'security';
+export type RecommendationCategory = 'strategy' | 'code_change' | 'security' | 'campaign_action';
+export type RecommendationSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type RecommendationStatus = 'pending' | 'approved' | 'rejected' | 'applied';
+
+export interface AgentRecommendation {
+  id: string;
+  user_id: string;
+  agent_type: RecommendationAgentType;
+  category: RecommendationCategory;
+  severity: RecommendationSeverity;
+  title: string;
+  description: string;
+  payload?: Record<string, any> | null;
+  status: RecommendationStatus;
+  reviewed_at?: string;
+  review_note?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Agents ──────────────────────────────────────────────────────────────────
+
+export type AgentType = 'product' | 'content' | 'campaign' | 'orchestrator' | 'site_manager' | 'frontend_architect' | 'backend_architect' | 'security';
+
+export interface AgentRun {
+  id: string;
+  campaign_id?: string;
+  agent_type: AgentType;
+  status: 'running' | 'completed' | 'failed';
+  input?: Record<string, any> | null;
+  output?: Record<string, any> | null;
+  tokens_used?: number;
+  error_message?: string;
+  started_at: string;
+  finished_at?: string;
+}
+
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 export interface PaginatedResponse<T> {

@@ -13,6 +13,7 @@ export interface RankedProduct {
   image_url: string;
   category: string;
   currency: string;
+  commission_rate: number;
   score: number;
 }
 
@@ -50,10 +51,11 @@ export class ProductAgent {
       },
     ];
 
-    const systemPrompt = `You are a product discovery agent for an affiliate marketing platform.
-Your task: find the best-converting products from AliExpress for Telegram channel posts.
-Ranking criteria: high discount_percent, high orders_count, good rating (>4.0), reasonable price.
-Score = (discount_percent * 0.4) + (min(orders_count, 10000) / 10000 * 40) + (rating / 5 * 20).
+    const systemPrompt = `You are a product discovery agent for an affiliate marketing platform. The platform earns commission on every sale, so commission rate is the PRIMARY profitability driver — prioritize it alongside conversion signals.
+Your task: find the best-converting, highest-commission products from AliExpress for Telegram channel posts.
+Ranking criteria: high commission_rate (most important — this is the platform's revenue), high discount_percent, high orders_count, good rating (>4.0), reasonable price.
+Score = (commission_rate * 3) + (discount_percent * 0.3) + (min(orders_count, 10000) / 10000 * 30) + (rating / 5 * 15).
+Treat products with commission_rate of 0 or missing as lower priority than otherwise-similar products with a known commission rate — prefer ones where commission data is available.
 After searching, select the top ${count} products by score and return them as JSON.`;
 
     const keywordsText = keywords.slice(0, 3).join(', ');
@@ -62,10 +64,10 @@ After searching, select the top ${count} products by score and return them as JS
     const messages: Anthropic.MessageParam[] = [
       {
         role: 'user',
-        content: `Find the top ${count} best-converting products for these keywords: "${keywordsText}".
+        content: `Find the top ${count} best-converting, highest-commission products for these keywords: "${keywordsText}".
 Filters: ${filtersText}.
-Search for 1-2 keywords, rank all results by score, return the top ${count} as JSON array.
-Format: [{ product_id, title, sale_price, original_price, discount_percent, orders_count, rating, image_url, category, currency, score }]`,
+Search for 1-2 keywords, rank all results by score (commission rate weighted heaviest), return the top ${count} as JSON array.
+Format: [{ product_id, title, sale_price, original_price, discount_percent, orders_count, rating, image_url, category, currency, commission_rate, score }]`,
       },
     ];
 

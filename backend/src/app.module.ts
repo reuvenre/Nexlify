@@ -18,6 +18,8 @@ import { TemplatesModule } from './templates/templates.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { MailModule } from './mail/mail.module';
 import { AgentsModule } from './agents/agents.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
+import { AuditLogModule } from './audit/audit-log.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -67,6 +69,8 @@ import { HealthController } from './health.controller';
     CatalogModule,
     MailModule,
     AgentsModule,
+    RecommendationsModule,
+    AuditLogModule,
   ],
   controllers: [HealthController],
 })

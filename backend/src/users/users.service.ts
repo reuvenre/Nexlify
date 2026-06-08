@@ -82,6 +82,12 @@ export class UsersService {
     });
   }
 
+  /** All registered user IDs — used by system-level cron jobs (e.g. site manager / architect agents). */
+  async findAllIds(): Promise<string[]> {
+    const users = await this.repo.find({ select: ['id'] });
+    return users.map((u) => u.id);
+  }
+
   toPublic(user: User) {
     return {
       id: user.id,

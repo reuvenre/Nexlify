@@ -21,6 +21,11 @@ import type {
   CatalogProduct,
   CatalogStats,
   CatalogStatus,
+  AgentRecommendation,
+  RecommendationAgentType,
+  RecommendationCategory,
+  RecommendationStatus,
+  AgentRun,
 } from '@/types';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -311,6 +316,31 @@ export const catalogApi = {
 
   queueBatch: (ids: string[]) =>
     http.post<{ id: string; success: boolean; error?: string }[]>('/catalog/queue-batch', { ids }).then(extract),
+};
+
+// ─── Recommendations API ─────────────────────────────────────────────────────
+
+export const recommendationsApi = {
+  list: (params?: {
+    status?: RecommendationStatus; agent_type?: RecommendationAgentType; category?: RecommendationCategory;
+  }) => http.get<AgentRecommendation[]>('/recommendations', { params }).then(extract),
+
+  get: (id: string) => http.get<AgentRecommendation>(`/recommendations/${id}`).then(extract),
+
+  approve: (id: string, note?: string) =>
+    http.patch<AgentRecommendation>(`/recommendations/${id}/approve`, { note }).then(extract),
+
+  reject: (id: string, note?: string) =>
+    http.patch<AgentRecommendation>(`/recommendations/${id}/reject`, { note }).then(extract),
+};
+
+// ─── Agents API ──────────────────────────────────────────────────────────────
+
+export const agentsApi = {
+  runSiteManager: () => http.post<{ recommendations_filed: number; summary: string; tokens: number }>('/agents/site-manager/run').then(extract),
+  runFrontendArchitect: () => http.post<{ recommendations_filed: number; summary: string; tokens: number }>('/agents/frontend-architect/run').then(extract),
+  runBackendArchitect: () => http.post<{ recommendations_filed: number; summary: string; tokens: number }>('/agents/backend-architect/run').then(extract),
+  runSecurityScan: () => http.post<{ recommendations_filed: number; summary: string; tokens: number }>('/agents/security/run').then(extract),
 };
 
 export default http;

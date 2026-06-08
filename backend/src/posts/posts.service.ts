@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, MoreThan } from 'typeorm';
 import axios from 'axios';
 import { Post } from './post.entity';
 import { Campaign } from '../campaigns/campaign.entity';
@@ -10,6 +10,10 @@ import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
+
+// How far back to look when checking if a product was already posted to this
+// channel — avoids spamming the same group with the same product repeatedly.
+const DUPLICATE_WINDOW_DAYS = 14;
 
 @Injectable()
 export class PostsService {
@@ -331,6 +335,10 @@ export class PostsService {
     },
     creds: DecryptedCredentials,
   ): Promise<Post> {
+    if (await this.wasRecentlyPosted(userId, data.product_id)) {
+      throw new Error(`Product ${data.product_id} was already posted to this channel within the last ${DUPLICATE_WINDOW_DAYS} days — skipping duplicate`);
+    }
+
     const affiliateUrl = await this.getAffiliateLink(data.product_id, creds);
     const priceIls = +(data.sale_price * data.rate).toFixed(2);
 
@@ -351,6 +359,20 @@ export class PostsService {
     await this.repo.save(post);
     await this.sendToTelegram(post, creds);
     return post;
+  }
+
+  /** True if this product was already sent (or is pending send) to the user's channel recently. */
+  private async wasRecentlyPosted(userId: string, productId: string): Promise<boolean> {
+    const since = new Date(Date.now() - DUPLICATE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const existing = await this.repo.findOne({
+      where: {
+        user_id: userId,
+        product_id: productId,
+        status: 'sent',
+        created_at: MoreThan(since),
+      },
+    });
+    return !!existing;
   }
 
   // ── Stuck posts cleanup (called by cron every 15 min) ────────────────────

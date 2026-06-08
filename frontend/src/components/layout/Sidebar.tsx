@@ -7,7 +7,7 @@ import { useTheme } from '@/lib/hooks/useTheme';
 import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut, Bot, Tag,
-  ShoppingCart, Sun, Moon, Sparkles, Package,
+  ShoppingCart, Sun, Moon, Sparkles, Package, Inbox,
 } from 'lucide-react';
 
 const NAV_SECTIONS = [
@@ -34,6 +34,12 @@ const NAV_SECTIONS = [
     items: [
       { href: '/orders',  label: 'הזמנות', icon: ShoppingCart },
       { href: '/reports', label: 'דוחות',  icon: BarChart3 },
+    ],
+  },
+  {
+    title: 'סוכני AI',
+    items: [
+      { href: '/recommendations', label: 'המלצות', icon: Inbox },
     ],
   },
 ];

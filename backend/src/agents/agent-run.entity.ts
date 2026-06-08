@@ -2,7 +2,9 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn,
 } from 'typeorm';
 
-export type AgentType = 'product' | 'content' | 'campaign' | 'orchestrator';
+export type AgentType =
+  | 'product' | 'content' | 'campaign' | 'orchestrator'
+  | 'site_manager' | 'frontend_architect' | 'backend_architect' | 'security';
 export type AgentStatus = 'running' | 'completed' | 'failed';
 
 @Entity('agent_runs')
@@ -13,7 +15,7 @@ export class AgentRun {
   @Column()
   user_id: string;
 
-  @Column()
+  @Column({ nullable: true })
   campaign_id: string;
 
   @Column()
