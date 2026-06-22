@@ -576,17 +576,26 @@ export class PostsService {
       return this.defaultText(product, priceLocal, originalLocal, discount, language, symbol);
     }
 
-    const systemPrompt = template
-      ? this.templateSystemPrompt(language, template)
+    // When the user supplies a custom template it becomes the AUTHORITATIVE
+    // instruction: the template is the system prompt and the user message carries
+    // only the product facts. Mixing in the default style rules would override the
+    // template's exact structure, tone and fixed lines — which is what we want to avoid.
+    const hasTemplate = !!template?.trim();
+    const systemPrompt = hasTemplate
+      ? this.templateSystemPrompt(language, template!.trim())
       : this.defaultSystemPrompt(language);
 
-    const userPrompt = this.buildUserPrompt(language, product, symbol, priceLocal, originalLocal, discount);
+    const userPrompt = hasTemplate
+      ? this.buildProductFacts(language, product, symbol, priceLocal, originalLocal, discount)
+      : this.buildUserPrompt(language, product, symbol, priceLocal, originalLocal, discount);
 
     const result = await this.ai.generate(creds, {
       system: systemPrompt,
       prompt: userPrompt,
-      maxTokens: 400,
-      temperature: 0.85,
+      // Custom templates often produce longer, structured posts → give more room
+      // and lower the temperature so the model adheres to the exact structure.
+      maxTokens: hasTemplate ? 900 : 400,
+      temperature: hasTemplate ? 0.7 : 0.85,
     });
 
     return result?.text || this.defaultText(product, priceLocal, originalLocal, discount, language, symbol);
@@ -632,24 +641,73 @@ Critical rules:
 • Include subtle FOMO: limited stock / price won't stay this low / exclusive for channel members`;
   }
 
+  /**
+   * The user's template is the authoritative instruction. We pass it through as the
+   * system prompt and only add a short guardrail (language + "don't append a link")
+   * — NOT the default copywriter rules, which would fight the template's structure.
+   */
   private templateSystemPrompt(language: string, template: string): string {
-    const base = this.defaultSystemPrompt(language);
     if (language === 'he') {
-      return `${base}
+      return `${template}
 
-בנוסף, השתמש בתבנית הבאה כבסיס לפוסט (אדפט אותה למוצר הספציפי):
-${template}`;
+———
+הוראות מערכת (גוברות רק על פרטים טכניים): כתוב/כתבי את הפוסט בעברית, ועקוב/עקבי אחר ההוראות, המבנה, האימוג'ים והשורות הקבועות שלמעלה במדויק. אל תוסיף/י קישור משלך — קישור השותפים יצורף אוטומטית. החזר/החזירי רק את הפוסט המוגמר, בלי הסברים.`;
     }
     if (language === 'ar') {
-      return `${base}
+      return `${template}
 
-بالإضافة إلى ذلك، استخدم القالب التالي كأساس للمنشور (اعدّله للمنتج المحدد):
-${template}`;
+———
+تعليمات النظام: اكتب المنشور بالعربية واتبع التعليمات والبنية والرموز والأسطر الثابتة أعلاه بدقة. لا تضف رابطاً؛ سيُضاف رابط الإحالة تلقائياً. أعد المنشور النهائي فقط دون شرح.`;
     }
-    return `${base}
+    return `${template}
 
-Additionally, use the following template as a base for the post (adapt it to the specific product):
-${template}`;
+———
+System note: write the post in English and follow the instructions, structure, emojis and fixed lines above exactly. Do not add your own link — the affiliate link is appended automatically. Return only the finished post, no explanations.`;
+  }
+
+  /** Product facts only — fills the placeholder in a user-defined template. */
+  private buildProductFacts(language: string, product: any, symbol: string, priceLocal: string, originalLocal: string, discount: number): string {
+    const orders = (product.orders_count || 0) >= 1000
+      ? `${((product.orders_count || 0) / 1000).toFixed(1)}K+`
+      : `${product.orders_count || 0}`;
+    const rating = product.rating?.toFixed(1) || 'N/A';
+    const title = product.title || '';
+    const category = product.category || '';
+
+    if (language === 'he') {
+      return `פרטי המוצר לכתיבת הפוסט:
+• שם המוצר: ${title}
+• מחיר מבצע: ${symbol}${priceLocal}
+• מחיר מקורי: ${symbol}${originalLocal}
+• הנחה: ${discount}%
+• הזמנות: ${orders} לקוחות קנו
+• דירוג: ${rating}/5
+• קטגוריה: ${category}
+
+כתוב/כתבי כעת את הפוסט עבור המוצר הזה, לפי ההוראות והמבנה שהוגדרו. אם נדרשות תכונות/יתרונות שאינם מופיעים למעלה — הסק/הסיקי אותם בצורה סבירה משם המוצר.`;
+    }
+    if (language === 'ar') {
+      return `تفاصيل المنتج لكتابة المنشور:
+• الاسم: ${title}
+• سعر العرض: ${symbol}${priceLocal}
+• السعر الأصلي: ${symbol}${originalLocal}
+• الخصم: ${discount}%
+• الطلبات: ${orders}
+• التقييم: ${rating}/5
+• الفئة: ${category}
+
+اكتب الآن المنشور لهذا المنتج وفق التعليمات والبنية المحددة.`;
+    }
+    return `Product details for the post:
+• Name: ${title}
+• Sale price: ${symbol}${priceLocal}
+• Original price: ${symbol}${originalLocal}
+• Discount: ${discount}%
+• Orders: ${orders}
+• Rating: ${rating}/5
+• Category: ${category}
+
+Now write the post for this product, following the defined instructions and structure. If specific features aren't listed above, infer reasonable ones from the product name.`;
   }
 
   private buildUserPrompt(language: string, product: any, symbol: string, priceLocal: string, originalLocal: string, discount: number): string {
