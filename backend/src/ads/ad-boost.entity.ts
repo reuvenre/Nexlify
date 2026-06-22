@@ -50,9 +50,18 @@ export class AdBoost {
   @Column({ default: 'skipped' })
   status: AdBoostStatus;
 
-  /** Meta Ads creative id once a boost is created */
+  /** Meta Ads ids created during a boost (all start PAUSED for safety) */
+  @Column({ nullable: true })
+  campaign_id: string;
+
+  @Column({ nullable: true })
+  adset_id: string;
+
   @Column({ nullable: true })
   creative_id: string;
+
+  @Column({ nullable: true })
+  ad_id: string;
 
   @Column({ nullable: true, type: 'text' })
   note: string;

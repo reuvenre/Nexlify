@@ -11,6 +11,7 @@ import { ProductsModule } from '../products/products.module';
 import { CampaignsModule } from '../campaigns/campaigns.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { RatesModule } from '../rates/rates.module';
+import { AiModule } from '../ai/ai.module';
 import { Post } from '../posts/post.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 
@@ -22,6 +23,7 @@ import { Campaign } from '../campaigns/campaign.entity';
     CampaignsModule,
     CredentialsModule,
     RatesModule,
+    AiModule,
   ],
   providers: [
     ProductAgent,

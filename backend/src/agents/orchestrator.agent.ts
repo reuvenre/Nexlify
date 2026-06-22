@@ -89,6 +89,7 @@ export class OrchestratorAgent {
             rate,
             currencySymbol,
             campaign.post_template,
+            creds,
           );
           totalTokens += contentTokens;
 

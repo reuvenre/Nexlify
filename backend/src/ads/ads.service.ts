@@ -111,11 +111,14 @@ export class AdsService {
 
       if (roas >= threshold || clicks >= 200) {
         try {
-          const creativeId = await this.createBoostAd(post, creds, dailyBudgetUsd);
+          const ids = await this.createBoostAd(post, creds, dailyBudgetUsd, hardLimitUsd);
           boost.status = 'boosted';
-          boost.creative_id = creativeId;
+          boost.campaign_id = ids.campaign_id;
+          boost.adset_id = ids.adset_id;
+          boost.creative_id = ids.creative_id;
+          boost.ad_id = ids.ad_id;
           boost.ad_spend = 0;
-          boost.note = `Boosted — budget $${dailyBudgetUsd}/day, hard cap $${hardLimitUsd}`;
+          boost.note = `Boosted (PAUSED) — $${dailyBudgetUsd}/day, account cap $${hardLimitUsd}. Activate in Ads Manager.`;
           result.boosted++;
         } catch (err: any) {
           boost.status = 'failed';
@@ -169,25 +172,74 @@ export class AdsService {
     }
   }
 
-  private async createBoostAd(post: Post, creds: DecryptedCredentials, _dailyBudgetUsd: number): Promise<string> {
-    const adAccountId = creds.meta_ad_account_id;
+  /**
+   * Boost an organic Facebook post into a real (but PAUSED) Meta ad.
+   *
+   * Builds the full Campaign → AdSet → Creative → Ad chain. Everything is created
+   * PAUSED and the campaign carries a lifetime `spend_cap`, so no money moves until
+   * the user activates it in Ads Manager — a safe, reversible default.
+   */
+  private async createBoostAd(
+    post: Post, creds: DecryptedCredentials, dailyBudgetUsd: number, hardLimitUsd: number,
+  ): Promise<{ campaign_id: string; adset_id: string; creative_id: string; ad_id: string }> {
     const token = creds.facebook_page_token;
-    if (!adAccountId) throw new Error('Missing Meta Ad Account ID');
+    const raw = creds.meta_ad_account_id;
+    if (!raw) throw new Error('Missing Meta Ad Account ID');
+    const adAccount = raw.startsWith('act_') ? raw : `act_${raw}`;
+    const label = (post.product_title || 'product').slice(0, 30);
 
-    // Create an ad creative from the existing organic post (Post Boost).
-    const params = new URLSearchParams({
-      object_story_id: post.facebook_post_id,
-      name: `NEXUS Boost — ${(post.product_title || '').slice(0, 30)}`,
+    // 1. Campaign — traffic objective, lifetime spend cap = hard limit.
+    const campaign_id = await this.graphPost(`${adAccount}/campaigns`, {
+      name: `NEXUS — ${label}`,
+      objective: 'OUTCOME_TRAFFIC',
+      status: 'PAUSED',
+      special_ad_categories: '[]',
+      spend_cap: String(Math.round(hardLimitUsd * 100)),
       access_token: token,
     });
 
+    // 2. AdSet — daily budget, optimize for link clicks, default geo = Israel.
+    const adset_id = await this.graphPost(`${adAccount}/adsets`, {
+      name: `NEXUS AdSet — ${label}`,
+      campaign_id,
+      daily_budget: String(Math.round(dailyBudgetUsd * 100)),
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'LINK_CLICKS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: JSON.stringify({ geo_locations: { countries: ['IL'] } }),
+      status: 'PAUSED',
+      access_token: token,
+    });
+
+    // 3. Creative — reuse the existing organic post.
+    const creative_id = await this.graphPost(`${adAccount}/adcreatives`, {
+      name: `NEXUS Creative — ${label}`,
+      object_story_id: post.facebook_post_id,
+      access_token: token,
+    });
+
+    // 4. Ad — ties the creative to the adset.
+    const ad_id = await this.graphPost(`${adAccount}/ads`, {
+      name: `NEXUS Ad — ${label}`,
+      adset_id,
+      creative: JSON.stringify({ creative_id }),
+      status: 'PAUSED',
+      access_token: token,
+    });
+
+    return { campaign_id, adset_id, creative_id, ad_id };
+  }
+
+  /** POST form-encoded params to a Graph endpoint, returning the created object id. */
+  private async graphPost(path: string, params: Record<string, string>): Promise<string> {
     const res = await axios.post(
-      `${GRAPH}/${adAccountId}/adcreatives`,
-      params.toString(),
+      `${GRAPH}/${path}`,
+      new URLSearchParams(params).toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15_000 },
     );
     if (res.data?.error) throw new Error(res.data.error.message);
-    return res.data?.id;
+    if (!res.data?.id) throw new Error(`Graph ${path} returned no id`);
+    return res.data.id;
   }
 
   // ── ROAS ──────────────────────────────────────────────────────────────────

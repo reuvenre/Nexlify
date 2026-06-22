@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import Anthropic from '@anthropic-ai/sdk';
 import { Post } from '../posts/post.entity';
+import { AiService } from '../ai/ai.service';
+import { DecryptedCredentials } from '../credentials/credentials.service';
 
 export interface GeneratedContent {
   text: string;
@@ -18,6 +20,7 @@ export class ContentAgent {
   constructor(
     @InjectRepository(Post)
     private readonly postRepo: Repository<Post>,
+    private readonly ai: AiService,
   ) {
     this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
@@ -40,6 +43,7 @@ export class ContentAgent {
     exchangeRate: number,
     currencySymbol: string,
     template?: string,
+    creds?: DecryptedCredentials | null,
   ): Promise<GeneratedContent> {
     const tools: Anthropic.Tool[] = [
       {
@@ -64,13 +68,7 @@ export class ContentAgent {
 
     const systemPrompt = buildSystemPrompt(language, template);
 
-    const messages: Anthropic.MessageParam[] = [
-      {
-        role: 'user',
-        content: `First, check recent successful posts to understand what style resonates with this audience.
-Then write an optimized Telegram marketing post for this product.
-
-Product details:
+    const productBrief = `Product details:
 - Name: ${product.title}
 - Sale price: ${currencySymbol}${priceLocal} (was ${currencySymbol}${originalLocal})
 - Discount: ${discount}%
@@ -83,7 +81,29 @@ Requirements:
 - Use HTML: <b> for prices/headlines, <i> for subtle emphasis
 - Length: 80–130 words
 - Do NOT include a URL/link (it will be appended automatically)
-- Include FOMO and strong call-to-action`,
+- Include FOMO and strong call-to-action`;
+
+    // Multi-provider: when the user selected OpenAI/Gemini, generate via the unified
+    // engine. The recent-posts learning tool is Anthropic-only, so it's skipped for
+    // other providers (the campaign still gets fully written copy).
+    const provider = this.ai.resolveProvider(creds ?? null);
+    if (creds && provider && provider !== 'anthropic') {
+      const r = await this.ai.generate(creds, {
+        system: systemPrompt,
+        prompt: `Write an optimized Telegram marketing post for this product.\n\n${productBrief}`,
+        maxTokens: 1024,
+        temperature: 0.85,
+      });
+      return { text: r?.text || '', language, tokens: r?.tokens || 0 };
+    }
+
+    const messages: Anthropic.MessageParam[] = [
+      {
+        role: 'user',
+        content: `First, check recent successful posts to understand what style resonates with this audience.
+Then write an optimized Telegram marketing post for this product.
+
+${productBrief}`,
       },
     ];
 
