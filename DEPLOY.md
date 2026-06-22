@@ -23,7 +23,17 @@ NEXUS deploys as two pieces: the **frontend** on Vercel and the **backend** (Nes
    - `BACKEND_URL` — this service's URL, e.g. `https://nexus-backend.onrender.com`.
 4. Deploy. `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET` are wired/generated automatically.
 
-**Migrations:** in production (`NODE_ENV=production`) the app runs migrations from `dist/migrations/` on boot (`migrationsRun: true`), so `AddNexusIntegration` applies automatically. To run manually: `cd backend && npm run migration:run`.
+**Migrations:** in production (`NODE_ENV=production`) the app runs migrations from `dist/migrations/` on boot (`migrationsRun: true`). The repo migrations are idempotent, so they no-op against an already-provisioned schema.
+
+### Option B — use the existing Supabase database (already provisioned)
+
+A Supabase project **`alibot-pro`** (`pyppovzopxleknwmgdiu`, region ap-northeast-1) already has the **full production schema provisioned** (all 10 tables). To use it instead of Render's Postgres:
+
+1. In `render.yaml`, remove the `nexus-db` database block and the `fromDatabase` wiring, and set `DATABASE_URL` to `sync: false`.
+2. In Render's Environment tab set `DATABASE_URL` to the Supabase connection string:
+   `postgresql://postgres:[DB-PASSWORD]@db.pyppovzopxleknwmgdiu.supabase.co:5432/postgres`
+   (DB password: Supabase dashboard → Project Settings → Database). Keep `DATABASE_SSL=true`.
+3. **Security — enable RLS** (see the RLS note below) before going live, since the tables are otherwise reachable via the Supabase anon key.
 
 ## 2. Frontend → Vercel
 

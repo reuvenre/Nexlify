@@ -18,7 +18,11 @@ services:
         value: production
       - key: PORT
         value: 3001
-      # Wired automatically from the managed resources below
+      # Managed Postgres + Redis are wired automatically below. To use the
+      # existing Supabase project instead, set DATABASE_URL manually (sync:false)
+      # to the Supabase connection string and keep DATABASE_SSL=true.
+      - key: DATABASE_SSL
+        value: 'true'
       - key: DATABASE_URL
         fromDatabase:
           name: nexus-db
