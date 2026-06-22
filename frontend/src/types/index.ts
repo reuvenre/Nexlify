@@ -14,6 +14,8 @@ export interface AuthResponse {
 
 // ─── Credentials ─────────────────────────────────────────────────────────────
 
+export type AiProvider = 'anthropic' | 'openai' | 'gemini';
+
 export interface CredentialSet {
   id: string;
   aliexpress_app_key: string;
@@ -23,6 +25,25 @@ export interface CredentialSet {
   telegram_channel_id: string;
   openai_api_key: string;         // masked
   openai_model: string;
+  // Multi-provider AI
+  ai_provider: AiProvider;
+  anthropic_api_key: string;      // masked
+  anthropic_model: string;
+  gemini_api_key: string;         // masked
+  gemini_model: string;
+  // Facebook / Meta
+  facebook_page_id: string;
+  facebook_page_token: string;    // masked
+  meta_ad_account_id: string;
+  publish_telegram: boolean;
+  publish_facebook: boolean;
+  // Discovery
+  apify_api_token: string;        // masked
+  // Auto-boost
+  boost_enabled: boolean;
+  boost_roas_threshold: number;
+  boost_daily_budget: number;
+  boost_hard_limit_usd: number;
   currency_pair: 'USD_ILS' | 'USD_EUR' | 'USD_GBP';
   // Scheduling queue
   schedule_enabled: boolean;
@@ -42,12 +63,91 @@ export interface CredentialSetInput {
   telegram_channel_id: string;
   openai_api_key: string;
   openai_model?: string;
+  // Multi-provider AI
+  ai_provider?: AiProvider;
+  anthropic_api_key?: string;
+  anthropic_model?: string;
+  gemini_api_key?: string;
+  gemini_model?: string;
+  // Facebook / Meta
+  facebook_page_id?: string;
+  facebook_page_token?: string;
+  meta_ad_account_id?: string;
+  publish_telegram?: boolean;
+  publish_facebook?: boolean;
+  // Discovery
+  apify_api_token?: string;
+  // Auto-boost
+  boost_enabled?: boolean;
+  boost_roas_threshold?: number;
+  boost_daily_budget?: number;
+  boost_hard_limit_usd?: number;
   currency_pair?: string;
   // Scheduling
   schedule_enabled?: boolean;
   schedule_start_hour?: number;
   schedule_end_hour?: number;
   schedule_interval_minutes?: number;
+}
+
+export interface VerifyResult {
+  aliexpress: boolean;
+  telegram: boolean;
+  openai: boolean;
+  gemini: boolean;
+  facebook: boolean;
+  apify: boolean;
+}
+
+// ─── Ads / Boost ─────────────────────────────────────────────────────────────
+
+export type AdBoostStatus = 'boosted' | 'skipped' | 'failed';
+
+export interface AdBoost {
+  id: string;
+  post_id?: string;
+  facebook_post_id?: string;
+  product_title?: string;
+  clicks: number;
+  impressions: number;
+  roas: number;
+  ad_spend: number;
+  daily_budget: number;
+  status: AdBoostStatus;
+  creative_id?: string;
+  note?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdsSummary {
+  boosted: number;
+  published: number;
+  total_clicks: number;
+  total_ad_spend: number;
+  avg_roas: number;
+}
+
+export interface PerformanceRunResult {
+  evaluated: number;
+  boosted: number;
+  skipped: number;
+  details: { title: string; clicks: number; roas: number; status: string }[];
+}
+
+// ─── Discovery ───────────────────────────────────────────────────────────────
+
+export interface HuntResult {
+  keyword_count: number;
+  scraped: number;
+  saved: number;
+  skipped_existing: number;
+}
+
+export interface ValidateResult {
+  checked: number;
+  valid: number;
+  invalid: number;
 }
 
 // ─── Campaigns ───────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, IsNumber, IsIn, Min, Max } from 'class-validator';
 
 export class CredentialSetDto {
   @IsOptional()
@@ -28,6 +28,73 @@ export class CredentialSetDto {
   @IsOptional()
   @IsString()
   openai_model?: string;
+
+  // ── Multi-provider AI ──
+  @IsOptional()
+  @IsIn(['anthropic', 'openai', 'gemini'])
+  ai_provider?: string;
+
+  @IsOptional()
+  @IsString()
+  anthropic_api_key?: string;
+
+  @IsOptional()
+  @IsString()
+  anthropic_model?: string;
+
+  @IsOptional()
+  @IsString()
+  gemini_api_key?: string;
+
+  @IsOptional()
+  @IsString()
+  gemini_model?: string;
+
+  // ── Facebook / Meta ──
+  @IsOptional()
+  @IsString()
+  facebook_page_id?: string;
+
+  @IsOptional()
+  @IsString()
+  facebook_page_token?: string;
+
+  @IsOptional()
+  @IsString()
+  meta_ad_account_id?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  publish_telegram?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  publish_facebook?: boolean;
+
+  // ── Discovery (Apify) ──
+  @IsOptional()
+  @IsString()
+  apify_api_token?: string;
+
+  // ── Auto-boost ──
+  @IsOptional()
+  @IsBoolean()
+  boost_enabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  boost_roas_threshold?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  boost_daily_budget?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  boost_hard_limit_usd?: number;
 
   @IsOptional()
   @IsString()

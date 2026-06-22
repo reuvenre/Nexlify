@@ -6,6 +6,7 @@ import { Post } from './post.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
+import { AiService } from '../ai/ai.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
 
@@ -18,6 +19,7 @@ export class PostsService {
     private readonly repo: Repository<Post>,
     private readonly credentials: CredentialsService,
     private readonly rates: RatesService,
+    private readonly ai: AiService,
   ) {}
 
   // ── List ──────────────────────────────────────────────────────────────────
@@ -376,42 +378,93 @@ export class PostsService {
     return post;
   }
 
-  // ── Telegram sender ───────────────────────────────────────────────────────
+  // ── Multi-channel publisher ─────────────────────────────────────────────
+  //
+  // Fans a post out to every enabled channel (Telegram + Facebook). The post is
+  // marked 'sent' if AT LEAST ONE channel succeeds (matching NEXUS behaviour),
+  // and 'failed' only when every attempted channel errored. The method keeps its
+  // historic name so all existing call sites stay unchanged.
 
   private async sendToTelegram(post: Post, creds: DecryptedCredentials, channelOverride?: string) {
-    try {
-      const token = creds?.telegram_bot_token;
-      const rawChannel = channelOverride || creds?.telegram_channel_id;
-      const channel = normalizeTelegramChatId(rawChannel);
-      if (!token || !channel) throw new Error('Missing Telegram credentials');
+    const errors: string[] = [];
+    let anySuccess = false;
 
-      // Only append the affiliate link if it's not already present in the text
-      // (the frontend may have already included it in the generated_text)
-      const linkAlreadyInText = post.affiliate_url &&
-        post.generated_text.includes(post.affiliate_url);
-      const caption = (post.affiliate_url && !linkAlreadyInText)
-        ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
-        : post.generated_text;
+    // Only append the affiliate link if it's not already present in the text
+    // (the frontend may have already included it in the generated_text)
+    const linkAlreadyInText = post.affiliate_url && post.generated_text.includes(post.affiliate_url);
+    const body = (post.affiliate_url && !linkAlreadyInText)
+      ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
+      : post.generated_text;
 
-      const res = await axios.post(
-        `https://api.telegram.org/bot${token}/sendPhoto`,
-        {
-          chat_id: channel,
-          photo: post.product_image,
-          caption,
-          parse_mode: 'HTML',
-        },
-        { timeout: 15000 },
-      );
+    // A channelOverride always targets Telegram. Otherwise respect the user's
+    // per-channel publish toggles (Telegram defaults on, Facebook defaults off).
+    const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
+    const wantFacebook = !channelOverride && creds?.publish_facebook === true;
 
-      post.telegram_message_id = res.data?.result?.message_id;
+    if (wantTelegram) {
+      try {
+        await this.sendToTelegramChannel(post, creds, body, channelOverride);
+        anySuccess = true;
+      } catch (err: any) {
+        errors.push(`Telegram: ${err?.response?.data?.description || err.message}`);
+      }
+    }
+
+    if (wantFacebook) {
+      try {
+        await this.sendToFacebook(post, creds, body);
+        anySuccess = true;
+      } catch (err: any) {
+        errors.push(`Facebook: ${err?.response?.data?.error?.message || err.message}`);
+      }
+    }
+
+    if (anySuccess) {
       post.status = 'sent';
       post.sent_at = new Date();
-    } catch (err: any) {
+      post.error_message = errors.length ? errors.join(' | ') : null;
+    } else {
       post.status = 'failed';
-      post.error_message = err?.response?.data?.description || err.message;
+      post.error_message = errors.join(' | ') || 'No channel enabled';
     }
     await this.repo.save(post);
+  }
+
+  /** Sends the post photo+caption to a Telegram channel. Throws on failure. */
+  private async sendToTelegramChannel(post: Post, creds: DecryptedCredentials, caption: string, channelOverride?: string) {
+    const token = creds?.telegram_bot_token;
+    const channel = normalizeTelegramChatId(channelOverride || creds?.telegram_channel_id);
+    if (!token || !channel) throw new Error('Missing Telegram credentials');
+
+    const res = await axios.post(
+      `https://api.telegram.org/bot${token}/sendPhoto`,
+      { chat_id: channel, photo: post.product_image, caption, parse_mode: 'HTML' },
+      { timeout: 15000 },
+    );
+    post.telegram_message_id = res.data?.result?.message_id;
+  }
+
+  /** Publishes the post to the user's Facebook Page feed. Throws on failure. */
+  private async sendToFacebook(post: Post, creds: DecryptedCredentials, message: string) {
+    const pageId = creds?.facebook_page_id;
+    const token = creds?.facebook_page_token;
+    if (!pageId || !token) throw new Error('Missing Facebook credentials');
+
+    // Facebook does not render Telegram-style HTML tags — strip them for the FB body.
+    const plain = message.replace(/<\/?[^>]+>/g, '');
+    const params = new URLSearchParams({
+      message: plain,
+      link: post.affiliate_url || '',
+      access_token: token,
+    });
+
+    const res = await axios.post(
+      `https://graph.facebook.com/v19.0/${pageId}/feed`,
+      params.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 },
+    );
+    if (res.data?.error) throw new Error(res.data.error.message);
+    post.facebook_post_id = res.data?.id;
   }
 
   // ── AliExpress helpers ────────────────────────────────────────────────────
@@ -518,7 +571,8 @@ export class PostsService {
         ? Math.round((1 - product.sale_price / product.original_price) * 100)
         : 0);
 
-    if (!creds?.openai_api_key) {
+    // No AI provider configured at all → deterministic fallback copy.
+    if (!this.ai.hasAnyKey(creds)) {
       return this.defaultText(product, priceLocal, originalLocal, discount, language, symbol);
     }
 
@@ -528,49 +582,14 @@ export class PostsService {
 
     const userPrompt = this.buildUserPrompt(language, product, symbol, priceLocal, originalLocal, discount);
 
-    try {
-      return await this.callOpenAI(
-        {
-          model: creds.openai_model || 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          max_tokens: 400,
-          temperature: 0.85,
-        },
-        creds.openai_api_key,
-      );
-    } catch (err: any) {
-      console.error('[OpenAI] generation failed:', err?.response?.data || err.message);
-      return this.defaultText(product, priceLocal, originalLocal, discount, language, symbol);
-    }
-  }
+    const result = await this.ai.generate(creds, {
+      system: systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 400,
+      temperature: 0.85,
+    });
 
-  private async callOpenAI(payload: object, apiKey: string, retries = 3): Promise<string> {
-    for (let attempt = 0; attempt < retries; attempt++) {
-      try {
-        const res = await axios.post(
-          'https://api.openai.com/v1/chat/completions',
-          payload,
-          {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            timeout: 20_000,
-          },
-        );
-        const content = res.data?.choices?.[0]?.message?.content;
-        if (typeof content !== 'string') {
-          throw new Error('OpenAI returned no message content');
-        }
-        return content.trim();
-      } catch (err: any) {
-        if (err?.response?.status === 429 && attempt < retries - 1) {
-          await new Promise((r) => setTimeout(r, 2 ** attempt * 1000)); // 1s, 2s
-          continue;
-        }
-        throw err;
-      }
-    }
+    return result?.text || this.defaultText(product, priceLocal, originalLocal, discount, language, symbol);
   }
 
   private defaultSystemPrompt(language: string): string {

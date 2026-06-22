@@ -21,6 +21,12 @@ import type {
   CatalogProduct,
   CatalogStats,
   CatalogStatus,
+  VerifyResult,
+  AdBoost,
+  AdsSummary,
+  PerformanceRunResult,
+  HuntResult,
+  ValidateResult,
 } from '@/types';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -139,7 +145,24 @@ export const credentialsApi = {
   upsert: (data: CredentialSetInput) =>
     http.put<CredentialSet>('/credentials', data).then(extract),
 
-  verify: () => http.post<{ aliexpress: boolean; telegram: boolean; openai: boolean }>('/credentials/verify').then(extract),
+  verify: () => http.post<VerifyResult>('/credentials/verify').then(extract),
+};
+
+// ─── Ads / Boost API ─────────────────────────────────────────────────────────
+
+export const adsApi = {
+  list: () => http.get<AdBoost[]>('/ads').then(extract),
+  summary: () => http.get<AdsSummary>('/ads/summary').then(extract),
+  run: () => http.post<PerformanceRunResult>('/ads/run').then(extract),
+};
+
+// ─── Discovery API ───────────────────────────────────────────────────────────
+
+export const discoveryApi = {
+  hunt: (keywords: string[]) =>
+    http.post<HuntResult>('/discovery/hunt', { keywords }, { timeout: 240_000 }).then(extract),
+  validate: () =>
+    http.post<ValidateResult>('/discovery/validate', {}, { timeout: 120_000 }).then(extract),
 };
 
 // ─── Campaigns API ───────────────────────────────────────────────────────────

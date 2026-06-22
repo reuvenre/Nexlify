@@ -14,6 +14,25 @@ export interface DecryptedCredentials {
   telegram_channel_id?: string;
   openai_api_key?: string;
   openai_model?: string;
+  // Multi-provider AI
+  ai_provider?: string;
+  anthropic_api_key?: string;
+  anthropic_model?: string;
+  gemini_api_key?: string;
+  gemini_model?: string;
+  // Facebook / Meta
+  facebook_page_id?: string;
+  facebook_page_token?: string;
+  meta_ad_account_id?: string;
+  publish_telegram?: boolean;
+  publish_facebook?: boolean;
+  // Discovery
+  apify_api_token?: string;
+  // Auto-boost
+  boost_enabled?: boolean;
+  boost_roas_threshold?: number;
+  boost_daily_budget?: number;
+  boost_hard_limit_usd?: number;
   currency_pair?: string;
   schedule_enabled?: boolean;
   schedule_start_hour?: number;
@@ -48,6 +67,23 @@ export class CredentialsService {
     if (dto.openai_model?.trim())            cred.openai_model = dto.openai_model.trim();
     if (dto.currency_pair?.trim())           cred.currency_pair = dto.currency_pair.trim();
 
+    // Multi-provider AI (non-secret)
+    if (dto.ai_provider?.trim())             cred.ai_provider = dto.ai_provider.trim();
+    if (dto.anthropic_model?.trim())         cred.anthropic_model = dto.anthropic_model.trim();
+    if (dto.gemini_model?.trim())            cred.gemini_model = dto.gemini_model.trim();
+
+    // Facebook / Meta (non-secret)
+    if (dto.facebook_page_id?.trim())        cred.facebook_page_id = dto.facebook_page_id.trim();
+    if (dto.meta_ad_account_id?.trim())      cred.meta_ad_account_id = dto.meta_ad_account_id.trim();
+    if (dto.publish_telegram !== undefined)  cred.publish_telegram = dto.publish_telegram;
+    if (dto.publish_facebook !== undefined)  cred.publish_facebook = dto.publish_facebook;
+
+    // Auto-boost settings
+    if (dto.boost_enabled !== undefined)         cred.boost_enabled = dto.boost_enabled;
+    if (dto.boost_roas_threshold !== undefined)  cred.boost_roas_threshold = dto.boost_roas_threshold;
+    if (dto.boost_daily_budget !== undefined)    cred.boost_daily_budget = dto.boost_daily_budget;
+    if (dto.boost_hard_limit_usd !== undefined)  cred.boost_hard_limit_usd = dto.boost_hard_limit_usd;
+
     // Scheduling queue settings
     if (dto.schedule_enabled !== undefined)  cred.schedule_enabled = dto.schedule_enabled;
     if (dto.schedule_start_hour !== undefined)     cred.schedule_start_hour = dto.schedule_start_hour;
@@ -64,16 +100,32 @@ export class CredentialsService {
     if (dto.openai_api_key?.trim()) {
       cred.openai_api_key_enc = encrypt(dto.openai_api_key.trim());
     }
+    if (dto.anthropic_api_key?.trim()) {
+      cred.anthropic_api_key_enc = encrypt(dto.anthropic_api_key.trim());
+    }
+    if (dto.gemini_api_key?.trim()) {
+      cred.gemini_api_key_enc = encrypt(dto.gemini_api_key.trim());
+    }
+    if (dto.facebook_page_token?.trim()) {
+      cred.facebook_page_token_enc = encrypt(dto.facebook_page_token.trim());
+    }
+    if (dto.apify_api_token?.trim()) {
+      cred.apify_api_token_enc = encrypt(dto.apify_api_token.trim());
+    }
 
     await this.repo.save(cred);
     return this.toPublic(cred);
   }
 
-  async verify(userId: string): Promise<{ aliexpress: boolean; telegram: boolean; openai: boolean }> {
+  async verify(userId: string): Promise<{
+    aliexpress: boolean; telegram: boolean; openai: boolean;
+    gemini: boolean; facebook: boolean; apify: boolean;
+  }> {
+    const empty = { aliexpress: false, telegram: false, openai: false, gemini: false, facebook: false, apify: false };
     const cred = await this.repo.findOne({ where: { user_id: userId } });
-    if (!cred) return { aliexpress: false, telegram: false, openai: false };
+    if (!cred) return empty;
 
-    const results = { aliexpress: false, telegram: false, openai: false };
+    const results = { ...empty };
 
     // Verify Telegram
     try {
@@ -85,12 +137,41 @@ export class CredentialsService {
     // Verify OpenAI
     try {
       const key = decrypt(cred.openai_api_key_enc);
-      const res = await axios.get('https://api.openai.com/v1/models', {
-        headers: { Authorization: `Bearer ${key}` },
-        timeout: 5000,
-      });
-      results.openai = res.status === 200;
+      if (key) {
+        const res = await axios.get('https://api.openai.com/v1/models', {
+          headers: { Authorization: `Bearer ${key}` },
+          timeout: 5000,
+        });
+        results.openai = res.status === 200;
+      }
     } catch {}
+
+    // Verify Gemini
+    try {
+      const key = decrypt(cred.gemini_api_key_enc);
+      if (key) {
+        const res = await axios.get(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`,
+          { timeout: 5000 },
+        );
+        results.gemini = res.status === 200;
+      }
+    } catch {}
+
+    // Verify Facebook page token
+    try {
+      const token = decrypt(cred.facebook_page_token_enc);
+      if (token && cred.facebook_page_id) {
+        const res = await axios.get(
+          `https://graph.facebook.com/v19.0/${cred.facebook_page_id}?fields=name&access_token=${token}`,
+          { timeout: 5000 },
+        );
+        results.facebook = res.status === 200 && !res.data?.error;
+      }
+    } catch {}
+
+    // Apify: token presence (full validation requires a paid run)
+    results.apify = !!decrypt(cred.apify_api_token_enc);
 
     // AliExpress: just check that keys are set
     results.aliexpress = !!(cred.aliexpress_app_key && cred.aliexpress_tracking_id);
@@ -110,6 +191,21 @@ export class CredentialsService {
       telegram_channel_id: cred.telegram_channel_id,
       openai_api_key: decrypt(cred.openai_api_key_enc),
       openai_model: cred.openai_model,
+      ai_provider: cred.ai_provider,
+      anthropic_api_key: decrypt(cred.anthropic_api_key_enc) || process.env.ANTHROPIC_API_KEY,
+      anthropic_model: cred.anthropic_model,
+      gemini_api_key: decrypt(cred.gemini_api_key_enc),
+      gemini_model: cred.gemini_model,
+      facebook_page_id: cred.facebook_page_id,
+      facebook_page_token: decrypt(cred.facebook_page_token_enc),
+      meta_ad_account_id: cred.meta_ad_account_id,
+      publish_telegram: cred.publish_telegram,
+      publish_facebook: cred.publish_facebook,
+      apify_api_token: decrypt(cred.apify_api_token_enc),
+      boost_enabled: cred.boost_enabled,
+      boost_roas_threshold: cred.boost_roas_threshold,
+      boost_daily_budget: cred.boost_daily_budget,
+      boost_hard_limit_usd: cred.boost_hard_limit_usd,
       currency_pair: cred.currency_pair,
       schedule_enabled: cred.schedule_enabled,
       schedule_start_hour: cred.schedule_start_hour,
@@ -122,6 +218,11 @@ export class CredentialsService {
   /** Returns all credential sets with scheduling enabled (for queue cron) */
   async getAllSchedulingEnabled(): Promise<CredentialSet[]> {
     return this.repo.find({ where: { schedule_enabled: true } });
+  }
+
+  /** Returns all credential sets with auto-boost enabled (for the Ads cron) */
+  async getAllBoostEnabled(): Promise<CredentialSet[]> {
+    return this.repo.find({ where: { boost_enabled: true } });
   }
 
   /** Records the timestamp of the last sent queued post */
@@ -140,6 +241,25 @@ export class CredentialsService {
       telegram_channel_id: cred.telegram_channel_id || '',
       openai_api_key: cred.openai_api_key_enc ? mask(decrypt(cred.openai_api_key_enc)) : '',
       openai_model: cred.openai_model || 'gpt-4o-mini',
+      // Multi-provider AI
+      ai_provider: cred.ai_provider || 'anthropic',
+      anthropic_api_key: cred.anthropic_api_key_enc ? mask(decrypt(cred.anthropic_api_key_enc)) : '',
+      anthropic_model: cred.anthropic_model || 'claude-sonnet-4-6',
+      gemini_api_key: cred.gemini_api_key_enc ? mask(decrypt(cred.gemini_api_key_enc)) : '',
+      gemini_model: cred.gemini_model || 'gemini-2.5-flash',
+      // Facebook / Meta
+      facebook_page_id: cred.facebook_page_id || '',
+      facebook_page_token: cred.facebook_page_token_enc ? mask(decrypt(cred.facebook_page_token_enc)) : '',
+      meta_ad_account_id: cred.meta_ad_account_id || '',
+      publish_telegram: cred.publish_telegram ?? true,
+      publish_facebook: cred.publish_facebook ?? false,
+      // Discovery
+      apify_api_token: cred.apify_api_token_enc ? mask(decrypt(cred.apify_api_token_enc)) : '',
+      // Auto-boost
+      boost_enabled: cred.boost_enabled ?? false,
+      boost_roas_threshold: cred.boost_roas_threshold ?? 2.0,
+      boost_daily_budget: cred.boost_daily_budget ?? 50,
+      boost_hard_limit_usd: cred.boost_hard_limit_usd ?? 200,
       currency_pair: cred.currency_pair || 'USD_ILS',
       schedule_enabled: cred.schedule_enabled ?? false,
       schedule_start_hour: cred.schedule_start_hour ?? 9,

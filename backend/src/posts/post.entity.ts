@@ -53,6 +53,10 @@ export class Post {
   @Column({ nullable: true })
   telegram_message_id: number;
 
+  /** Facebook Graph post id (`{page}_{post}`) once published to a Page */
+  @Column({ nullable: true })
+  facebook_post_id: string;
+
   @Column({ default: 'pending' })
   status: PostStatus;
 

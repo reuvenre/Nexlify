@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, Save } from 'lucide-react';
 import { credentialsApi } from '@/lib/api-client';
-import type { CredentialSetInput } from '@/types';
+import type { CredentialSetInput, VerifyResult, AiProvider } from '@/types';
 
-type VerifyStatus = { aliexpress: boolean; telegram: boolean; openai: boolean } | null;
+type VerifyStatus = VerifyResult | null;
 
 export function CredentialsForm() {
   const [form, setForm] = useState<CredentialSetInput>({
@@ -16,6 +16,12 @@ export function CredentialsForm() {
     telegram_channel_id: '',
     openai_api_key: '',
     openai_model: 'gpt-4o-mini',
+    ai_provider: 'anthropic',
+    anthropic_api_key: '',
+    anthropic_model: 'claude-sonnet-4-6',
+    gemini_api_key: '',
+    gemini_model: 'gemini-2.5-flash',
+    apify_api_token: '',
     currency_pair: 'USD_ILS',
   });
   const [show, setShow] = useState<Record<string, boolean>>({});
@@ -33,11 +39,17 @@ export function CredentialsForm() {
           aliexpress_tracking_id: c.aliexpress_tracking_id || '',
           telegram_channel_id: c.telegram_channel_id || '',   // non-secret, always load
           openai_model: c.openai_model || 'gpt-4o-mini',
+          ai_provider: c.ai_provider || 'anthropic',
+          anthropic_model: c.anthropic_model || 'claude-sonnet-4-6',
+          gemini_model: c.gemini_model || 'gemini-2.5-flash',
           currency_pair: c.currency_pair || 'USD_ILS',
           // Secrets: leave empty — backend keeps existing value when empty is submitted
           aliexpress_app_secret: '',
           telegram_bot_token: '',
           openai_api_key: '',
+          anthropic_api_key: '',
+          gemini_api_key: '',
+          apify_api_token: '',
         }));
       })
       .catch(() => {});
@@ -124,28 +136,99 @@ export function CredentialsForm() {
         </div>
       </section>
 
-      {/* OpenAI */}
+      {/* AI Engine — multi-provider */}
+      <section className="bg-surface-secondary border border-edge rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+          <span className="text-lg">🧠</span> מנוע ה-AI
+        </h3>
+        <p className="text-2xs text-white/30 mb-4">בחר את ספק יצירת התוכן. המערכת תשתמש בספק שבחרת, ותיפול אוטומטית לספק אחר עם מפתח תקין.</p>
+
+        {/* Provider selector */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {([
+            { id: 'anthropic', label: 'Claude', emoji: '🟣' },
+            { id: 'openai', label: 'OpenAI', emoji: '🤖' },
+            { id: 'gemini', label: 'Gemini', emoji: '✦' },
+          ] as { id: AiProvider; label: string; emoji: string }[]).map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, ai_provider: p.id }))}
+              className={`flex flex-col items-center gap-1 py-3 rounded-xl border text-xs font-medium transition-all
+                ${form.ai_provider === p.id
+                  ? 'bg-blue-600/15 text-blue-300 border-blue-500/40'
+                  : 'text-white/50 border-edge-hover hover:bg-white/5'}`}
+            >
+              <span className="text-base">{p.emoji}</span>
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4">
+          {form.ai_provider === 'anthropic' && (
+            <>
+              <Field label="Anthropic API Key" field="anthropic_api_key" secret placeholder="sk-ant-..." hint="ברירת מחדל: משתמש במפתח השרת אם ריק" />
+              <div>
+                <label className="block text-xs font-medium text-white/50 mb-1.5">מודל Claude</label>
+                <select
+                  value={form.anthropic_model}
+                  onChange={(e) => setForm((f) => ({ ...f, anthropic_model: e.target.value }))}
+                  className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
+                >
+                  <option value="claude-sonnet-4-6">claude-sonnet-4-6 (מומלץ)</option>
+                  <option value="claude-opus-4-8">claude-opus-4-8 (איכות מקסימלית)</option>
+                  <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (מהיר וזול)</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {form.ai_provider === 'openai' && (
+            <>
+              <Field label="OpenAI API Key" field="openai_api_key" secret placeholder="sk-proj-..." />
+              <div>
+                <label className="block text-xs font-medium text-white/50 mb-1.5">מודל</label>
+                <select
+                  value={form.openai_model}
+                  onChange={(e) => setForm((f) => ({ ...f, openai_model: e.target.value }))}
+                  className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
+                >
+                  <option value="gpt-4o-mini">gpt-4o-mini (מהיר וחסכוני)</option>
+                  <option value="gpt-4o">gpt-4o (איכות גבוהה)</option>
+                  <option value="gpt-3.5-turbo">gpt-3.5-turbo (זול ביותר)</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {form.ai_provider === 'gemini' && (
+            <>
+              <Field label="Google Gemini API Key" field="gemini_api_key" secret placeholder="AIza..." hint="מ-Google AI Studio" />
+              <div>
+                <label className="block text-xs font-medium text-white/50 mb-1.5">מודל Gemini</label>
+                <select
+                  value={form.gemini_model}
+                  onChange={(e) => setForm((f) => ({ ...f, gemini_model: e.target.value }))}
+                  className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
+                >
+                  <option value="gemini-2.5-flash">gemini-2.5-flash (מהיר)</option>
+                  <option value="gemini-2.5-pro">gemini-2.5-pro (איכות גבוהה)</option>
+                </select>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      {/* Apify — product discovery */}
       <section className="bg-surface-secondary border border-edge rounded-xl p-5">
         <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-          <span className="text-lg">🤖</span> OpenAI
-          {verifyStatus && (
-            <VerifyIcon ok={verifyStatus.openai} />
-          )}
+          <span className="text-lg">🔎</span> Apify — גילוי מוצרים
+          {verifyStatus && <VerifyIcon ok={verifyStatus.apify} />}
         </h3>
         <div className="grid grid-cols-1 gap-4">
-          <Field label="מפתח API" field="openai_api_key" secret placeholder="sk-proj-..." />
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5">מודל</label>
-            <select
-              value={form.openai_model}
-              onChange={(e) => setForm((f) => ({ ...f, openai_model: e.target.value }))}
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
-            >
-              <option value="gpt-4o-mini">gpt-4o-mini (מהיר וחסכוני)</option>
-              <option value="gpt-4o">gpt-4o (איכות גבוהה)</option>
-              <option value="gpt-3.5-turbo">gpt-3.5-turbo (זול ביותר)</option>
-            </select>
-          </div>
+          <Field label="Apify API Token" field="apify_api_token" secret placeholder="apify_api_..." hint="מפעיל סורק AliExpress בעמוד 'גילוי מוצרים'" />
         </div>
       </section>
 

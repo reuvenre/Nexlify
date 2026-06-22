@@ -8,6 +8,7 @@ import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut, Bot, Tag,
   ShoppingCart, Sun, Moon, Sparkles, Package,
+  Radar, Rocket,
 } from 'lucide-react';
 
 const NAV_SECTIONS = [
@@ -23,6 +24,7 @@ const NAV_SECTIONS = [
   {
     title: 'ניהול',
     items: [
+      { href: '/discovery',  label: 'גילוי מוצרים', icon: Radar },
       { href: '/products',   label: 'מוצרים',     icon: Package },
       { href: '/templates',  label: 'תבניות',     icon: Layout },
       { href: '/categories', label: 'קטגוריות',   icon: Tag },
@@ -32,6 +34,7 @@ const NAV_SECTIONS = [
   {
     title: 'נתונים',
     items: [
+      { href: '/ads',     label: 'מודעות Boost', icon: Rocket },
       { href: '/orders',  label: 'הזמנות', icon: ShoppingCart },
       { href: '/reports', label: 'דוחות',  icon: BarChart3 },
     ],
@@ -62,7 +65,7 @@ export function Sidebar() {
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-body font-semibold text-white tracking-tight leading-none">AliBot Pro</p>
+          <p className="text-body font-semibold text-white tracking-tight leading-none">NEXUS</p>
           <p className="text-2xs text-white/30 mt-0.5 leading-none">Affiliate Automation</p>
         </div>
 

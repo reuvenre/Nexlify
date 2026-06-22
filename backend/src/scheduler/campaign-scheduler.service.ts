@@ -4,6 +4,7 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 import { PostsService } from '../posts/posts.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { OrchestratorAgent } from '../agents/orchestrator.agent';
+import { AdsService } from '../ads/ads.service';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -11,12 +12,14 @@ export class CampaignSchedulerService {
   private running = new Set<string>();
   private sendingScheduled = false;
   private processingQueue = false;
+  private boosting = false;
 
   constructor(
     private readonly campaigns: CampaignsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
     @Optional() private readonly orchestrator: OrchestratorAgent,
+    @Optional() private readonly ads: AdsService,
   ) {}
 
   /** Runs every minute — sends posts that have reached their scheduled_at time */
@@ -92,6 +95,23 @@ export class CampaignSchedulerService {
     }
     } finally {
       this.processingQueue = false;
+    }
+  }
+
+  /**
+   * Runs hourly — evaluates published Facebook posts and auto-boosts the
+   * strong performers for every user who enabled auto-boost. (NEXUS Performance)
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async runAutoBoost() {
+    if (!this.ads || this.boosting) return;
+    this.boosting = true;
+    try {
+      await this.ads.runAllEnabled();
+    } catch (err: any) {
+      this.logger.error(`Auto-boost tick failed: ${err.message}`);
+    } finally {
+      this.boosting = false;
     }
   }
 

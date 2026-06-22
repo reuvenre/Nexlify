@@ -7,8 +7,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'AliBot Pro',
-  description: 'AliExpress affiliate automation platform',
+  title: 'NEXUS — Affiliate Automation',
+  description: 'NEXUS — the all-in-one AI affiliate engine: discover, generate, publish multi-channel (Telegram + Facebook), and auto-boost with Meta Ads.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

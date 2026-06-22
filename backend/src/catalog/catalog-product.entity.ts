@@ -79,6 +79,10 @@ export class CatalogProduct {
   @Column({ default: false })
   has_post: boolean;
 
+  /** Result of the last affiliate-link health check (null = never checked) */
+  @Column({ nullable: true, type: 'boolean' })
+  link_validated: boolean;
+
   @Column({ nullable: true, type: 'timestamp' })
   synced_at: Date;
 

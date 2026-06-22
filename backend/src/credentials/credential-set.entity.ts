@@ -37,6 +37,65 @@ export class CredentialSet {
   @Column({ default: 'gpt-4o-mini' })
   openai_model: string;
 
+  /* ── Multi-provider AI ─────────────────────────────────────────────────── */
+
+  /** Active content-generation provider: 'anthropic' | 'openai' | 'gemini' */
+  @Column({ default: 'anthropic' })
+  ai_provider: string;
+
+  /** Per-user Anthropic key (falls back to the global ANTHROPIC_API_KEY env) */
+  @Column({ nullable: true })
+  anthropic_api_key_enc: string;
+
+  @Column({ default: 'claude-sonnet-4-6' })
+  anthropic_model: string;
+
+  @Column({ nullable: true })
+  gemini_api_key_enc: string;
+
+  @Column({ default: 'gemini-2.5-flash' })
+  gemini_model: string;
+
+  /* ── Facebook / Meta publishing ────────────────────────────────────────── */
+
+  @Column({ nullable: true })
+  facebook_page_id: string;
+
+  @Column({ nullable: true })
+  facebook_page_token_enc: string;
+
+  @Column({ nullable: true })
+  meta_ad_account_id: string;
+
+  /** Whether each channel is part of the default publish fan-out */
+  @Column({ default: true })
+  publish_telegram: boolean;
+
+  @Column({ default: false })
+  publish_facebook: boolean;
+
+  /* ── Product discovery (Apify) ─────────────────────────────────────────── */
+
+  @Column({ nullable: true })
+  apify_api_token_enc: string;
+
+  /* ── Auto-boost (Meta Ads, ROAS-driven) ────────────────────────────────── */
+
+  @Column({ default: false })
+  boost_enabled: boolean;
+
+  /** Minimum ROAS (or organic-click signal) required to boost a post */
+  @Column('float', { default: 2.0 })
+  boost_roas_threshold: number;
+
+  /** Daily budget per boosted ad, in the user's display currency */
+  @Column({ default: 50 })
+  boost_daily_budget: number;
+
+  /** Hard lifetime spend cap across the ad account, in USD */
+  @Column({ default: 200 })
+  boost_hard_limit_usd: number;
+
   @Column({ default: 'USD_ILS' })
   currency_pair: string;
 
