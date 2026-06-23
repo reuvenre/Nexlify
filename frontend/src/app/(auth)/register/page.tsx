@@ -162,7 +162,7 @@ export default function RegisterPage() {
       </div>
 
       {/* ── Right: hero panel ──────────────────────────────────────────────── */}
-      <div className="hidden lg:flex lg:flex-1 relative overflow-hidden items-center justify-center" style={{ background: 'linear-gradient(135deg, #0d1b4b 0%, #0a0e1f 40%, #1a0b3b 100%)' }}>
+      <div className="always-dark hidden lg:flex lg:flex-1 relative overflow-hidden items-center justify-center" style={{ background: 'linear-gradient(135deg, #0d1b4b 0%, #0a0e1f 40%, #1a0b3b 100%)' }}>
         <div className="absolute top-1/4 right-1/4 w-96 h-96 rounded-full" style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.18) 0%, transparent 70%)' }} />
         <div className="absolute bottom-1/3 left-1/4 w-72 h-72 rounded-full" style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)' }} />
 

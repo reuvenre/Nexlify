@@ -211,6 +211,22 @@ input:-webkit-autofill {
 [data-theme="light"] .text-white\/15    { color: rgba(15,17,23,0.22) !important; }
 [data-theme="light"] .text-white\/10    { color: rgba(15,17,23,0.18) !important; }
 
+/* Always-dark panels (e.g. the auth hero) keep LIGHT text in BOTH themes.
+   Declared after the light overrides so it wins by source order when both match. */
+.always-dark .text-white      { color: #fff !important; }
+.always-dark .text-white\/95  { color: rgba(255,255,255,0.95) !important; }
+.always-dark .text-white\/90  { color: rgba(255,255,255,0.90) !important; }
+.always-dark .text-white\/80  { color: rgba(255,255,255,0.80) !important; }
+.always-dark .text-white\/75  { color: rgba(255,255,255,0.75) !important; }
+.always-dark .text-white\/70  { color: rgba(255,255,255,0.70) !important; }
+.always-dark .text-white\/60  { color: rgba(255,255,255,0.60) !important; }
+.always-dark .text-white\/55  { color: rgba(255,255,255,0.55) !important; }
+.always-dark .text-white\/50  { color: rgba(255,255,255,0.50) !important; }
+.always-dark .text-white\/45  { color: rgba(255,255,255,0.45) !important; }
+.always-dark .text-white\/40  { color: rgba(255,255,255,0.40) !important; }
+.always-dark .text-white\/30  { color: rgba(255,255,255,0.30) !important; }
+.always-dark .text-white\/28  { color: rgba(255,255,255,0.28) !important; }
+
 /* Borders (remaining opacity variants still in use) */
 [data-theme="light"] .border-white\/20  { border-color: rgba(0,0,0,0.16) !important; }
 [data-theme="light"] .border-white\/30  { border-color: rgba(0,0,0,0.20) !important; }

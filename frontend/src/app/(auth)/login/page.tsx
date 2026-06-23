@@ -158,7 +158,7 @@ export default function LoginPage() {
 
       {/* ── Left panel: hero ───────────────────────────────────────────────── */}
       <div
-        className="hidden lg:flex lg:flex-1 flex-col relative overflow-hidden"
+        className="always-dark hidden lg:flex lg:flex-1 flex-col relative overflow-hidden"
         style={{ background: 'linear-gradient(150deg, #0d1b4b 0%, #080d20 50%, #130a2a 100%)' }}
       >
         {/* Ambient glows */}
