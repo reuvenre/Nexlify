@@ -348,11 +348,13 @@ export class ProductsService {
       let finalSale = targetSale > 0 ? targetSale : +(usdSale * rate).toFixed(2);
       let finalOrig = targetOrig > 0 ? targetOrig : +(usdOrig * rate).toFixed(2);
 
-      // Sanity guard: original must never be below the sale price (the affiliate API
-      // occasionally returns a min-variant "original" that's lower than the sale,
-      // producing a negative/odd discount). Keep the higher value as the original.
+      // Sanity guard: the original must never be below the sale price (the affiliate
+      // API sometimes returns an odd low "original" that would show a negative
+      // discount). Keep the sale price as-is — it's the closer-to-reality value —
+      // and lift the original to match (so no fake discount), rather than swapping
+      // (which would corrupt the real sale price).
       if (finalOrig > 0 && finalSale > 0 && finalOrig < finalSale) {
-        [finalSale, finalOrig] = [Math.min(finalSale, finalOrig), Math.max(finalSale, finalOrig)];
+        finalOrig = finalSale;
       }
 
       // evaluate_rate is a 0-100 positive-review percentage (e.g. "96.7" or "96.7%").
