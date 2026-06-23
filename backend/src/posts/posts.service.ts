@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import axios from 'axios';
 import { Post } from './post.entity';
+import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
@@ -17,10 +18,20 @@ export class PostsService {
   constructor(
     @InjectRepository(Post)
     private readonly repo: Repository<Post>,
+    @InjectRepository(Template)
+    private readonly templateRepo: Repository<Template>,
     private readonly credentials: CredentialsService,
     private readonly rates: RatesService,
     private readonly ai: AiService,
   ) {}
+
+  /** Resolve the user's default footer template content (appended to every post). */
+  private async getFooterText(userId: string, creds: DecryptedCredentials): Promise<string> {
+    const id = creds?.default_footer_template_id;
+    if (!id) return '';
+    const t = await this.templateRepo.findOne({ where: { id, user_id: userId } });
+    return t?.content?.trim() || '';
+  }
 
   // ── List ──────────────────────────────────────────────────────────────────
 
@@ -392,9 +403,16 @@ export class PostsService {
     // Only append the affiliate link if it's not already present in the text
     // (the frontend may have already included it in the generated_text)
     const linkAlreadyInText = post.affiliate_url && post.generated_text.includes(post.affiliate_url);
-    const body = (post.affiliate_url && !linkAlreadyInText)
+    let body = (post.affiliate_url && !linkAlreadyInText)
       ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
       : post.generated_text;
+
+    // Append the user's default footer (channel branding) to every post, if set
+    // and not already present in the text.
+    const footer = await this.getFooterText(post.user_id, creds);
+    if (footer && !body.includes(footer)) {
+      body = `${body}\n\n${footer}`;
+    }
 
     // A channelOverride always targets Telegram. Otherwise respect the user's
     // per-channel publish toggles (Telegram defaults on, Facebook defaults off).

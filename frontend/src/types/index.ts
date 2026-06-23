@@ -62,6 +62,9 @@ export interface CredentialSet {
   boost_daily_budget: number;
   boost_hard_limit_usd: number;
   boost_target_countries: string;
+  // Default templates
+  default_body_template_id: string;
+  default_footer_template_id: string | null;
   currency_pair: 'USD_ILS' | 'USD_EUR' | 'USD_GBP';
   // Scheduling queue
   schedule_enabled: boolean;
@@ -100,6 +103,9 @@ export interface CredentialSetInput {
   boost_roas_threshold?: number;
   boost_daily_budget?: number;
   boost_hard_limit_usd?: number;
+  // Default templates
+  default_body_template_id?: string;
+  default_footer_template_id?: string;
   currency_pair?: string;
   // Scheduling
   schedule_enabled?: boolean;

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { FileText, Plus, Check, Pencil, Trash2, X, Loader2, Save } from 'lucide-react';
-import { templatesApi } from '@/lib/api-client';
+import { templatesApi, credentialsApi } from '@/lib/api-client';
 import type { PostTemplate } from '@/types';
 
 // ── Built-in body templates (read-only, not stored in DB) ─────────────────────
@@ -273,14 +273,45 @@ export default function TemplatesPage() {
   const [selectedFooterId, setSelectedFooterId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<PostTemplate | null>(null);
+  const [savedFlash, setSavedFlash] = useState('');
 
-  // Load saved templates from backend
+  // Load saved templates + the persisted default selections from backend
   useEffect(() => {
-    templatesApi.list()
-      .then((ts) => setCustomTemplates(ts.map((t) => ({ ...t, builtin: false }))))
+    Promise.all([
+      templatesApi.list().then((ts) => setCustomTemplates(ts.map((t) => ({ ...t, builtin: false })))),
+      credentialsApi.get()
+        .then((c) => {
+          if (c.default_body_template_id) setSelectedBodyId(c.default_body_template_id);
+          setSelectedFooterId(c.default_footer_template_id || null);
+        })
+        .catch(() => {}),
+    ])
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // Persist a default selection to the backend so it survives reloads and is
+  // used when posts are sent (footer) / pre-selected (body).
+  const persistDefault = async (type: 'body' | 'footer', id: string | null) => {
+    try {
+      await credentialsApi.upsert(
+        type === 'body'
+          ? { default_body_template_id: id || 'builtin_default' }
+          : { default_footer_template_id: id || '' },
+      );
+      setSavedFlash(type === 'body' ? 'תבנית הגוף נשמרה כברירת מחדל ✓' : 'הכותרת התחתונה נשמרה ✓');
+      setTimeout(() => setSavedFlash(''), 2500);
+    } catch {
+      setSavedFlash('שגיאה בשמירה');
+      setTimeout(() => setSavedFlash(''), 2500);
+    }
+  };
+
+  const handleSelect = (type: 'body' | 'footer', id: string) => {
+    if (type === 'body') setSelectedBodyId(id);
+    else setSelectedFooterId((prev) => (prev === id ? null : id)); // click again to deselect footer
+    persistDefault(type, type === 'footer' && selectedFooterId === id ? null : id);
+  };
 
   const bodyTemplates = [
     ...BUILTIN_BODY,
@@ -298,8 +329,8 @@ export default function TemplatesPage() {
 
   const handleDeleted = (id: string) => {
     setCustomTemplates((prev) => prev.filter((t) => t.id !== id));
-    if (selectedBodyId === id) setSelectedBodyId('builtin_default');
-    if (selectedFooterId === id) setSelectedFooterId(null);
+    if (selectedBodyId === id) { setSelectedBodyId('builtin_default'); persistDefault('body', null); }
+    if (selectedFooterId === id) { setSelectedFooterId(null); persistDefault('footer', null); }
   };
 
   const openCreate = () => { setEditingTemplate(null); setShowModal(true); };
@@ -307,7 +338,6 @@ export default function TemplatesPage() {
 
   const currentTemplates = tab === 'body' ? bodyTemplates : footerTemplates;
   const currentSelectedId = tab === 'body' ? selectedBodyId : selectedFooterId;
-  const setCurrentSelected = tab === 'body' ? setSelectedBodyId : setSelectedFooterId;
 
   return (
     <div dir="rtl">
@@ -338,6 +368,13 @@ export default function TemplatesPage() {
           {tab === 'footer' ? '+ כותרת תחתונה' : 'צור תבנית'}
         </button>
       </div>
+
+      {/* Saved flash */}
+      {savedFlash && (
+        <div className="mb-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2.5 text-sm text-emerald-400 flex items-center gap-2">
+          <Check size={14} /> {savedFlash}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex bg-surface-secondary border border-edge rounded-xl p-1 gap-1 mb-6 w-fit">
@@ -382,7 +419,7 @@ export default function TemplatesPage() {
               key={t.id}
               template={t}
               isSelected={currentSelectedId === t.id}
-              onSelect={() => setCurrentSelected(t.id)}
+              onSelect={() => handleSelect(tab, t.id)}
               onEdit={() => openEdit(t)}
               onDelete={() => handleDeleted(t.id)}
             />

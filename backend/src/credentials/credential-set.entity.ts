@@ -100,6 +100,16 @@ export class CredentialSet {
   @Column({ default: 'IL' })
   boost_target_countries: string;
 
+  /* ── Default post templates ────────────────────────────────────────────── */
+
+  /** Default body template id (a builtin id like 'builtin_default' or a uuid) */
+  @Column({ nullable: true })
+  default_body_template_id: string;
+
+  /** Default footer template id (uuid) — appended to every sent post */
+  @Column({ nullable: true })
+  default_footer_template_id: string;
+
   @Column({ default: 'USD_ILS' })
   currency_pair: string;
 

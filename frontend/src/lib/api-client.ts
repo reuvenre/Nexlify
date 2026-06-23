@@ -144,7 +144,7 @@ export const authApi = {
 export const credentialsApi = {
   get: () => http.get<CredentialSet>('/credentials').then(extract),
 
-  upsert: (data: CredentialSetInput) =>
+  upsert: (data: Partial<CredentialSetInput>) =>
     http.put<CredentialSet>('/credentials', data).then(extract),
 
   verify: () => http.post<VerifyResult>('/credentials/verify').then(extract),

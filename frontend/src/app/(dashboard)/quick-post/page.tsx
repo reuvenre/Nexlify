@@ -11,7 +11,7 @@ import { ProductCard } from '@/components/products/ProductCard';
 import { PostPreview } from '@/components/products/PostPreview';
 import { ProductEditPanel } from '@/components/products/ProductEditPanel';
 import { TemplatePanel } from '@/components/templates/TemplatePanel';
-import { productsApi, postsApi } from '@/lib/api-client';
+import { productsApi, postsApi, templatesApi, credentialsApi } from '@/lib/api-client';
 import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate } from '@/types';
 
 // ── Hebrew detection & translation ────────────────────────────────────────────
@@ -100,6 +100,18 @@ export default function QuickPostPage() {
   // ── Load categories once
   useEffect(() => {
     productsApi.categories().then(setCategories).catch(() => {});
+  }, []);
+
+  // ── Pre-select the user's saved default body template
+  useEffect(() => {
+    Promise.all([credentialsApi.get(), templatesApi.list()])
+      .then(([c, ts]) => {
+        const id = c.default_body_template_id;
+        if (!id || id === 'builtin_default') return;
+        const t = ts.find((x) => x.id === id);
+        if (t) setSelectedTemplate({ ...t, builtin: false });
+      })
+      .catch(() => {});
   }, []);
 
   // ── Pre-load catalog product (from /products page "צור פוסט")

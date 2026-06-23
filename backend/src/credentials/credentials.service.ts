@@ -34,6 +34,8 @@ export interface DecryptedCredentials {
   boost_daily_budget?: number;
   boost_hard_limit_usd?: number;
   boost_target_countries?: string;
+  default_body_template_id?: string;
+  default_footer_template_id?: string;
   currency_pair?: string;
   schedule_enabled?: boolean;
   schedule_start_hour?: number;
@@ -85,6 +87,10 @@ export class CredentialsService {
     if (dto.boost_daily_budget !== undefined)    cred.boost_daily_budget = dto.boost_daily_budget;
     if (dto.boost_hard_limit_usd !== undefined)  cred.boost_hard_limit_usd = dto.boost_hard_limit_usd;
     if (dto.boost_target_countries?.trim())      cred.boost_target_countries = dto.boost_target_countries.trim();
+
+    // Default templates — allow clearing (empty → null to deselect)
+    if (dto.default_body_template_id !== undefined)   cred.default_body_template_id = dto.default_body_template_id || null;
+    if (dto.default_footer_template_id !== undefined) cred.default_footer_template_id = dto.default_footer_template_id || null;
 
     // Scheduling queue settings
     if (dto.schedule_enabled !== undefined)  cred.schedule_enabled = dto.schedule_enabled;
@@ -209,6 +215,8 @@ export class CredentialsService {
       boost_daily_budget: cred.boost_daily_budget,
       boost_hard_limit_usd: cred.boost_hard_limit_usd,
       boost_target_countries: cred.boost_target_countries,
+      default_body_template_id: cred.default_body_template_id,
+      default_footer_template_id: cred.default_footer_template_id,
       currency_pair: cred.currency_pair,
       schedule_enabled: cred.schedule_enabled,
       schedule_start_hour: cred.schedule_start_hour,
@@ -264,6 +272,8 @@ export class CredentialsService {
       boost_daily_budget: cred.boost_daily_budget ?? 50,
       boost_hard_limit_usd: cred.boost_hard_limit_usd ?? 200,
       boost_target_countries: cred.boost_target_countries || 'IL',
+      default_body_template_id: cred.default_body_template_id || 'builtin_default',
+      default_footer_template_id: cred.default_footer_template_id || null,
       currency_pair: cred.currency_pair || 'USD_ILS',
       schedule_enabled: cred.schedule_enabled ?? false,
       schedule_start_hour: cred.schedule_start_hour ?? 9,

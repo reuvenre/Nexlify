@@ -100,6 +100,15 @@ export class CredentialSetDto {
   @IsString()
   boost_target_countries?: string;
 
+  // ── Default templates ──
+  @IsOptional()
+  @IsString()
+  default_body_template_id?: string;
+
+  @IsOptional()
+  @IsString()
+  default_footer_template_id?: string;
+
   @IsOptional()
   @IsString()
   currency_pair?: string;
