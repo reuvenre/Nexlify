@@ -68,6 +68,8 @@ export default function RegisterPage() {
               <label className="block text-xs font-medium text-white/50 mb-1.5">אימייל</label>
               <input
                 type="email"
+                name="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -81,6 +83,8 @@ export default function RegisterPage() {
               <label className="block text-xs font-medium text-white/50 mb-1.5">סיסמה</label>
               <input
                 type="password"
+                name="new-password"
+                autoComplete="new-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -94,6 +98,8 @@ export default function RegisterPage() {
               <label className="block text-xs font-medium text-white/50 mb-1.5">אשר סיסמה</label>
               <input
                 type="password"
+                name="confirm-password"
+                autoComplete="new-password"
                 required
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
