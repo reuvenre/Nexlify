@@ -19,9 +19,9 @@ const ACCENTS = {
 export function StatCard({ label, value, sub, icon: Icon, trend, accent = 'blue' }: StatCardProps) {
   const a = ACCENTS[accent];
   return (
-    <div className={`bg-surface-secondary border ${a.border} rounded-xl p-5`}>
+    <div className={`group bg-surface-secondary border ${a.border} rounded-2xl p-5 shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:border-edge-hover`}>
       <div className="flex items-start justify-between mb-4">
-        <div className={`w-9 h-9 rounded-lg ${a.bg} flex items-center justify-center`}>
+        <div className={`w-9 h-9 rounded-xl ${a.bg} border ${a.border} flex items-center justify-center transition-transform duration-300 group-hover:scale-110`}>
           <Icon size={16} className={a.icon} />
         </div>
         {trend && (

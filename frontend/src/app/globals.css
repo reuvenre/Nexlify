@@ -4,19 +4,23 @@
 
 /* ── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {
-  --bg-primary:      #09090c;
-  --bg-secondary:    #0e1016;
-  --bg-tertiary:     #13151f;
-  --bg-sidebar:      #0a0b14;
-  --border:          rgba(255,255,255,0.055);
-  --border-hover:    rgba(255,255,255,0.12);
-  --text:            #e8e9ef;
-  --text-muted:      rgba(232,233,239,0.45);
+  --bg-primary:      #0a0a0e;
+  --bg-secondary:    #101117;
+  --bg-tertiary:     #16171f;
+  --bg-sidebar:      #0b0c12;
+  --border:          rgba(255,255,255,0.06);
+  --border-hover:    rgba(255,255,255,0.13);
+  --text:            #eceef4;
+  --text-muted:      rgba(236,238,244,0.46);
   --accent:          #3b82f6;
-  --accent-glow:     rgba(59,130,246,0.18);
-  --radius-card:     14px;
-  --shadow-card:     0 0 0 1px rgba(255,255,255,0.05), 0 4px 20px rgba(0,0,0,0.45);
-  --shadow-elevated: 0 0 0 1px rgba(255,255,255,0.07), 0 12px 40px rgba(0,0,0,0.6);
+  --accent-2:        #8b5cf6;
+  --accent-glow:     rgba(59,130,246,0.20);
+  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  --radius-card:     16px;
+  /* Inset top highlight + tight ambient shadow = premium "lifted glass" card */
+  --shadow-card:     inset 0 1px 0 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(255,255,255,0.05), 0 10px 30px -12px rgba(0,0,0,0.6);
+  --shadow-elevated: inset 0 1px 0 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(255,255,255,0.08), 0 24px 60px -16px rgba(0,0,0,0.72);
+  --shadow-glow:     0 12px 44px -12px rgba(59,130,246,0.4);
 }
 
 [data-theme="light"] {
@@ -43,8 +47,12 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "kern" 1, "liga" 1;
+  font-feature-settings: "kern" 1, "liga" 1, "cv11" 1;
 }
+
+/* Tighter tracking on headings — a hallmark of modern, premium UI typography. */
+h1, h2, h3, h4 { letter-spacing: -0.02em; }
+h1 { letter-spacing: -0.03em; }
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -130,8 +138,17 @@ input:-webkit-autofill {
   border: none;
 }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-primary { background-color: #3b82f6; color: #fff; }
-.btn-primary:hover:not(:disabled) { background-color: #2563eb; }
+.btn-primary {
+  background-image: var(--accent-gradient);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 6px 16px -6px var(--accent-glow);
+  transition: filter 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 10px 24px -6px rgba(59,130,246,0.55);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(1px); }
 .btn-ghost {
   background-color: transparent;
   border: 1px solid var(--border);

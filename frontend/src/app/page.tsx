@@ -100,11 +100,14 @@ export default function LandingPage() {
       <section className="max-w-6xl mx-auto px-6 py-16">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {FEATURES.map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="bg-surface-secondary border border-edge rounded-2xl p-6 hover:border-blue-500/30 transition-colors">
-              <div className="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-4">
-                <Icon size={19} className="text-blue-400" />
+            <div
+              key={title}
+              className="group bg-surface-secondary border border-edge rounded-2xl p-6 transition-all duration-300 hover:border-blue-500/40 hover:-translate-y-1 hover:shadow-[0_24px_48px_-18px_rgba(59,130,246,0.3)]"
+            >
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500/25 to-violet-500/25 border border-blue-500/25 flex items-center justify-center mb-4 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                <Icon size={19} className="text-blue-300" />
               </div>
-              <h3 className="font-semibold mb-2">{title}</h3>
+              <h3 className="font-semibold mb-2 group-hover:text-white transition-colors">{title}</h3>
               <p className="text-sm text-white/45 leading-relaxed">{desc}</p>
             </div>
           ))}
