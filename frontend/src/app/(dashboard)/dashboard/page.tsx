@@ -30,22 +30,22 @@ function StatCard({
   icon: React.ElementType; accent: string;
 }) {
   const map: Record<string, string> = {
-    blue:   'text-blue-400 bg-blue-500/10',
-    violet: 'text-violet-400 bg-violet-500/10',
-    green:  'text-emerald-400 bg-emerald-500/10',
-    amber:  'text-amber-400 bg-amber-500/10',
-    cyan:   'text-cyan-400 bg-cyan-500/10',
+    blue:   'text-blue-300 bg-gradient-to-br from-blue-500/20 to-blue-500/5 border-blue-500/20',
+    violet: 'text-violet-300 bg-gradient-to-br from-violet-500/20 to-violet-500/5 border-violet-500/20',
+    green:  'text-emerald-300 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-emerald-500/20',
+    amber:  'text-amber-300 bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-amber-500/20',
+    cyan:   'text-cyan-300 bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 border-cyan-500/20',
   };
   const cls = map[accent] || map.blue;
   return (
-    <div className="card p-5">
+    <div className="card p-5 group transition-all duration-300 hover:-translate-y-0.5 hover:border-edge-hover">
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-white/40">{label}</p>
-        <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${cls}`}>
+        <span className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${cls}`}>
           <Icon size={14} />
         </span>
       </div>
-      <p className="text-2xl font-bold text-white">{value}</p>
+      <p className="text-2xl font-bold text-white tracking-tight">{value}</p>
       {sub && <p className="text-xs text-white/30 mt-1">{sub}</p>}
     </div>
   );
@@ -198,10 +198,10 @@ export default function DashboardPage() {
         <StatCard label="ערוצים"         value={isLoading ? '—' : stats.channels}                         sub="ערוצי טלגרם"                         icon={Users}      accent="cyan" />
         <StatCard label="הכנסות (30 יום)" value={isLoading ? '—' : `₪${totalEarnings.toFixed(0)}`}        sub="מוסדר + משוער"                       icon={DollarSign}  accent="green" />
         <StatCard label="עמלה מוסדרת"    value={isLoading ? '—' : `₪${(earnings?.total_settled ?? 0).toFixed(0)}`} sub="30 ימים אחרונים"            icon={TrendingUp}  accent="amber" />
-        <div className="card p-5">
+        <div className="card p-5 group transition-all duration-300 hover:-translate-y-0.5 hover:border-edge-hover">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-white/40">קרדיטים AI</p>
-            <span className="w-7 h-7 rounded-lg flex items-center justify-center text-violet-400 bg-violet-500/10">
+            <span className="w-7 h-7 rounded-lg border border-violet-500/20 flex items-center justify-center text-violet-300 bg-gradient-to-br from-violet-500/20 to-violet-500/5 transition-transform duration-300 group-hover:scale-110">
               <Bot size={14} />
             </span>
           </div>
