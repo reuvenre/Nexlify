@@ -74,8 +74,12 @@ export default function LandingPage() {
           <div className="absolute top-[10%] left-[10%] w-[30rem] h-[30rem] bg-violet-600/15 rounded-full blur-[120px]" />
         </div>
         <div className="max-w-6xl mx-auto px-6 pt-20 pb-16 text-center">
-          <div className="inline-flex items-center gap-2 text-xs font-medium text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-full px-3 py-1.5 mb-6">
-            <Zap size={13} /> אוטומציית שיווק שותפים מבוססת AI
+          <div className="inline-flex items-center gap-2 text-xs font-medium text-blue-200 bg-gradient-to-r from-blue-500/15 to-violet-500/15 border border-blue-400/25 rounded-full px-3.5 py-1.5 mb-6 shadow-[0_4px_20px_-6px_rgba(59,130,246,0.5)]">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            אוטומציית שיווק שותפים מבוססת AI
           </div>
           <h1 className="text-4xl sm:text-6xl font-bold tracking-tight leading-[1.1] mb-6">
             מגלים, כותבים, מפרסמים ומקדמים<br />
@@ -86,10 +90,10 @@ export default function LandingPage() {
             מפרסמת לטלגרם ופייסבוק, ומקדמת את המנצחים כמודעות Meta Ads לפי ROAS.
           </p>
           <div className="flex items-center justify-center gap-3">
-            <Link href="/register" className="group flex items-center gap-2 bg-blue-600 hover:bg-blue-500 transition-all rounded-xl px-6 py-3 font-medium shadow-lg shadow-blue-600/25">
+            <Link href="/register" className="group flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 hover:brightness-110 transition-all rounded-xl px-7 py-3.5 font-semibold shadow-lg shadow-blue-600/30 ring-1 ring-inset ring-white/15">
               התחל עכשיו <ArrowLeft size={17} className="group-hover:-translate-x-1 transition-transform" />
             </Link>
-            <Link href="/login" className="bg-white/5 hover:bg-white/10 transition-colors rounded-xl px-6 py-3 font-medium text-white/70">
+            <Link href="/login" className="bg-white/[0.06] hover:bg-white/[0.1] border border-edge-hover transition-colors rounded-xl px-7 py-3.5 font-medium text-white/75">
               יש לי חשבון
             </Link>
           </div>

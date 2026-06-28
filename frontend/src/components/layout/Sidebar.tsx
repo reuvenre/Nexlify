@@ -95,17 +95,17 @@ export function Sidebar() {
                     href={href}
                     className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
                       ${active
-                        ? 'bg-blue-500/[0.14] text-blue-400'
+                        ? 'bg-gradient-to-l from-blue-500/[0.18] to-violet-500/[0.07] text-blue-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
                         : 'text-white/40 hover:text-white/80 hover:bg-white/[0.05]'
                       }`}
                   >
                     {active && (
-                      <span className="absolute inset-y-1.5 right-0 w-[3px] rounded-full bg-blue-500" />
+                      <span className="absolute inset-y-1.5 right-0 w-[3px] rounded-full bg-gradient-to-b from-blue-400 to-violet-500 shadow-[0_0_8px_rgba(59,130,246,0.55)]" />
                     )}
                     <Icon
                       size={14}
                       className={`shrink-0 transition-colors duration-150
-                        ${active ? 'text-blue-400' : 'text-white/30 group-hover:text-white/55'}`}
+                        ${active ? 'text-blue-300' : 'text-white/30 group-hover:text-white/55'}`}
                     />
                     <span className="truncate">{label}</span>
                   </Link>
@@ -142,17 +142,17 @@ export function Sidebar() {
           href="/settings"
           className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
             ${isActive('/settings')
-              ? 'bg-blue-500/[0.14] text-blue-400'
+              ? 'bg-gradient-to-l from-blue-500/[0.18] to-violet-500/[0.07] text-blue-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
               : 'text-white/40 hover:text-white/80 hover:bg-white/[0.05]'
             }`}
         >
           {isActive('/settings') && (
-            <span className="absolute inset-y-1.5 right-0 w-[3px] rounded-full bg-blue-500" />
+            <span className="absolute inset-y-1.5 right-0 w-[3px] rounded-full bg-gradient-to-b from-blue-400 to-violet-500 shadow-[0_0_8px_rgba(59,130,246,0.55)]" />
           )}
           <Settings
             size={14}
             className={`shrink-0 transition-colors duration-150
-              ${isActive('/settings') ? 'text-blue-400' : 'text-white/30 group-hover:text-white/55'}`}
+              ${isActive('/settings') ? 'text-blue-300' : 'text-white/30 group-hover:text-white/55'}`}
           />
           <span>הגדרות</span>
         </Link>
