@@ -179,6 +179,7 @@ export class ProductsService {
   // ── Promotional products (active AliExpress campaigns) ────────────────────
 
   async getPromotional(userId: string, params: {
+    keyword?: string;
     category_id?: string;
     page?: number;
     limit?: number;
@@ -199,6 +200,7 @@ export class ProductsService {
       const signed = signAliexpress({
         method: 'aliexpress.affiliate.hotproduct.query',
         app_key: creds.aliexpress_app_key,
+        keywords: params.keyword || undefined,
         category_ids: params.category_id,
         fields: HOT_FIELDS,
         page_no: page,

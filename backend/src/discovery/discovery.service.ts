@@ -64,12 +64,12 @@ export class DiscoveryService {
         // Source products straight from the AliExpress Affiliate API (free — no Apify).
         // Every result is affiliate-promotable, already priced in the target currency
         // (₪) with a working affiliate link, sorted best-sellers first.
-        const res = await this.products.search(userId, {
-          keyword,
-          limit: 50,
-          sort: 'LAST_VOLUME_DESC',
-        });
-        const items: any[] = res.data || [];
+        // Prefer hotproduct.query (the affiliate "hot products" feed — far more reliable
+        // and rarely returns "result is empty"); fall back to product.query if needed.
+        let items: any[] = (await this.products.getPromotional(userId, { keyword, limit: 50 })).data || [];
+        if (items.length === 0) {
+          items = (await this.products.search(userId, { keyword, limit: 50, sort: 'LAST_VOLUME_DESC' })).data || [];
+        }
         result.scraped += items.length;
 
         const filtered = items.filter(
