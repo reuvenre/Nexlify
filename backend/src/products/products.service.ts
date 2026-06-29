@@ -91,7 +91,6 @@ export class ProductsService {
       }, creds.aliexpress_app_secret);
 
       const res = await axios.get(ALI_API, { params: signed, timeout: 12000 });
-      this.logger.warn(`[AliDiag search "${params.keyword}" ccy=${currency}] ${JSON.stringify(res.data).slice(0, 700)}`);
       const respResult = res.data?.aliexpress_affiliate_product_query_response?.resp_result;
       if (respResult?.resp_code !== 200) {
         this.logger.error(`AliExpress search API error: code=${respResult?.resp_code} msg=${respResult?.resp_msg}`);
@@ -101,6 +100,12 @@ export class ProductsService {
       const total = result?.total_record_count || items.length;
 
       const data = this.mapProducts(items, rate, currency, this.pricingFrom(creds));
+
+      // Some accounts only get results from the hot-products feed — product.query comes
+      // back empty. Fall back to hotproduct.query with the same keyword.
+      if (data.length === 0) {
+        return this.getPromotional(userId, { keyword: params.keyword, category_id: params.category_id, page, limit });
+      }
 
       const filtered = params.min_discount
         ? data.filter((p) => p.discount_percent >= params.min_discount!)
@@ -168,6 +173,11 @@ export class ProductsService {
       let data = this.mapProducts(items, rate, currency, this.pricingFrom(creds));
       if (minDiscount) data = data.filter((p) => p.discount_percent >= minDiscount);
 
+      // product.query empty for this account → fall back to the hot-products feed.
+      if (data.length === 0) {
+        return this.getPromotional(userId, { keyword: keyword || undefined, category_id: params.category_id, page, limit });
+      }
+
       return { data, total, page, limit };
     } catch (err: any) {
       this.logger.error(`AliExpress featured failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
@@ -212,8 +222,6 @@ export class ProductsService {
       }, creds.aliexpress_app_secret);
 
       const res = await axios.get(ALI_API, { params: signed, timeout: 12000 });
-      const _p0 = res.data?.aliexpress_affiliate_hotproduct_query_response?.resp_result?.result?.products?.product?.[0];
-      this.logger.warn(`[AliDiag hot "${params.keyword}"] keys=${_p0 ? Object.keys(_p0).join(',') : 'none'} | sale=${_p0?.sale_price} tgtSale=${_p0?.target_sale_price} eval=${_p0?.evaluate_rate} vol=${_p0?.lastest_volume}`);
       const respResult = res.data?.aliexpress_affiliate_hotproduct_query_response?.resp_result;
       if (respResult?.resp_code !== 200) {
         this.logger.error(`AliExpress promotional API error: code=${respResult?.resp_code} msg=${respResult?.resp_msg}`);
