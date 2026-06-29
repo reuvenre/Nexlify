@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { authApi, setAccessToken } from '@/lib/api-client';
+import { authApi, setAccessToken, setRefreshToken } from '@/lib/api-client';
 import type { User } from '@/types';
 
 interface AuthState {
@@ -23,10 +23,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const bootstrap = useCallback(async () => {
     try {
-      const { access_token, user } = await authApi.refresh();
+      const { access_token, refresh_token, user } = await authApi.refresh();
       setAccessToken(access_token);
+      if (refresh_token) setRefreshToken(refresh_token);
       setUser(user);
     } catch {
+      setAccessToken(null);
+      setRefreshToken(null);
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -36,15 +39,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
   const login = async (email: string, password: string) => {
-    const { access_token, user } = await authApi.login(email, password);
+    const { access_token, refresh_token, user } = await authApi.login(email, password);
     setAccessToken(access_token);
+    if (refresh_token) setRefreshToken(refresh_token);
     setUser(user);
     router.push('/dashboard');
   };
 
   const register = async (email: string, password: string) => {
-    const { access_token, user } = await authApi.register(email, password);
+    const { access_token, refresh_token, user } = await authApi.register(email, password);
     setAccessToken(access_token);
+    if (refresh_token) setRefreshToken(refresh_token);
     setUser(user);
     router.push('/dashboard');
   };
@@ -52,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     await authApi.logout().catch(() => {});
     setAccessToken(null);
+    setRefreshToken(null);
     setUser(null);
     router.push('/login');
   };

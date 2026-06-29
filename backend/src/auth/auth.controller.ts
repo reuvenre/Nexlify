@@ -97,12 +97,13 @@ export class AuthController {
   async googleCallback(@Req() req: Request, @Res() res: Response) {
     const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
     try {
-      // issueTokens sets the HttpOnly refresh cookie. The frontend's bootstrap()
-      // exchanges that cookie for an access token via /auth/refresh — so we must NOT
-      // put the access token in the redirect URL (it would leak into browser history,
-      // Referer headers, and proxy/server logs).
-      await this.auth.issueTokensPublic(req.user as any, res);
-      return res.redirect(`${frontendUrl}/google/success`);
+      // Sets the HttpOnly refresh cookie AND returns the tokens. Since the frontend is
+      // on a different domain (the cookie is third-party there and gets blocked), we
+      // hand the tokens back in the URL *fragment* (#…) — fragments are never sent to
+      // any server (not in Referer, proxy logs, or our own logs), so no leak.
+      const { access_token, refresh_token } = await this.auth.issueTokensPublic(req.user as any, res);
+      const frag = `#access_token=${encodeURIComponent(access_token)}&refresh_token=${encodeURIComponent(refresh_token)}`;
+      return res.redirect(`${frontendUrl}/google/success${frag}`);
     } catch {
       return res.redirect(`${frontendUrl}/login?error=google_failed`);
     }

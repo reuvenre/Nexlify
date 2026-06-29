@@ -42,13 +42,30 @@ const http: AxiosInstance = axios.create({
   timeout: 15_000,
 });
 
-// ─── Access-token management (in-memory, never localStorage) ─────────────────
+// ─── Token management ─────────────────────────────────────────────────────────
+// Persisted in localStorage so the session survives page reloads even when the API
+// lives on a different domain than the app — there the HttpOnly refresh cookie is a
+// third-party cookie and browsers block it. The refresh token is sent back to
+// /auth/refresh via the x-refresh-token header.
 
-let accessToken: string | null = null;
+const ACCESS_KEY = 'nx_access_token';
+const REFRESH_KEY = 'nx_refresh_token';
+const ls = (): Storage | null => (typeof window !== 'undefined' ? window.localStorage : null);
+
+let accessToken: string | null = ls()?.getItem(ACCESS_KEY) ?? null;
 
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
+  if (token) ls()?.setItem(ACCESS_KEY, token);
+  else ls()?.removeItem(ACCESS_KEY);
 };
+
+export const setRefreshToken = (token: string | null) => {
+  if (token) ls()?.setItem(REFRESH_KEY, token);
+  else ls()?.removeItem(REFRESH_KEY);
+};
+
+const getRefreshToken = (): string | null => ls()?.getItem(REFRESH_KEY) ?? null;
 
 // ─── Request interceptor: inject Bearer token ────────────────────────────────
 
@@ -83,12 +100,14 @@ http.interceptors.response.use(
 
       refreshing = true;
       try {
+        const rt = getRefreshToken();
         const { data } = await axios.post<AuthResponse>(
           `${BASE_URL}/auth/refresh`,
           {},
-          { withCredentials: true }
+          { withCredentials: true, headers: rt ? { 'x-refresh-token': rt } : undefined }
         );
-        accessToken = data.access_token;
+        setAccessToken(data.access_token);
+        if (data.refresh_token) setRefreshToken(data.refresh_token);
         queue.forEach((q) => q.resolve(accessToken!));
         queue = [];
         original.headers = { ...original.headers, Authorization: `Bearer ${accessToken}` };
@@ -96,7 +115,8 @@ http.interceptors.response.use(
       } catch (refreshErr) {
         queue.forEach((q) => q.reject(refreshErr));
         queue = [];
-        accessToken = null;
+        setAccessToken(null);
+        setRefreshToken(null);
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
@@ -127,7 +147,17 @@ export const authApi = {
 
   me: () => http.get<User>('/auth/me').then(extract),
 
-  refresh: () => http.post<AuthResponse>('/auth/refresh').then(extract),
+  // Raw axios (not the intercepted instance) so a 401 here doesn't recurse through the
+  // refresh interceptor. Sends the stored refresh token via header for cross-domain.
+  refresh: () => {
+    const rt = getRefreshToken();
+    return axios
+      .post<AuthResponse>(`${BASE_URL}/auth/refresh`, {}, {
+        withCredentials: true,
+        headers: rt ? { 'x-refresh-token': rt } : undefined,
+      })
+      .then(extract);
+  },
 
   forgotPassword: (email: string) =>
     http.post<{ message: string; reset_url?: string }>('/auth/forgot-password', { email }).then(extract),

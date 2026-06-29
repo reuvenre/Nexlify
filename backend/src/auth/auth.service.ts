@@ -56,7 +56,10 @@ export class AuthService {
       path: '/',
     });
 
-    return { access_token, user: this.users.toPublic(user) };
+    // refresh_token is also returned in the body so cross-domain clients (frontend on
+    // a different domain than the API) can persist it — the HttpOnly cookie above is
+    // a third-party cookie there and gets blocked by browsers.
+    return { access_token, refresh_token: refresh, user: this.users.toPublic(user) };
   }
 
   // ── Public methods ─────────────────────────────────────────────────────────
@@ -125,7 +128,9 @@ export class AuthService {
   }
 
   async refresh(req: any, res: any) {
-    const token = req.cookies?.[REFRESH_COOKIE];
+    // Prefer the HttpOnly cookie (same-domain), fall back to the x-refresh-token header
+    // (cross-domain clients that can't rely on the third-party cookie).
+    const token = req.cookies?.[REFRESH_COOKIE] || req.headers?.['x-refresh-token'];
     if (!token) throw new UnauthorizedException('No refresh token');
 
     let payload: { sub: string };
