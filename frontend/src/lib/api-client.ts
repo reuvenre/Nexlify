@@ -268,12 +268,16 @@ export const productsApi = {
 
 // ─── Posts API ───────────────────────────────────────────────────────────────
 
+// AI text generation (Gemini/Claude) plus a Render cold start can take well over the
+// 15s global timeout, so the generate/publish/schedule calls get a longer one.
+const AI_TIMEOUT = 60_000;
+
 export const postsApi = {
   preview: (product_id: string, language?: string, custom_product?: Partial<AliProduct>, template?: string) =>
-    http.post<PostPreview>('/posts/preview', { product_id, language, custom_product, template }).then(extract),
+    http.post<PostPreview>('/posts/preview', { product_id, language, custom_product, template }, { timeout: AI_TIMEOUT }).then(extract),
 
   quickPost: (data: { product_id: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string }) =>
-    http.post<Post>('/posts/quick', data).then(extract),
+    http.post<Post>('/posts/quick', data, { timeout: AI_TIMEOUT }).then(extract),
 
   list: (params?: { page?: number; limit?: number; status?: string; campaign_id?: string }) =>
     http.get<PaginatedResponse<Post>>('/posts', { params }).then(extract),
@@ -281,7 +285,7 @@ export const postsApi = {
   retry: (id: string) => http.post<Post>(`/posts/${id}/retry`).then(extract),
 
   schedulePost: (data: { product_id: string; scheduled_at: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string }) =>
-    http.post<Post>('/posts/schedule', data).then(extract),
+    http.post<Post>('/posts/schedule', data, { timeout: AI_TIMEOUT }).then(extract),
 
   // ── Queue ──
   listQueue: () => http.get<Post[]>('/posts/queue').then(extract),
