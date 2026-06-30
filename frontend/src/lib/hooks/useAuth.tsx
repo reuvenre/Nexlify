@@ -23,9 +23,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const bootstrap = useCallback(async () => {
     try {
-      const { access_token, refresh_token, user } = await authApi.refresh();
-      setAccessToken(access_token);
-      if (refresh_token) setRefreshToken(refresh_token);
+      // Validate the session using the access token already in localStorage (set by
+      // email login or the Google callback). If it's expired, the api-client's 401
+      // interceptor transparently refreshes it via the stored refresh token. This is
+      // far more robust than eagerly rotating the refresh token on every page load.
+      const user = await authApi.me();
       setUser(user);
     } catch {
       setAccessToken(null);
