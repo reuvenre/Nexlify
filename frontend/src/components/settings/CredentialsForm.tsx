@@ -138,9 +138,21 @@ export function CredentialsForm() {
 
       {/* AI Engine — multi-provider */}
       <section className="bg-surface-secondary border border-edge rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
-          <span className="text-lg">🧠</span> מנוע ה-AI
-        </h3>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <span className="text-lg">🧠</span> מנוע ה-AI
+            {verifyStatus && <VerifyIcon ok={verifyStatus[form.ai_provider as 'anthropic' | 'openai' | 'gemini']} />}
+          </h3>
+          <button
+            type="button"
+            onClick={handleVerify}
+            disabled={isVerifying}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 text-white/60 text-xs rounded-lg transition-all"
+          >
+            {isVerifying ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+            בדוק תקינות
+          </button>
+        </div>
         <p className="text-2xs text-white/30 mb-4">בחר את ספק יצירת התוכן. המערכת תשתמש בספק שבחרת, ותיפול אוטומטית לספק אחר עם מפתח תקין.</p>
 
         {/* Provider selector */}

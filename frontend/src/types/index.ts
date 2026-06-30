@@ -128,6 +128,7 @@ export interface VerifyResult {
   telegram: boolean;
   openai: boolean;
   gemini: boolean;
+  anthropic: boolean;
   facebook: boolean;
   apify: boolean;
 }

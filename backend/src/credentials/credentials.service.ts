@@ -135,9 +135,9 @@ export class CredentialsService {
 
   async verify(userId: string): Promise<{
     aliexpress: boolean; telegram: boolean; openai: boolean;
-    gemini: boolean; facebook: boolean; apify: boolean;
+    gemini: boolean; anthropic: boolean; facebook: boolean; apify: boolean;
   }> {
-    const empty = { aliexpress: false, telegram: false, openai: false, gemini: false, facebook: false, apify: false };
+    const empty = { aliexpress: false, telegram: false, openai: false, gemini: false, anthropic: false, facebook: false, apify: false };
     const cred = await this.repo.findOne({ where: { user_id: userId } });
     if (!cred) return empty;
 
@@ -171,6 +171,18 @@ export class CredentialsService {
           { timeout: 5000 },
         );
         results.gemini = res.status === 200;
+      }
+    } catch {}
+
+    // Verify Anthropic (per-user key, falling back to the server key)
+    try {
+      const key = decrypt(cred.anthropic_api_key_enc) || process.env.ANTHROPIC_API_KEY;
+      if (key) {
+        const res = await axios.get('https://api.anthropic.com/v1/models', {
+          headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+          timeout: 5000,
+        });
+        results.anthropic = res.status === 200;
       }
     } catch {}
 

@@ -205,6 +205,18 @@ export function IntegrationsForm() {
             />
           </div>
         </div>
+        <div className="flex items-center gap-3 mt-4">
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl transition-all">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {saved ? 'נשמר ✓' : saving ? 'שומר...' : 'שמור'}
+          </button>
+          <button onClick={handleVerify} disabled={verifying}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 text-white/60 text-sm rounded-xl transition-all">
+            {verifying ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+            בדוק חיבור Facebook
+          </button>
+        </div>
       </section>
 
       {/* Publish fan-out toggles */}
