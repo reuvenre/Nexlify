@@ -7,7 +7,7 @@ import { discoveryApi } from '@/lib/api-client';
 import type { HuntResult, ValidateResult } from '@/types';
 
 export default function DiscoveryPage() {
-  const [keywords, setKeywords] = useState<string[]>(['tacti gear']);
+  const [keywords, setKeywords] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
   const [hunting, setHunting] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -101,7 +101,7 @@ export default function DiscoveryPage() {
           className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all"
         >
           {hunting ? <Loader2 size={15} className="animate-spin" /> : <PackageSearch size={15} />}
-          {hunting ? 'סורק... (עד 3 דקות)' : 'הפעל סריקה'}
+          {hunting ? 'סורק...' : 'הפעל סריקה'}
         </button>
         <button
           onClick={runValidate}
