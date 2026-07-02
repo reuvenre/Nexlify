@@ -66,10 +66,14 @@ export class DiscoveryService {
         // (₪) with a working affiliate link, sorted best-sellers first.
         // Prefer hotproduct.query (the affiliate "hot products" feed — far more reliable
         // and rarely returns "result is empty"); fall back to product.query if needed.
-        let items: any[] = (await this.products.getPromotional(userId, { keyword, limit: 50 })).data || [];
+        // strict: true → a transient API failure throws (caught below) instead of
+        // returning mock data that would otherwise be persisted as real products.
+        let items: any[] = (await this.products.getPromotional(userId, { keyword, limit: 50, strict: true })).data || [];
         if (items.length === 0) {
-          items = (await this.products.search(userId, { keyword, limit: 50, sort: 'LAST_VOLUME_DESC' })).data || [];
+          items = (await this.products.search(userId, { keyword, limit: 50, sort: 'LAST_VOLUME_DESC', strict: true })).data || [];
         }
+        // Defensive: never persist mock placeholders even if one slips through.
+        items = items.filter((p) => !String(p.product_id ?? '').startsWith('mock-'));
         result.scraped += items.length;
 
         // hotproduct.query is already a curated best-sellers feed and doesn't always
@@ -126,15 +130,21 @@ export class DiscoveryService {
     const result: ValidateResult = { checked: 0, valid: 0, invalid: 0 };
     const updates: { id: string; ok: boolean }[] = [];
 
-    await Promise.all(
-      products.map(async (p) => {
-        if (!p.affiliate_url) return;
-        result.checked++;
-        const ok = await this.isLinkAlive(p.affiliate_url);
-        ok ? result.valid++ : result.invalid++;
-        updates.push({ id: p.id, ok });
-      }),
-    );
+    // Process in small batches instead of firing all ~200 requests at once — a burst of
+    // concurrent sockets can exhaust memory on a 512MB host and trip AliExpress rate limits.
+    const BATCH = 10;
+    const toCheck = products.filter((p) => p.affiliate_url);
+    for (let i = 0; i < toCheck.length; i += BATCH) {
+      const slice = toCheck.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (p) => {
+          result.checked++;
+          const ok = await this.isLinkAlive(p.affiliate_url!);
+          ok ? result.valid++ : result.invalid++;
+          updates.push({ id: p.id, ok });
+        }),
+      );
+    }
 
     if (updates.length) {
       const valid = updates.filter((u) => u.ok).map((u) => u.id);

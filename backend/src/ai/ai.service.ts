@@ -133,6 +133,11 @@ export class AiService {
     creds: DecryptedCredentials, opts: GenerateOptions, maxTokens: number, temperature: number,
   ): Promise<GenerateResult> {
     const model = creds.gemini_model || 'gemini-2.5-flash';
+    // gemini-2.5-* are "thinking" models — reasoning tokens can otherwise eat the whole
+    // output budget and truncate the post. flash / flash-lite allow disabling thinking
+    // (budget 0); gemini-2.5-pro does NOT — it rejects budget 0 (min 128), which would
+    // fail the request and silently fall back to generic copy. So branch by model.
+    const isPro = /pro/i.test(model);
     const res = await this.withRetry(() =>
       axios.post(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${creds.gemini_api_key}`,
@@ -141,12 +146,10 @@ export class AiService {
           contents: [{ parts: [{ text: `${opts.system}\n\n${opts.prompt}` }] }],
           generationConfig: {
             temperature,
-            // Give headroom so the full post is never cut off mid-sentence.
-            maxOutputTokens: Math.max(maxTokens, 1024),
-            // gemini-2.5-* are "thinking" models — by default reasoning tokens eat
-            // the entire output budget and the actual post comes back truncated.
-            // Disable thinking so all the budget goes to the post itself.
-            thinkingConfig: { thinkingBudget: 0 },
+            // Give headroom so the full post is never cut off mid-sentence (pro also
+            // spends part of the budget on thinking, so allow more).
+            maxOutputTokens: Math.max(maxTokens, isPro ? 2048 : 1024),
+            thinkingConfig: { thinkingBudget: isPro ? 128 : 0 },
           },
         },
         { headers: { 'Content-Type': 'application/json' }, timeout: 25_000 },

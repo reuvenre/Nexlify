@@ -61,6 +61,9 @@ export class ProductsService {
     sort?: string;
     page?: number;
     limit?: number;
+    // strict = never fall back to mock data; throw instead. Used by the discovery
+    // hunter so a transient API failure can NEVER persist fake products to the catalog.
+    strict?: boolean;
   }) {
     const creds = await this.credentials.getRaw(userId);
     const page = params.page || 1;
@@ -69,6 +72,7 @@ export class ProductsService {
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
 
     if (!creds?.aliexpress_app_key) {
+      if (params.strict) throw new Error('AliExpress affiliate credentials not configured');
       this.logger.warn(`search: no AliExpress credentials for user ${userId} — returning mock data`);
       const data = this.mockProducts(params.keyword, limit, currency, rate);
       return { data, total: data.length, page, limit };
@@ -104,7 +108,7 @@ export class ProductsService {
       // Some accounts only get results from the hot-products feed — product.query comes
       // back empty. Fall back to hotproduct.query with the same keyword.
       if (data.length === 0) {
-        return this.getPromotional(userId, { keyword: params.keyword, category_id: params.category_id, page, limit });
+        return this.getPromotional(userId, { keyword: params.keyword, category_id: params.category_id, page, limit, strict: params.strict });
       }
 
       const filtered = params.min_discount
@@ -114,6 +118,7 @@ export class ProductsService {
       return { data: filtered, total, page, limit };
     } catch (err: any) {
       this.logger.error(`AliExpress search failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
+      if (params.strict) throw err;
       const data = this.mockProducts(params.keyword, limit, currency, rate);
       return { data, total: data.length, page, limit };
     }
@@ -194,6 +199,7 @@ export class ProductsService {
     category_id?: string;
     page?: number;
     limit?: number;
+    strict?: boolean;
   }) {
     const creds = await this.credentials.getRaw(userId);
     const page = params.page || 1;
@@ -202,6 +208,7 @@ export class ProductsService {
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
 
     if (!creds?.aliexpress_app_key) {
+      if (params.strict) throw new Error('AliExpress affiliate credentials not configured');
       this.logger.warn(`getPromotional: no AliExpress credentials for user ${userId} — returning mock data`);
       const data = this.mockProducts('promotion', limit, currency, rate);
       return { data, total: data.length, page, limit };
@@ -234,6 +241,7 @@ export class ProductsService {
       return { data, total, page, limit };
     } catch (err: any) {
       this.logger.error(`AliExpress promotional failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
+      if (params.strict) throw err;
       const data = this.mockProducts('promotion', limit, currency, rate);
       return { data, total: data.length, page, limit };
     }

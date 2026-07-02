@@ -81,12 +81,36 @@ http.interceptors.request.use((config) => {
 let refreshing = false;
 let queue: Array<{ resolve: (t: string) => void; reject: (e: unknown) => void }> = [];
 
+// A 401 from these endpoints is a real credential/auth outcome that the caller must
+// handle directly (e.g. wrong password on login) — never route it through the silent
+// refresh + redirect flow, which would swallow the error and could cause redirect loops.
+const NO_REFRESH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password'];
+
+// Public routes where an auth failure must NOT force a hard redirect to /login — doing
+// so from a page that itself bootstraps auth creates an infinite reload loop.
+const PUBLIC_PATHS = ['/', '/login', '/register', '/forgot-password', '/reset-password', '/google/success'];
+const onPublicPath = () =>
+  typeof window !== 'undefined' && PUBLIC_PATHS.some((p) => p === '/' ? window.location.pathname === '/' : window.location.pathname.startsWith(p));
+
 http.interceptors.response.use(
   (res) => res,
   async (err: AxiosError<ApiError>) => {
     const original = err.config as AxiosRequestConfig & { _retry?: boolean };
+    const url = original?.url || '';
+
+    // Let credential-endpoint 401s bubble straight to the caller.
+    if (err.response?.status === 401 && NO_REFRESH_PATHS.some((p) => url.includes(p))) {
+      return Promise.reject(err);
+    }
 
     if (err.response?.status === 401 && !original._retry) {
+      // No refresh token at all (anonymous visitor): don't attempt refresh or redirect —
+      // just reject so bootstrap resolves to "logged out" without looping.
+      if (!getRefreshToken()) {
+        setAccessToken(null);
+        return Promise.reject(err);
+      }
+
       original._retry = true;
 
       if (refreshing) {
@@ -117,7 +141,9 @@ http.interceptors.response.use(
         queue = [];
         setAccessToken(null);
         setRefreshToken(null);
-        if (typeof window !== 'undefined') {
+        // Only bounce to /login from protected pages. On public pages the redirect would
+        // reload a page that re-bootstraps auth → 401 → redirect again (infinite loop).
+        if (typeof window !== 'undefined' && !onPublicPath()) {
           window.location.href = '/login';
         }
         return Promise.reject(refreshErr);
@@ -369,8 +395,10 @@ export const catalogApi = {
   sync: (id: string) =>
     http.post<CatalogProduct>(`/catalog/${id}/sync`).then(extract),
 
+  // Re-prices the entire catalog against the AliExpress API (batched, many round-trips),
+  // which easily outlasts the 15s global timeout — give it a generous window.
   resyncPrices: () =>
-    http.post<{ total: number; updated: number; failed: number }>('/catalog/resync-prices').then(extract),
+    http.post<{ total: number; updated: number; failed: number }>('/catalog/resync-prices', {}, { timeout: 240_000 }).then(extract),
 
   affiliateLink: (id: string) =>
     http.post<{ url: string }>(`/catalog/${id}/affiliate-link`).then(extract),

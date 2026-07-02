@@ -46,7 +46,14 @@ export class CampaignsService {
 
   async update(userId: string, id: string, dto: Partial<CampaignDto>) {
     const campaign = await this.get(userId, id);
-    Object.assign(campaign, dto);
+
+    // Strip identity / server-managed keys before merging. `Partial<CampaignDto>`
+    // reflects as `Object` at runtime, so the global ValidationPipe whitelist does NOT
+    // apply here — without this guard a caller could inject id / user_id and overwrite
+    // another user's campaign (mass-assignment).
+    const { id: _i, user_id: _u, created_at: _c, updated_at: _up,
+            posts_count: _p, last_run_at: _l, next_run_at: _n, ...safe } = dto as any;
+    Object.assign(campaign, safe);
     if (dto.schedule_cron) {
       campaign.next_run_at = this.nextRun(dto.schedule_cron);
     }

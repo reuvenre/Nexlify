@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Send, Copy, RefreshCw, Check, Clock, X, CalendarClock } from 'lucide-react';
 import type { PostPreview as PostPreviewType } from '@/types';
 
@@ -24,10 +24,12 @@ export function PostPreview({
   const [scheduledAt, setScheduledAt] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
 
-  // Keep text in sync when preview regenerates
-  if (preview.generated_text !== text && !isRegenerating) {
-    // only reset when a new preview arrives, not while user is editing
-  }
+  // Resync the editable text whenever a NEW server-generated preview arrives (e.g. after
+  // "regenerate"). Keying the effect on preview.generated_text means user edits — which
+  // only change local `text`, not the prop — are preserved; only a fresh server text resets it.
+  useEffect(() => {
+    setText(preview.generated_text);
+  }, [preview.generated_text]);
 
   const sym = SYMBOLS[preview.product.currency] || preview.product.currency || '₪';
 

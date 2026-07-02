@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import axios from 'axios';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { PostsService } from '../posts/posts.service';
 import { CredentialsService } from '../credentials/credentials.service';
@@ -22,6 +23,25 @@ export class CampaignSchedulerService {
     @Optional() private readonly ads: AdsService,
   ) {}
 
+  /**
+   * Runs every 10 minutes — self-pings the public health endpoint to keep the host
+   * awake. On free hosts (Render) the instance spins down after ~15 min with no inbound
+   * HTTP, which silently kills every @Cron above. An outbound request to our own public
+   * URL comes back as inbound traffic and resets that idle timer, so the scheduler keeps
+   * running as long as the process is up. NOTE: this can't wake an instance that already
+   * slept — pair it with an external uptime pinger (e.g. UptimeRobot) as a cold-start backstop.
+   */
+  @Cron('0 */10 * * * *')
+  async keepAlive() {
+    const base = process.env.BACKEND_URL;
+    if (!base || /localhost|127\.0\.0\.1/.test(base)) return; // no-op in local dev
+    try {
+      await axios.get(`${base.replace(/\/$/, '')}/health`, { timeout: 8000 });
+    } catch (err: any) {
+      this.logger.warn(`keep-alive ping failed: ${err.message}`);
+    }
+  }
+
   /** Runs every minute — sends posts that have reached their scheduled_at time */
   @Cron(CronExpression.EVERY_MINUTE)
   async sendScheduledPosts() {
@@ -33,7 +53,13 @@ export class CampaignSchedulerService {
     try {
       const due = await this.posts.findDueScheduledPosts();
       for (const post of due) {
-        await this.posts.sendScheduled(post);
+        // Per-post try/catch: one user's failing post (bad token, blocked channel)
+        // must not abort the whole batch and starve everyone else's scheduled posts.
+        try {
+          await this.posts.sendScheduled(post);
+        } catch (err: any) {
+          this.logger.error(`Scheduled post ${post.id} failed: ${err.message}`);
+        }
       }
     } catch (err: any) {
       this.logger.error(`Scheduled posts tick failed: ${err.message}`);
@@ -64,7 +90,10 @@ export class CampaignSchedulerService {
     }
 
     const now = new Date();
-    const nowHour = now.getHours();
+    // The host runs in UTC (Render), but users set their send window in local (Israel)
+    // time. Compute the current hour in the configured timezone so a 9–22 window means
+    // 9am–10pm for the user, not UTC. Intl handles DST automatically.
+    const nowHour = this.hourInZone(now, process.env.SCHEDULER_TZ || 'Asia/Jerusalem');
 
     try {
     for (const cred of credentialSets) {
@@ -83,11 +112,17 @@ export class CampaignSchedulerService {
           if (minsSinceLast < interval) continue;
         }
 
-        // Try to send the next queued post
-        const sent = await this.posts.processNextQueuedPost(cred.user_id);
-        if (sent) {
+        // Try to send the next queued post. Advance the interval whenever a post was
+        // CONSUMED (success or failure) so a broken post can't burst-drain the queue at
+        // 1/min — but log failures distinctly instead of silently reporting success.
+        const res = await this.posts.processNextQueuedPost(cred.user_id);
+        if (res.sent) {
           await this.credentials.updateLastSent(cred.user_id, now);
-          this.logger.log(`Queue: sent post for user ${cred.user_id}`);
+          if (res.ok) {
+            this.logger.log(`Queue: sent post for user ${cred.user_id}`);
+          } else {
+            this.logger.warn(`Queue: post for user ${cred.user_id} failed to publish: ${res.error || 'unknown error'}`);
+          }
         }
       } catch (err: any) {
         this.logger.error(`Queue tick failed for user ${cred.user_id}: ${err.message}`);
@@ -95,6 +130,19 @@ export class CampaignSchedulerService {
     }
     } finally {
       this.processingQueue = false;
+    }
+  }
+
+  /** Current hour (0-23) in the given IANA timezone, DST-aware. */
+  private hourInZone(date: Date, tz: string): number {
+    try {
+      const h = new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit', hour12: false, timeZone: tz,
+      }).format(date);
+      const n = parseInt(h, 10);
+      return n === 24 ? 0 : n; // some environments render midnight as "24"
+    } catch {
+      return date.getHours(); // invalid tz → fall back to server local
     }
   }
 
@@ -145,7 +193,12 @@ export class CampaignSchedulerService {
       this.running.add(campaign.id);
       this.logger.log(`Running campaign "${campaign.name}" (${campaign.id}) [agents=${campaign.use_agents}]`);
 
-      const runner = this.orchestrator
+      // Route through the multi-agent orchestrator ONLY when the campaign opted in
+      // (use_agents). Otherwise use the plain campaign runner. Previously this keyed off
+      // whether the orchestrator was injected (always true), so every campaign wrongly
+      // ran through the AI agents regardless of its use_agents flag.
+      const useAgents = campaign.use_agents && this.orchestrator;
+      const runner = useAgents
         ? this.campaigns.markRun(campaign.id).then(() => this.orchestrator.run(campaign, campaign.user_id))
         : this.campaigns.markRun(campaign.id).then(() => this.posts.runCampaign(campaign, campaign.user_id));
 

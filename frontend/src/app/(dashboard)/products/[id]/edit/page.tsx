@@ -119,17 +119,20 @@ export default function EditProductPage() {
     setSaving(true);
     setError('');
     try {
+      // Send empty strings (not undefined) so the user can CLEAR a field. `|| undefined`
+      // drops the key from the JSON body, and the backend only updates keys that are
+      // present — so a cleared coupon/keyword/etc. would otherwise never persist.
       const updated = await catalogApi.update(id, {
         title,
-        description: description || undefined,
+        description,
         sale_price: parseFloat(salePrice) || 0,
         original_price: parseFloat(origPrice) || 0,
         discount_percent: parseInt(discount) || 0,
-        coupon_code: coupon || undefined,
-        keyword: keyword || undefined,
-        category: category || undefined,
-        affiliate_url: affiliateUrl || undefined,
-        image_url: imageUrl || undefined,
+        coupon_code: coupon,
+        keyword,
+        category,
+        affiliate_url: affiliateUrl,
+        image_url: imageUrl,
         post_text: postText,
       });
       setProduct(updated);

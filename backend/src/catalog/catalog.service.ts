@@ -189,7 +189,18 @@ export class CatalogService {
     commission_rate: number;
   }>) {
     const product = await this.findOne(userId, id);
-    Object.assign(product, dto);
+
+    // Whitelist editable fields only. Never Object.assign the raw dto — that would let
+    // a caller inject id / user_id / product_id / status and overwrite another user's
+    // row (mass-assignment). Only copy keys the caller is explicitly allowed to set.
+    const EDITABLE = [
+      'title', 'description', 'post_text', 'original_price', 'sale_price',
+      'currency', 'discount_percent', 'image_url', 'affiliate_url',
+      'category', 'keyword', 'coupon_code', 'commission_rate',
+    ] as const;
+    for (const key of EDITABLE) {
+      if (dto[key] !== undefined) (product as any)[key] = dto[key];
+    }
     return this.repo.save(product);
   }
 

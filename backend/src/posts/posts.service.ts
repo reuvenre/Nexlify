@@ -20,7 +20,14 @@ const ALI_API = 'https://api-sg.aliexpress.com/sync';
  */
 function mdBoldToHtml(s: string): string {
   if (!s) return s;
+  // Escape HTML-special chars FIRST so raw product titles containing < > & (common on
+  // AliExpress, e.g. "Cable 3in1 <Type-C & Lightning>") can't break Telegram's
+  // parse_mode:HTML rendering. Then insert our own <b> tags — they're added after
+  // escaping so they stay valid markup.
   return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
     .replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>')
     .replace(/__(.+?)__/gs, '<b>$1</b>')
     .replace(/\*\*/g, '')   // drop any unmatched leftover asterisks
@@ -206,6 +213,16 @@ export class PostsService {
       ? product.sale_price
       : +(product.sale_price * rate).toFixed(2);
 
+    // Keep the *_usd columns denominated in USD. When the incoming price is already in the
+    // target currency (₪), back-convert to USD instead of storing ₪ in a *_usd field —
+    // otherwise every profit/earnings figure derived from these columns is off by ~1/rate.
+    const saleUsd = priceAlreadyConverted && rate > 0
+      ? +(product.sale_price / rate).toFixed(2)
+      : product.sale_price;
+    const origUsd = priceAlreadyConverted && rate > 0
+      ? +(product.original_price / rate).toFixed(2)
+      : product.original_price;
+
     const text = await this.generateText(
       product as any,
       'he',
@@ -229,8 +246,8 @@ export class PostsService {
       product_title: product.title,
       product_image: product.image_url,
       affiliate_url: product.affiliate_url,
-      original_price_usd: product.original_price,
-      sale_price_usd: product.sale_price,
+      original_price_usd: origUsd,
+      sale_price_usd: saleUsd,
       price_ils: priceIls,
       generated_text: text,
       status: 'queued',
@@ -241,8 +258,15 @@ export class PostsService {
     return this.repo.save(post);
   }
 
-  /** Finds and sends the next queued post for a user. Returns true if a post was sent. */
-  async processNextQueuedPost(userId: string): Promise<boolean> {
+  /**
+   * Sends the next queued post for a user. Returns:
+   *  • { sent: false } when the queue is empty (nothing consumed)
+   *  • { sent: true, ok: true }  on a successful publish
+   *  • { sent: true, ok: false, error } when a post was consumed but publishing failed
+   * sendToTelegram swallows channel errors and marks the post 'failed', so we surface
+   * that outcome here instead of always reporting success.
+   */
+  async processNextQueuedPost(userId: string): Promise<{ sent: boolean; ok?: boolean; error?: string }> {
     const next = await this.repo
       .createQueryBuilder('p')
       .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
@@ -250,13 +274,15 @@ export class PostsService {
       .addOrderBy('p.created_at', 'ASC')
       .getOne();
 
-    if (!next) return false;
+    if (!next) return { sent: false };
 
     const creds = await this.credentials.getRaw(userId);
     next.status = 'pending';
     await this.repo.save(next);
     await this.sendToTelegram(next, creds);
-    return true;
+    // sendToTelegram mutates next.status in place ('sent' | 'failed'); TS still sees the
+    // 'pending' we assigned above, so compare via a widened string.
+    return { sent: true, ok: (next.status as string) === 'sent', error: next.error_message || undefined };
   }
 
   /** Removes a post from the queue */
