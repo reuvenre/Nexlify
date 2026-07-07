@@ -29,6 +29,9 @@ import type {
   ValidateResult,
   AdminUser,
   AdminStats,
+  SubscriptionStatus,
+  PlanDef,
+  BillingCycle,
 } from '@/types';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -219,6 +222,20 @@ export const adsApi = {
 export const adminApi = {
   users: () => http.get<AdminUser[]>('/admin/users').then(extract),
   stats: () => http.get<AdminStats>('/admin/stats').then(extract),
+  setSubscription: (userId: string, plan: string, billing?: BillingCycle) =>
+    http.patch<SubscriptionStatus>(`/admin/users/${userId}/subscription`, { plan, billing }).then(extract),
+};
+
+// ─── Subscription API ────────────────────────────────────────────────────────
+
+export const subscriptionApi = {
+  /** Current plan, credit balance and limits. */
+  status: () => http.get<SubscriptionStatus>('/subscription').then(extract),
+  /** Plan catalog — prices/credits/limits come from the backend, never hardcode. */
+  plans: () => http.get<PlanDef[]>('/subscription/plans').then(extract),
+  /** Demo-mode purchase: activates the plan immediately (no payment gateway yet). */
+  switchPlan: (plan: string, billing: BillingCycle) =>
+    http.post<SubscriptionStatus>('/subscription/switch', { plan, billing }).then(extract),
 };
 
 // ─── Discovery API ───────────────────────────────────────────────────────────

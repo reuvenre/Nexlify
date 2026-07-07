@@ -7,6 +7,9 @@ import { encrypt, decrypt, mask } from '../common/crypto';
 import axios from 'axios';
 
 export interface DecryptedCredentials {
+  /** Owner of these credentials — lets downstream services (AI, publishing)
+   *  attribute usage/credits without changing every call signature. */
+  user_id?: string;
   aliexpress_app_key?: string;
   aliexpress_app_secret?: string;
   aliexpress_tracking_id?: string;
@@ -248,6 +251,7 @@ export class CredentialsService {
     const cred = await this.repo.findOne({ where: { user_id: userId } });
     if (!cred) return null;
     return {
+      user_id: cred.user_id,
       aliexpress_app_key: cred.aliexpress_app_key,
       aliexpress_app_secret: decrypt(cred.aliexpress_app_secret_enc),
       aliexpress_tracking_id: cred.aliexpress_tracking_id,

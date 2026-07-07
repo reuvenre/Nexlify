@@ -5,6 +5,8 @@ export interface User {
   email: string;
   role?: 'user' | 'admin';
   footer_text?: string;
+  subscription_plan?: PlanId;
+  credits_remaining?: number;
   created_at: string;
 }
 
@@ -14,8 +16,36 @@ export interface AdminUser {
   role: 'user' | 'admin';
   created_at: string;
   via_google: boolean;
+  subscription_plan?: PlanId;
+  credits_remaining?: number;
   posts_count: number;
   campaigns_count: number;
+}
+
+// ─── Subscription ────────────────────────────────────────────────────────────
+
+export type PlanId = 'starter' | 'growth' | 'autopilot' | 'scale';
+export type BillingCycle = 'monthly' | 'annual';
+
+export interface PlanDef {
+  id: PlanId;
+  name: string;
+  price_monthly: number;
+  price_annual: number;
+  monthly_credits: number;
+  max_groups: number | null;
+  popular: boolean;
+}
+
+export interface SubscriptionStatus {
+  plan: PlanId;
+  plan_name: string;
+  billing: BillingCycle;
+  price: number;
+  credits_remaining: number;
+  monthly_credits: number;
+  max_groups: number | null;
+  renews_at: string | null;
 }
 
 export interface AdminStats {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { User, ShoppingBag, Plug, ShieldCheck, Bell, CreditCard, ListOrdered, Calculator } from 'lucide-react';
 import { CredentialsForm }    from '@/components/settings/CredentialsForm';
 import { ProfileForm }        from '@/components/settings/ProfileForm';
@@ -27,6 +27,13 @@ const TABS: { id: Tab; label: string; icon: React.ElementType; desc: string }[] 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('marketplaces');
   const active = TABS.find((t) => t.id === tab)!;
+
+  // Deep-link support: /settings?tab=subscription opens the requested tab (read via
+  // window.location instead of useSearchParams to avoid a Suspense boundary requirement).
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('tab') as Tab | null;
+    if (wanted && TABS.some((t) => t.id === wanted)) setTab(wanted);
+  }, []);
 
   return (
     <div>

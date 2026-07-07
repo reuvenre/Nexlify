@@ -400,7 +400,7 @@ export default function GroupsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">ניהול ערוצים</h1>
-          <p className="text-sm text-white/40 mt-1">נהל ערוצי פרסום ב-Telegram, WhatsApp ופייסבוק</p>
+          <p className="text-sm text-white/40 mt-1">נהל את ערוצי הפרסום שלך ב-Telegram (WhatsApp ואינסטגרם — בקרוב)</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
@@ -431,21 +431,9 @@ export default function GroupsPage() {
         </div>
       )}
 
-      {/* Platform filters */}
-      {!loading && channels.length > 0 && (
-        <div className="flex gap-2 mb-5 flex-wrap">
-          {['הכל', 'Telegram', 'WhatsApp', 'Facebook', 'Instagram'].map((p) => (
-            <button key={p}
-              onClick={() => setPlatformFilter(p)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all
-                ${platformFilter === p
-                  ? 'bg-blue-600/20 text-blue-400 border-blue-500/30'
-                  : 'bg-white/3 text-white/40 border-edge hover:border-white/20 hover:text-white/60'}`}>
-              {p}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Platform filters intentionally removed — only Telegram is live today, so a
+          filter row (with WhatsApp/Facebook/Instagram options that match nothing)
+          just looked broken. Restore once a second platform ships. */}
 
       {loading ? (
         <div className="flex justify-center py-20">

@@ -8,6 +8,7 @@ import { Campaign } from '../campaigns/campaign.entity';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
 import { AiService } from '../ai/ai.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
 
@@ -44,6 +45,7 @@ export class PostsService {
     private readonly credentials: CredentialsService,
     private readonly rates: RatesService,
     private readonly ai: AiService,
+    private readonly subscription: SubscriptionService,
   ) {}
 
   /** Resolve the user's default footer template content (appended to every post). */
@@ -440,6 +442,21 @@ export class PostsService {
     const errors: string[] = [];
     let anySuccess = false;
 
+    // Plan enforcement: publishing a post costs credits (flat per post, however many
+    // platforms it fans out to). Consumed up front so a user can't burn through the
+    // queue with an empty balance; interactive callers see the failed post + message.
+    if (post.user_id) {
+      const ok = await this.subscription.tryConsume(
+        post.user_id, this.subscription.costs.publish, 'publish',
+      );
+      if (!ok) {
+        post.status = 'failed';
+        post.error_message = 'נגמרו הקרדיטים בתוכנית שלך — שדרג תוכנית בהגדרות ← מנוי';
+        await this.repo.save(post);
+        return;
+      }
+    }
+
     // Only append the affiliate link if it's not already present in the text
     // (the frontend may have already included it in the generated_text)
     const linkAlreadyInText = post.affiliate_url && post.generated_text.includes(post.affiliate_url);
@@ -638,6 +655,15 @@ export class PostsService {
     // No AI provider configured at all → deterministic fallback copy.
     if (!this.ai.hasAnyKey(creds)) {
       return this.defaultText(product, priceLocal, originalLocal, discount, language, symbol);
+    }
+
+    // Plan enforcement: AI generation costs credits. Out of credits → block with
+    // the standard upgrade message (template fallback text stays free — only the
+    // AI call is billed).
+    if (creds?.user_id) {
+      await this.subscription.consumeOrThrow(
+        creds.user_id, this.subscription.costs.ai_generate, 'ai_generate',
+      );
     }
 
     // When the user supplies a custom template it becomes the AUTHORITATIVE

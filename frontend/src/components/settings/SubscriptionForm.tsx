@@ -1,116 +1,170 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, Zap, Loader2, CheckCircle2 } from 'lucide-react';
+import { subscriptionApi } from '@/lib/api-client';
+import type { BillingCycle, PlanDef, SubscriptionStatus } from '@/types';
 
-type Billing = 'monthly' | 'annual';
-
-const PLANS = [
-  {
-    id: 'starter',
-    name: 'Starter',
-    priceMonthly: 69,
-    priceAnnual: 55,
-    credits: 500,
-    groups: '1',
-    groupsLabel: '1 קבוצות',
-    current: false,
-    popular: false,
-    features: ['AliExpress', 'טלגרם', 'כותב תוכן AI', 'פרסום אוטומטי'],
+// Feature lists are marketing copy (what each tier includes). Numbers (price,
+// credits, groups) come from the backend catalog — single source of truth.
+// Features not yet live in the product are explicitly tagged "בקרוב" so the
+// pricing page never promises something a customer can't find.
+const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: string; soon?: boolean }[] }> = {
+  starter: {
     includesLabel: 'כולל',
+    features: [
+      { label: 'AliExpress' },
+      { label: 'טלגרם' },
+      { label: 'כותב תוכן AI' },
+      { label: 'פרסום אוטומטי' },
+    ],
   },
-  {
-    id: 'growth',
-    name: 'Growth',
-    priceMonthly: 149,
-    priceAnnual: 119,
-    credits: 1500,
-    groups: '5',
-    groupsLabel: '5 קבוצות',
-    current: true,
-    popular: true,
-    features: ['פרסום חוזר אוטומטי', 'אינטגרציית אמזון', 'מעקב פוסטים', 'וואטסאפ', 'פייסבוק', 'אינסטגרם', 'משפר תמונות AI'],
+  growth: {
     includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
+    features: [
+      { label: 'פייסבוק' },
+      { label: 'תור פרסום חכם' },
+      { label: 'האצת מודעות אוטומטית (Meta)' },
+      { label: 'וואטסאפ', soon: true },
+      { label: 'אינסטגרם', soon: true },
+      { label: 'משפר תמונות AI', soon: true },
+    ],
   },
-  {
-    id: 'autopilot',
-    name: 'Autopilot',
-    priceMonthly: 259,
-    priceAnnual: 207,
-    credits: 3000,
-    groups: '10',
-    groupsLabel: '10 קבוצות',
-    current: false,
-    popular: false,
-    features: ['מצב טייס אוטומטי', 'גילוי מוצרים AI'],
+  autopilot: {
     includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
+    features: [
+      { label: 'גילוי מוצרים AI' },
+      { label: 'סוכני AI לניהול קמפיינים' },
+      { label: 'אינטגרציית אמזון', soon: true },
+    ],
   },
-  {
-    id: 'scale',
-    name: 'Scale',
-    priceMonthly: 449,
-    priceAnnual: 359,
-    credits: 6000,
-    groups: '∞',
-    groupsLabel: 'ללא הגבלה',
-    current: false,
-    popular: false,
-    features: ['פינטרסט'],
+  scale: {
     includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
+    features: [
+      { label: 'קבוצות ללא הגבלה' },
+      { label: 'פינטרסט', soon: true },
+    ],
   },
-];
+};
 
 export function SubscriptionForm() {
-  const [billing, setBilling] = useState<Billing>('monthly');
+  const [billing, setBilling] = useState<BillingCycle>('monthly');
+  const [plans, setPlans] = useState<PlanDef[]>([]);
+  const [status, setStatus] = useState<SubscriptionStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [switched, setSwitched] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([subscriptionApi.plans(), subscriptionApi.status()])
+      .then(([p, s]) => {
+        setPlans(p);
+        setStatus(s);
+        setBilling(s.billing || 'monthly');
+      })
+      .catch(() => setError('טעינת פרטי המנוי נכשלה'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handlePurchase = async (planId: string) => {
+    setSwitching(planId);
+    setError(null);
+    try {
+      const s = await subscriptionApi.switchPlan(planId, billing);
+      setStatus(s);
+      setSwitched(planId);
+      setTimeout(() => setSwitched(null), 2500);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'החלפת התוכנית נכשלה');
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-white/40">
+        <Loader2 size={20} className="animate-spin ml-2" /> טוען פרטי מנוי...
+      </div>
+    );
+  }
+
+  const creditsPct = status && status.monthly_credits > 0
+    ? Math.min(100, Math.round((status.credits_remaining / status.monthly_credits) * 100))
+    : 0;
+  const renewsLabel = status?.renews_at
+    ? new Date(status.renews_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' })
+    : '—';
+  const annualSaving = (() => {
+    const p = plans.find((x) => x.id === status?.plan);
+    return p ? (p.price_monthly - p.price_annual) * 12 : 0;
+  })();
 
   return (
     <div className="space-y-6" dir="rtl">
-      {/* Header banner */}
-      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 flex items-center gap-3">
-        <span className="text-xs bg-blue-600 text-white rounded-full px-2.5 py-0.5 font-semibold">ניסיון</span>
-        <span className="text-xs text-white/60">מתאפס ב 25 באפר׳</span>
-        <div className="mr-auto flex items-center gap-3 text-xs text-white/50">
-          <span>מתאפס ב 25 באפר׳</span>
-          <span>·</span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-            0 /חודש
+      {/* Current plan + credits banner (live data) */}
+      {status && (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+          <span className="text-xs bg-blue-600 text-white rounded-full px-2.5 py-0.5 font-semibold">
+            {status.plan_name}
           </span>
+          <span className="text-xs text-white/60">הקרדיטים מתחדשים ב-{renewsLabel}</span>
+          <div className="mr-auto flex items-center gap-3 text-xs text-white/50">
+            <span className="flex items-center gap-1.5">
+              <Zap size={11} className="text-amber-400" />
+              {status.credits_remaining.toLocaleString()} / {status.monthly_credits.toLocaleString()} קרדיטים
+            </span>
+            <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-violet-500 to-blue-500 rounded-full transition-all"
+                style={{ width: `${creditsPct}%` }}
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
+      )}
 
       {/* Billing toggle */}
       <div className="flex items-center justify-center gap-3">
         <span className={`text-sm font-medium transition-colors ${billing === 'monthly' ? 'text-white' : 'text-white/40'}`}>חודשי</span>
-        <div className="relative">
-          <button
-            onClick={() => setBilling(billing === 'monthly' ? 'annual' : 'monthly')}
-            className={`relative w-11 h-6 rounded-full transition-colors ${billing === 'annual' ? 'bg-blue-600' : 'bg-white/15'}`}
-          >
-            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${billing === 'annual' ? 'right-0.5' : 'right-5'}`} />
-          </button>
-        </div>
+        <button
+          onClick={() => setBilling(billing === 'monthly' ? 'annual' : 'monthly')}
+          className={`relative w-11 h-6 rounded-full transition-colors ${billing === 'annual' ? 'bg-blue-600' : 'bg-white/15'}`}
+        >
+          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${billing === 'annual' ? 'right-0.5' : 'right-5'}`} />
+        </button>
         <span className={`text-sm font-medium transition-colors ${billing === 'annual' ? 'text-white' : 'text-white/40'}`}>שנתי</span>
-        {billing === 'annual' && (
+        {billing === 'annual' && annualSaving > 0 && (
           <span className="text-2xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full px-2 py-0.5 font-medium">
-            חסון ₪298
+            חיסכון ₪{annualSaving.toLocaleString()} בשנה
           </span>
         )}
       </div>
 
-      {/* Plans grid */}
+      {/* Plans grid (catalog from backend) */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {PLANS.map((plan) => {
-          const price = billing === 'annual' ? plan.priceAnnual : plan.priceMonthly;
+        {plans.map((plan) => {
+          const price = billing === 'annual' ? plan.price_annual : plan.price_monthly;
+          const isCurrent = status?.plan === plan.id;
+          const isSwitching = switching === plan.id;
+          const justSwitched = switched === plan.id;
+          const meta = PLAN_FEATURES[plan.id] || { includesLabel: 'כולל', features: [] };
+          const groupsLabel = plan.max_groups === null ? 'ללא הגבלה' : `${plan.max_groups} קבוצות`;
+
           return (
             <div
               key={plan.id}
               className={`relative flex flex-col rounded-2xl border p-5 transition-all
-                ${plan.current
+                ${isCurrent
                   ? 'bg-blue-600/10 border-blue-500/50 ring-1 ring-blue-500/30'
                   : 'bg-surface-secondary border-edge hover:border-white/20'}`}
             >
-              {plan.popular && (
+              {plan.popular && !isCurrent && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <span className="bg-blue-600 text-white text-2xs font-bold rounded-full px-3 py-1 whitespace-nowrap">
                     הבחירה הפופולרית
@@ -118,50 +172,57 @@ export function SubscriptionForm() {
                 </div>
               )}
 
-              {/* Plan header */}
               <div className="mb-4 text-center">
                 <p className="text-base font-bold text-white mb-1">{plan.name}</p>
                 <div className="flex items-baseline justify-center gap-1">
                   <span className="text-3xl font-extrabold text-white">₪{price}</span>
-                  <span className="text-xs text-white/40">חודש</span>
+                  <span className="text-xs text-white/40">לחודש</span>
                 </div>
-                <p className="text-2xs text-white/30 mt-0.5">מתחדש מדי חודש</p>
+                <p className="text-2xs text-white/30 mt-0.5">
+                  {billing === 'annual' ? 'בחיוב שנתי' : 'מתחדש מדי חודש'}
+                </p>
               </div>
 
-              {/* Credits + groups */}
               <div className="flex justify-center gap-4 mb-4 text-xs">
                 <div className="flex items-center gap-1 text-white/60">
                   <Zap size={11} className="text-amber-400" />
-                  {plan.credits.toLocaleString()} קרדיטים
+                  {plan.monthly_credits.toLocaleString()} קרדיטים
                 </div>
                 <div className="flex items-center gap-1 text-white/60">
                   <span>📡</span>
-                  {plan.groupsLabel}
+                  {groupsLabel}
                 </div>
               </div>
 
-              {/* CTA button */}
               <button
-                disabled={plan.current}
-                className={`w-full py-2.5 rounded-xl text-sm font-semibold mb-4 transition-all
-                  ${plan.current
+                onClick={() => !isCurrent && handlePurchase(plan.id)}
+                disabled={isCurrent || switching !== null}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold mb-4 transition-all
+                  ${isCurrent
                     ? 'bg-blue-600 text-white cursor-default'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+                    : justSwitched
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white'}`}
               >
-                {plan.current ? 'התוכנית הנוכחית' : 'לרכישה'}
+                {isSwitching ? <Loader2 size={14} className="animate-spin" /> : justSwitched ? <CheckCircle2 size={14} /> : null}
+                {isCurrent ? 'התוכנית הנוכחית' : isSwitching ? 'מפעיל...' : justSwitched ? 'הופעל!' : 'לרכישה'}
               </button>
-              {!plan.current && (
+              {!isCurrent && !isSwitching && (
                 <p className="text-[9px] text-white/25 text-center -mt-3 mb-3">ניתן לבטל בכל עת, ללא התחייבות</p>
               )}
 
-              {/* Features */}
               <div className="border-t border-edge pt-3 mt-auto">
-                <p className="text-2xs font-semibold text-white/40 mb-2">{plan.includesLabel}</p>
+                <p className="text-2xs font-semibold text-white/40 mb-2">{meta.includesLabel}</p>
                 <ul className="space-y-1.5">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-xs text-white/60">
-                      <Check size={11} className="text-emerald-400 shrink-0" />
-                      {f}
+                  {meta.features.map((f) => (
+                    <li key={f.label} className="flex items-center gap-2 text-xs text-white/60">
+                      <Check size={11} className={`shrink-0 ${f.soon ? 'text-white/25' : 'text-emerald-400'}`} />
+                      <span className={f.soon ? 'text-white/35' : ''}>{f.label}</span>
+                      {f.soon && (
+                        <span className="text-[9px] bg-white/5 border border-white/10 text-white/35 rounded-full px-1.5 py-px">
+                          בקרוב
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

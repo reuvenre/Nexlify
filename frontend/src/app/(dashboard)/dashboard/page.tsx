@@ -8,8 +8,8 @@ import {
   Users, Zap, RefreshCw, Bot,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { campaignsApi, postsApi, earningsApi, credentialsApi, channelsApi } from '@/lib/api-client';
-import type { Post, EarningsSummary } from '@/types';
+import { campaignsApi, postsApi, earningsApi, credentialsApi, channelsApi, subscriptionApi } from '@/lib/api-client';
+import type { Post, EarningsSummary, SubscriptionStatus } from '@/types';
 
 // ── Onboarding steps ──────────────────────────────────────────────────────────
 
@@ -58,6 +58,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState({ campaigns: 0, activeCampaigns: 0, totalPosts: 0, sentToday: 0, channels: 0 });
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [steps, setSteps] = useState<SetupStep[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -66,13 +67,15 @@ export default function DashboardPage() {
   const load = async () => {
     setIsLoading(true);
     try {
-      const [camps, posts, earn, creds, channels] = await Promise.all([
+      const [camps, posts, earn, creds, channels, sub] = await Promise.all([
         campaignsApi.list({ limit: 100 }),
         postsApi.list({ limit: 5 }),
         earningsApi.summary({ period: '30d' }),
         credentialsApi.get().catch(() => null),
         channelsApi.list().catch(() => []),
+        subscriptionApi.status().catch(() => null),
       ]);
+      setSubscription(sub);
 
       const sentPosts = posts.data.filter((p) => {
         const today = new Date().toDateString();
@@ -198,19 +201,30 @@ export default function DashboardPage() {
         <StatCard label="ערוצים"         value={isLoading ? '—' : stats.channels}                         sub="ערוצי טלגרם"                         icon={Users}      accent="cyan" />
         <StatCard label="הכנסות (30 יום)" value={isLoading ? '—' : `₪${totalEarnings.toFixed(0)}`}        sub="מוסדר + משוער"                       icon={DollarSign}  accent="green" />
         <StatCard label="עמלה מוסדרת"    value={isLoading ? '—' : `₪${(earnings?.total_settled ?? 0).toFixed(0)}`} sub="30 ימים אחרונים"            icon={TrendingUp}  accent="amber" />
-        <div className="card p-5 group transition-all duration-300 hover:-translate-y-0.5 hover:border-edge-hover">
+        <Link href="/settings?tab=subscription" className="card p-5 group transition-all duration-300 hover:-translate-y-0.5 hover:border-edge-hover block">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-white/40">קרדיטים AI</p>
+            <p className="text-xs text-white/40">קרדיטים ({subscription?.plan_name || '—'})</p>
             <span className="w-7 h-7 rounded-lg border border-violet-500/20 flex items-center justify-center text-violet-300 bg-gradient-to-br from-violet-500/20 to-violet-500/5 transition-transform duration-300 group-hover:scale-110">
               <Bot size={14} />
             </span>
           </div>
-          <p className="text-2xl font-bold text-white">1,243</p>
+          <p className="text-2xl font-bold text-white">
+            {isLoading || !subscription ? '—' : subscription.credits_remaining.toLocaleString()}
+          </p>
           <div className="mt-2 h-1.5 bg-white/5 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-violet-500 to-blue-500 rounded-full" style={{ width: '82.9%' }} />
+            <div
+              className="h-full bg-gradient-to-r from-violet-500 to-blue-500 rounded-full transition-all"
+              style={{
+                width: subscription && subscription.monthly_credits > 0
+                  ? `${Math.min(100, Math.round((subscription.credits_remaining / subscription.monthly_credits) * 100))}%`
+                  : '0%',
+              }}
+            />
           </div>
-          <p className="text-xs text-white/30 mt-1">/ 1,500 החודש</p>
-        </div>
+          <p className="text-xs text-white/30 mt-1">
+            {subscription ? `/ ${subscription.monthly_credits.toLocaleString()} החודש` : 'טוען...'}
+          </p>
+        </Link>
       </div>
 
       {/* Main layout: recent posts + mini earnings */}

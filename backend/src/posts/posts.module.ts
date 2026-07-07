@@ -7,6 +7,7 @@ import { PostsController } from './posts.controller';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { RatesModule } from '../rates/rates.module';
 import { AiModule } from '../ai/ai.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AiModule } from '../ai/ai.module';
     CredentialsModule,
     RatesModule,
     AiModule,
+    SubscriptionModule,
   ],
   providers: [PostsService],
   controllers: [PostsController],

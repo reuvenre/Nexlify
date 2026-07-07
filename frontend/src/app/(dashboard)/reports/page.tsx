@@ -8,14 +8,6 @@ import {
 import { earningsApi, postsApi } from '@/lib/api-client';
 import type { EarningsSummary } from '@/types';
 
-const PERIODS = [
-  { label: 'היום',      value: '7d'  as const },
-  { label: '7 ימים',   value: '7d'  as const },
-  { label: '30 ימים',  value: '30d' as const },
-  { label: '90 ימים',  value: '90d' as const },
-  { label: 'הכל',      value: 'all' as const },
-] as const;
-
 const UNIQUE_PERIODS = [
   { label: '7 ימים',   value: '7d'  as const },
   { label: '30 ימים',  value: '30d' as const },

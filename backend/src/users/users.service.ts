@@ -41,6 +41,7 @@ export class UsersService implements OnModuleInit {
   async listAll(): Promise<any[]> {
     return this.repo.query(`
       SELECT u.id, u.email, u.role, u.created_at,
+             u.subscription_plan, u.credits_remaining,
              (u.google_id IS NOT NULL) AS via_google,
              (SELECT COUNT(*)::int FROM posts p WHERE p.user_id = u.id) AS posts_count,
              (SELECT COUNT(*)::int FROM campaigns c WHERE c.user_id = u.id) AS campaigns_count
@@ -141,6 +142,8 @@ export class UsersService implements OnModuleInit {
       email: user.email,
       role: user.role || 'user',
       footer_text: user.footer_text,
+      subscription_plan: user.subscription_plan || 'starter',
+      credits_remaining: user.credits_remaining ?? 0,
       created_at: user.created_at,
     };
   }

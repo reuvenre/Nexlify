@@ -1,16 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
 import { Channel } from './channel.entity';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { encrypt, decrypt, mask, normalizeTelegramChatId } from '../common/crypto';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 @Injectable()
 export class ChannelsService {
   constructor(
     @InjectRepository(Channel)
     private readonly repo: Repository<Channel>,
+    private readonly subscription: SubscriptionService,
   ) {}
 
   async list(userId: string) {
@@ -26,6 +28,17 @@ export class ChannelsService {
   }
 
   async create(userId: string, dto: CreateChannelDto) {
+    // Plan enforcement: each plan allows a max number of channels/groups.
+    const maxGroups = await this.subscription.getMaxGroups(userId);
+    if (maxGroups !== null) {
+      const count = await this.repo.count({ where: { user_id: userId } });
+      if (count >= maxGroups) {
+        throw new BadRequestException(
+          `הגעת למגבלת ${maxGroups} הקבוצות של התוכנית שלך — שדרג תוכנית בהגדרות ← מנוי כדי להוסיף עוד`,
+        );
+      }
+    }
+
     const channel = this.repo.create({
       user_id: userId,
       name: dto.name,
