@@ -92,6 +92,7 @@ export default function QuickPostPage() {
   const [isPosting, setIsPosting] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [posted, setPosted] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // ── Infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -258,6 +259,7 @@ export default function QuickPostPage() {
   // ── Generate preview
   const handleGenerate = async (editedProduct: AliProduct & { price_ils: number }) => {
     setIsLoadingPreview(true);
+    setPreviewError(null);
     try {
       const p = await postsApi.preview(editedProduct.product_id, postLang, editedProduct, selectedTemplate.content || undefined);
       // Append affiliate link if available and not already in text
@@ -265,6 +267,12 @@ export default function QuickPostPage() {
         p.generated_text = p.generated_text + '\n\n🔗 ' + affiliateUrl;
       }
       setPreview(p);
+    } catch (e: any) {
+      // Surface the real reason instead of the button silently doing nothing.
+      const msg = e?.code === 'ECONNABORTED'
+        ? 'יצירת הפוסט ארכה יותר מדי (ייתכן שהשרת התעורר מ-sleep) — נסה שוב'
+        : e?.response?.data?.message || 'יצירת הפוסט נכשלה — נסה שוב';
+      setPreviewError(msg);
     } finally {
       setIsLoadingPreview(false);
     }
@@ -471,6 +479,13 @@ export default function QuickPostPage() {
             {isLoadingPreview && !preview && (
               <div className="bg-surface-secondary border border-edge rounded-xl p-10 flex justify-center">
                 <Loader2 size={20} className="animate-spin text-blue-400" />
+              </div>
+            )}
+
+            {/* Preview error */}
+            {previewError && !isLoadingPreview && (
+              <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">
+                {previewError}
               </div>
             )}
 

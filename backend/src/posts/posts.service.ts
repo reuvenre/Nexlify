@@ -19,20 +19,29 @@ const ALI_API = 'https://api-sg.aliexpress.com/sync';
  * emit Markdown even when asked for HTML; Telegram with parse_mode=HTML renders the
  * asterisks literally, so we normalise them to <b> (and strip stray ** that remain).
  */
+// Telegram parse_mode=HTML supports only this small set of tags. We escape everything
+// first (so a raw product title like "Cable <Type-C & Lightning>" can't break the
+// parser) and then RESTORE these specific tags — the ones the AI is instructed to emit
+// for formatting. Everything else stays safely escaped.
+const TG_TAGS = 'b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler';
+
 function mdBoldToHtml(s: string): string {
   if (!s) return s;
-  // Escape HTML-special chars FIRST so raw product titles containing < > & (common on
-  // AliExpress, e.g. "Cable 3in1 <Type-C & Lightning>") can't break Telegram's
-  // parse_mode:HTML rendering. Then insert our own <b> tags — they're added after
-  // escaping so they stay valid markup.
-  return s
+  let out = s
+    // 1. Escape all HTML-special chars.
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+    // 2. Convert any Markdown bold the model still emits (inserted un-escaped → clean).
     .replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>')
     .replace(/__(.+?)__/gs, '<b>$1</b>')
-    .replace(/\*\*/g, '')   // drop any unmatched leftover asterisks
-    .trim();
+    .replace(/\*\*/g, '');
+  // 3. Restore the Telegram-allowed formatting tags the model emits on purpose
+  //    (they were escaped in step 1 → bring the whitelisted ones back).
+  out = out.replace(new RegExp(`&lt;(/?(?:${TG_TAGS}))&gt;`, 'gi'), '<$1>');
+  // 3b. Restore <a href="..."> links (rare — the model is told not to add links).
+  out = out.replace(/&lt;a href=(?:&quot;|")(.*?)(?:&quot;|")&gt;/gi, '<a href="$1">');
+  return out.trim();
 }
 
 @Injectable()
