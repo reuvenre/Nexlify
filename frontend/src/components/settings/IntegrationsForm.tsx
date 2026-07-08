@@ -74,6 +74,12 @@ export function IntegrationsForm() {
   const handleVerify = async () => {
     setVerifying(true);
     try {
+      // verify() checks the SAVED credentials, not what's currently typed. If the user
+      // pasted a new token/bot secret but hasn't saved, persist it first — otherwise the
+      // check runs against the old saved state and confusingly reports "not entered".
+      if (fbToken.trim() || botToken.trim()) {
+        await handleSave();
+      }
       const res = await credentialsApi.verify();
       setTelegramOk(res.telegram);
       setFacebookOk(res.facebook);
