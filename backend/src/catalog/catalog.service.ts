@@ -6,6 +6,9 @@ import { Repository, Like, FindOptionsWhere } from 'typeorm';
 import { CatalogProduct, CatalogStatus } from './catalog-product.entity';
 import { ProductsService } from '../products/products.service';
 import { PostsService } from '../posts/posts.service';
+import { AiService } from '../ai/ai.service';
+import { CredentialsService } from '../credentials/credentials.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 @Injectable()
 export class CatalogService {
@@ -14,6 +17,9 @@ export class CatalogService {
     private readonly repo: Repository<CatalogProduct>,
     private readonly productsService: ProductsService,
     private readonly postsService: PostsService,
+    private readonly ai: AiService,
+    private readonly credentials: CredentialsService,
+    private readonly subscription: SubscriptionService,
   ) {}
 
   // ── List ──────────────────────────────────────────────────────────────────
@@ -252,31 +258,79 @@ export class CatalogService {
     const products = await this.repo.find({ where: { user_id: userId } });
     let updated = 0;
     let failed = 0;
-    const BATCH = 5;
 
-    for (let i = 0; i < products.length; i += BATCH) {
-      const slice = products.slice(i, i + BATCH);
-      await Promise.all(slice.map(async (product) => {
-        try {
-          const ali = await this.productsService.refreshPrice(userId, product.product_id);
-          if (ali && ali.sale_price > 0) {
-            product.original_price = ali.original_price;
-            product.sale_price = ali.sale_price;
-            product.currency = ali.currency;
-            product.discount_percent = ali.discount_percent;
-            product.synced_at = new Date();
-            await this.repo.save(product);
-            updated++;
-          } else {
-            failed++;
-          }
-        } catch {
+    // SEQUENTIAL with pacing — the AliExpress gateway bans bursts (>~1 req/sec,
+    // "ApiCallLimit"). The previous 5-concurrent batches tripped that ban and
+    // products randomly "failed" to re-price.
+    for (let i = 0; i < products.length; i++) {
+      const product = products[i];
+      if (i > 0) await new Promise((r) => setTimeout(r, 700));
+      try {
+        const ali = await this.productsService.refreshPrice(userId, product.product_id);
+        if (ali && ali.sale_price > 0) {
+          product.original_price = ali.original_price;
+          product.sale_price = ali.sale_price;
+          product.currency = ali.currency;
+          product.discount_percent = ali.discount_percent;
+          product.synced_at = new Date();
+          await this.repo.save(product);
+          updated++;
+        } else {
           failed++;
         }
-      }));
+      } catch {
+        failed++;
+      }
     }
 
     return { total: products.length, updated, failed };
+  }
+
+  // ── AI product description ────────────────────────────────────────────────
+
+  /**
+   * Generates a factual Hebrew product description from the REAL data the
+   * Affiliate API provides (title, category, price, discount, sales, rating).
+   * The API exposes no description field and the product page is a JS shell,
+   * so an AI summary grounded in verified facts is the only reliable source.
+   * Costs the standard AI-generation credits.
+   */
+  async generateDescription(userId: string, id: string) {
+    const product = await this.findOne(userId, id);
+    const creds = await this.credentials.getRaw(userId);
+    if (!this.ai.hasAnyKey(creds)) {
+      throw new BadRequestException('לא הוגדר מפתח AI — הגדר ספק AI בהגדרות ← שווקים');
+    }
+
+    await this.subscription.consumeOrThrow(userId, this.subscription.costs.ai_generate, 'ai_generate_description');
+
+    const facts = [
+      `שם המוצר (באנגלית): ${product.title}`,
+      product.category ? `קטגוריה: ${product.category}` : null,
+      product.sale_price > 0 ? `מחיר נוכחי: ₪${product.sale_price}` : null,
+      product.discount_percent > 0 ? `הנחה: ${product.discount_percent}%` : null,
+      product.orders_count > 0 ? `הזמנות אחרונות: ${product.orders_count}` : null,
+      product.rating > 0 ? `דירוג: ${product.rating}/5` : null,
+    ].filter(Boolean).join('\n');
+
+    const result = await this.ai.generate(creds, {
+      system: `אתה כותב תיאורי מוצר קצרים ומדויקים בעברית לקטלוג מסחרי.
+חוקים:
+• 2-4 משפטים בלבד, ענייניים ומכירתיים במידה.
+• תאר אך ורק מה שניתן להסיק בביטחון משם המוצר והקטגוריה — אל תמציא מפרט טכני, מידות או חומרים שלא מופיעים בשם.
+• אל תכלול מחיר או קישור בתיאור.
+• עברית בלבד (שם מותג/דגם מותר להשאיר באנגלית).`,
+      prompt: `כתוב תיאור מוצר לפי הנתונים:\n${facts}`,
+      maxTokens: 300,
+      temperature: 0.6,
+    });
+
+    const description = result?.text?.trim();
+    if (!description) throw new BadRequestException('יצירת התיאור נכשלה — נסה שוב');
+
+    product.description = description;
+    await this.repo.save(product);
+    return { description };
   }
 
   // ── Affiliate link ────────────────────────────────────────────────────────

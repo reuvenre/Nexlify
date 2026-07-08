@@ -59,19 +59,22 @@ export class DiscoveryService {
         .map((p) => p.product_id),
     );
 
+    let first = true;
     for (const keyword of keywords) {
       try {
+        // Pace keyword loops — the AliExpress gateway bans bursts (>~1 req/sec).
+        if (!first) await new Promise((r) => setTimeout(r, 900));
+        first = false;
+
         // Source products straight from the AliExpress Affiliate API (free — no Apify).
         // Every result is affiliate-promotable, already priced in the target currency
-        // (₪) with a working affiliate link, sorted best-sellers first.
-        // Prefer hotproduct.query (the affiliate "hot products" feed — far more reliable
-        // and rarely returns "result is empty"); fall back to product.query if needed.
+        // (₪) with a working affiliate link.
+        // PRIMARY: product.query sorted by recent sales volume — full catalog search
+        // with far better keyword relevance. FALLBACK: search() itself falls back to
+        // the hotproduct feed when product.query returns empty for this account.
         // strict: true → a transient API failure throws (caught below) instead of
         // returning mock data that would otherwise be persisted as real products.
-        let items: any[] = (await this.products.getPromotional(userId, { keyword, limit: 50, strict: true })).data || [];
-        if (items.length === 0) {
-          items = (await this.products.search(userId, { keyword, limit: 50, sort: 'LAST_VOLUME_DESC', strict: true })).data || [];
-        }
+        let items: any[] = (await this.products.search(userId, { keyword, limit: 50, sort: 'LAST_VOLUME_DESC', strict: true })).data || [];
         // Defensive: never persist mock placeholders even if one slips through.
         items = items.filter((p) => !String(p.product_id ?? '').startsWith('mock-'));
         result.scraped += items.length;
@@ -101,6 +104,7 @@ export class DiscoveryService {
             image_url: p.image_url ?? '',
             product_url: p.product_url ?? '',
             affiliate_url: p.affiliate_url ?? p.product_url ?? '',
+            category: p.subcategory || p.category || '',
             keyword,
             orders_count: p.orders_count ?? 0,
             rating: p.rating ?? 0,

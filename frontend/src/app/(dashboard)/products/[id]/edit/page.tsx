@@ -94,6 +94,7 @@ export default function EditProductPage() {
   const [imageUrl, setImageUrl] = useState('');
   const [postText, setPostText] = useState('');
   const [generatingPost, setGeneratingPost] = useState(false);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
 
   useEffect(() => {
     catalogApi.get(id)
@@ -294,15 +295,38 @@ export default function EditProductPage() {
                   <Input value={keyword} onChange={setKeyword} placeholder="מילת מפתח" />
                 </Field>
               </div>
-              <Field label="תיאור" hint="עד 1000 תווים">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-white/45">תיאור</label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setGeneratingDesc(true);
+                      setError('');
+                      try {
+                        const { description: d } = await catalogApi.generateDescription(id);
+                        setDescription(d);
+                      } catch (e: any) {
+                        setError(e?.response?.data?.message || 'יצירת התיאור נכשלה');
+                      } finally {
+                        setGeneratingDesc(false);
+                      }
+                    }}
+                    disabled={generatingDesc}
+                    className="flex items-center gap-1.5 text-2xs text-violet-400 hover:text-violet-300 disabled:opacity-50 transition-colors"
+                  >
+                    {generatingDesc ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                    {generatingDesc ? 'יוצר תיאור...' : 'צור תיאור AI'}
+                  </button>
+                </div>
                 <Input
                   value={description}
                   onChange={setDescription}
-                  placeholder="תיאור המוצר..."
+                  placeholder="תיאור המוצר... (או לחץ 'צור תיאור AI')"
                   rows={4}
                 />
                 <p className="text-2xs text-white/20 text-left mt-1">{description.length}/1000</p>
-              </Field>
+              </div>
             </div>
           </div>
 

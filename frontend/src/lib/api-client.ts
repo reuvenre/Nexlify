@@ -412,6 +412,10 @@ export const catalogApi = {
   sync: (id: string) =>
     http.post<CatalogProduct>(`/catalog/${id}/sync`).then(extract),
 
+  // AI generation (Gemini/Claude) can outlast the 15s global timeout.
+  generateDescription: (id: string) =>
+    http.post<{ description: string }>(`/catalog/${id}/generate-description`, {}, { timeout: AI_TIMEOUT }).then(extract),
+
   // Re-prices the entire catalog against the AliExpress API (batched, many round-trips),
   // which easily outlasts the 15s global timeout — give it a generous window.
   resyncPrices: () =>

@@ -14,18 +14,19 @@ const ALI_API = 'https://api-sg.aliexpress.com/sync';
 // sale_price / original_price stay as USD fallback.
 // promotion_link = the ready-made affiliate (s.click) link AliExpress returns when
 // a valid tracking_id is supplied — using it directly avoids a separate generate call.
+// NOTE: sale_price / original_price come back in the SELLER's currency (often CNY,
+// not USD!) — sale_price_currency tells us which. target_* prices are AliExpress's
+// own conversion to our requested currency (₪) and are the authoritative price that
+// matches what users see on the website.
 const PRODUCT_FIELDS =
   'product_id,product_title,original_price,sale_price,' +
+  'sale_price_currency,original_price_currency,' +
   'target_original_price,target_sale_price,target_sale_price_currency,' +
   'discount,product_main_image_url,promotion_link,' +
-  'product_detail_url,evaluate_rate,first_level_category_name,lastest_volume';
+  'product_detail_url,evaluate_rate,first_level_category_name,second_level_category_name,lastest_volume';
 
 const HOT_FIELDS =
-  'product_id,product_title,original_price,sale_price,' +
-  'target_original_price,target_sale_price,target_sale_price_currency,' +
-  'discount,product_main_image_url,promotion_link,' +
-  'product_detail_url,evaluate_rate,first_level_category_name,lastest_volume,' +
-  'promotion_type,hot_product_commission_rate';
+  PRODUCT_FIELDS + ',promotion_type,hot_product_commission_rate';
 
 const CATEGORIES_TTL_SEC = 24 * 60 * 60; // 24 hours
 
@@ -49,6 +50,25 @@ export class ProductsService {
     private readonly pricing: PricingService,
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
+
+  // ── Shared API call with rate-limit retry ────────────────────────────────
+
+  /**
+   * GET against the AliExpress gateway with an automatic retry when the API
+   * answers ApiCallLimit (bursts >~1 req/sec get a 1-second ban). Without this,
+   * discovery loops and bulk re-pricing randomly "found nothing".
+   */
+  private async aliGet(signed: Record<string, string>, timeout = 12000): Promise<any> {
+    for (let attempt = 0; ; attempt++) {
+      const res = await axios.get(ALI_API, { params: signed, timeout });
+      if (res.data?.error_response?.code === 'ApiCallLimit' && attempt < 2) {
+        this.logger.warn(`AliExpress rate limit hit — retrying in 1.2s (attempt ${attempt + 1})`);
+        await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+      return res;
+    }
+  }
 
   // ── Search ────────────────────────────────────────────────────────────────
 
@@ -89,12 +109,14 @@ export class ProductsService {
         fields: PRODUCT_FIELDS,
         page_no: page,
         page_size: limit,
-        sort: params.sort,
+        // Without an explicit sort the API returns near-random relevance (a search
+        // for "smart watch" led with a bird bath...). Best-sellers first by default.
+        sort: params.sort || 'LAST_VOLUME_DESC',
         target_currency: currency,
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
-      const res = await axios.get(ALI_API, { params: signed, timeout: 12000 });
+      const res = await this.aliGet(signed);
       const respResult = res.data?.aliexpress_affiliate_product_query_response?.resp_result;
       if (respResult?.resp_code !== 200) {
         this.logger.error(`AliExpress search API error: code=${respResult?.resp_code} msg=${respResult?.resp_msg}`);
@@ -106,9 +128,15 @@ export class ProductsService {
       const data = this.mapProducts(items, rate, currency, this.pricingFrom(creds));
 
       // Some accounts only get results from the hot-products feed — product.query comes
-      // back empty. Fall back to hotproduct.query with the same keyword.
+      // back empty. Fall back to hotproduct.query with the same keyword AND the same
+      // price/discount filters (previously the fallback silently dropped them).
       if (data.length === 0) {
-        return this.getPromotional(userId, { keyword: params.keyword, category_id: params.category_id, page, limit, strict: params.strict });
+        return this.getPromotional(userId, {
+          keyword: params.keyword, category_id: params.category_id,
+          min_price: params.min_price, max_price: params.max_price,
+          min_discount: params.min_discount,
+          page, limit, strict: params.strict,
+        });
       }
 
       const filtered = params.min_discount
@@ -138,9 +166,13 @@ export class ProductsService {
     const currency = targetCurrency(creds?.currency_pair || 'USD_ILS');
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
 
+    // Deterministic daily keyword (was Math.random per request, which made page 2
+    // load a DIFFERENT keyword's results than page 1 — pagination looked broken).
+    // Same keyword all day → stable paging; rotates daily for freshness.
+    const dayIndex = Math.floor(Date.now() / 86_400_000);
     const keyword = params.category_id
       ? ''
-      : DEFAULT_FEATURED_KEYWORDS[Math.floor(Math.random() * DEFAULT_FEATURED_KEYWORDS.length)];
+      : DEFAULT_FEATURED_KEYWORDS[dayIndex % DEFAULT_FEATURED_KEYWORDS.length];
 
     const sort = params.sort === 'most_discounted' ? 'SALE_PRICE_ASC' : 'LAST_VOLUME_DESC';
     const minDiscount = params.sort === 'most_discounted' ? 30 : undefined;
@@ -166,7 +198,7 @@ export class ProductsService {
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
-      const res = await axios.get(ALI_API, { params: signed, timeout: 12000 });
+      const res = await this.aliGet(signed);
       const respResult = res.data?.aliexpress_affiliate_product_query_response?.resp_result;
       if (respResult?.resp_code !== 200) {
         this.logger.error(`AliExpress featured API error: code=${respResult?.resp_code} msg=${respResult?.resp_msg}`);
@@ -197,6 +229,10 @@ export class ProductsService {
   async getPromotional(userId: string, params: {
     keyword?: string;
     category_id?: string;
+    /** Price bounds in the user's target currency (₪) — same convention as search(). */
+    min_price?: number;
+    max_price?: number;
+    min_discount?: number;
     page?: number;
     limit?: number;
     strict?: boolean;
@@ -220,6 +256,8 @@ export class ProductsService {
         app_key: creds.aliexpress_app_key,
         keywords: params.keyword || undefined,
         category_ids: params.category_id,
+        min_sale_price: params.min_price ? Math.round(params.min_price / rate * 100) : undefined,
+        max_sale_price: params.max_price ? Math.round(params.max_price / rate * 100) : undefined,
         fields: HOT_FIELDS,
         page_no: page,
         page_size: limit,
@@ -228,7 +266,7 @@ export class ProductsService {
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
-      const res = await axios.get(ALI_API, { params: signed, timeout: 12000 });
+      const res = await this.aliGet(signed);
       const respResult = res.data?.aliexpress_affiliate_hotproduct_query_response?.resp_result;
       if (respResult?.resp_code !== 200) {
         this.logger.error(`AliExpress promotional API error: code=${respResult?.resp_code} msg=${respResult?.resp_msg}`);
@@ -237,7 +275,8 @@ export class ProductsService {
       const items = result?.products?.product || [];
       const total = result?.total_record_count || items.length;
 
-      const data = this.mapProducts(items, rate, currency, this.pricingFrom(creds));
+      let data = this.mapProducts(items, rate, currency, this.pricingFrom(creds));
+      if (params.min_discount) data = data.filter((p) => p.discount_percent >= params.min_discount!);
       return { data, total, page, limit };
     } catch (err: any) {
       this.logger.error(`AliExpress promotional failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
@@ -265,7 +304,7 @@ export class ProductsService {
         app_key: creds.aliexpress_app_key,
       }, creds.aliexpress_app_secret);
 
-      const res = await axios.get(ALI_API, { params: signed, timeout: 12000 });
+      const res = await this.aliGet(signed);
       const items: any[] =
         res.data?.aliexpress_affiliate_category_get_response?.resp_result?.result?.categories?.category || [];
 
@@ -308,7 +347,7 @@ export class ProductsService {
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
-      const res = await axios.get(ALI_API, { params: signed, timeout: 8000 });
+      const res = await this.aliGet(signed, 8000);
       const items: any[] =
         res.data?.aliexpress_affiliate_productdetail_get_response?.resp_result?.result?.products?.product || [];
       const exact = items.find((p: any) => String(p.product_id) === productId) || items[0];
@@ -330,7 +369,7 @@ export class ProductsService {
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
-      const res = await axios.get(ALI_API, { params: signed, timeout: 8000 });
+      const res = await this.aliGet(signed, 8000);
       const items: any[] =
         res.data?.aliexpress_affiliate_product_query_response?.resp_result?.result?.products?.product || [];
 
@@ -360,7 +399,7 @@ export class ProductsService {
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
-      const res = await axios.get(ALI_API, { params: signed, timeout: 10000 });
+      const res = await this.aliGet(signed, 10000);
       const resp = res.data?.aliexpress_affiliate_link_generate_response?.resp_result;
       const links = resp?.result?.promotion_links?.promotion_link;
       const url = links?.[0]?.promotion_link;
@@ -390,14 +429,21 @@ export class ProductsService {
 
   private mapProducts(items: any[], rate: number, currency: string, pricing?: PricingConfig) {
     return items.map((p: any) => {
-      const usdSale = parseFloat(p.sale_price) || 0;
-      const usdOrig = parseFloat(p.original_price) || 0;
+      // sale_price is in the SELLER's currency (sale_price_currency — often CNY!).
+      // It was previously assumed to be USD, which corrupted every USD-derived figure.
+      const rawSale = parseFloat(p.sale_price) || 0;
+      const rawOrig = parseFloat(p.original_price) || 0;
+      const rawIsUsd = (p.sale_price_currency || 'USD') === 'USD';
 
-      // Prefer AliExpress's own converted price as the COST base (matches website
-      // best); fall back to USD × rate when target_sale_price is absent.
+      // AliExpress's own converted price (₪) — authoritative, matches the website.
       const targetSale = parseFloat(p.target_sale_price);
       const targetOrig = parseFloat(p.target_original_price);
       const resolvedCurrency = p.target_sale_price_currency || currency;
+
+      // Real USD price: take raw only when it's actually USD; otherwise back-convert
+      // from the target (₪) price via the live USD rate.
+      const usdSale = rawIsUsd ? rawSale : (targetSale > 0 && rate > 0 ? +(targetSale / rate).toFixed(2) : 0);
+      const usdOrig = rawIsUsd ? rawOrig : (targetOrig > 0 && rate > 0 ? +(targetOrig / rate).toFixed(2) : 0);
 
       let baseSale = targetSale > 0 ? targetSale : +(usdSale * rate).toFixed(2);
       let baseOrig = targetOrig > 0 ? targetOrig : +(usdOrig * rate).toFixed(2);
@@ -437,6 +483,7 @@ export class ProductsService {
         // Ready-made affiliate link from the API (s.click.aliexpress.com).
         affiliate_url: p.promotion_link || undefined,
         category: p.first_level_category_name,
+        subcategory: p.second_level_category_name || undefined,
         orders_count: ordersCount,
         rating,
         currency: resolvedCurrency,

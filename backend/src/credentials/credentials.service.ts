@@ -339,7 +339,7 @@ export class CredentialsService {
       default_footer_template_id: cred.default_footer_template_id || null,
       price_markup_pct: cred.price_markup_pct ?? 0,
       price_shipping_buffer_ils: cred.price_shipping_buffer_ils ?? 0,
-      price_rounding_mode: cred.price_rounding_mode || 'natural',
+      price_rounding_mode: cred.price_rounding_mode || 'exact',
       currency_pair: cred.currency_pair || 'USD_ILS',
       schedule_enabled: cred.schedule_enabled ?? false,
       schedule_start_hour: cred.schedule_start_hour ?? 9,

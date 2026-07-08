@@ -121,7 +121,7 @@ export class CredentialSet {
   price_shipping_buffer_ils: number;
 
   /** Rounding mode for final prices: 'natural' | 'charming' | 'exact' */
-  @Column({ default: 'natural' })
+  @Column({ default: 'exact' })
   price_rounding_mode: string;
 
   @Column({ default: 'USD_ILS' })

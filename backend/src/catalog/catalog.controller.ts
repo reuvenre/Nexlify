@@ -111,6 +111,14 @@ export class CatalogController {
     return this.svc.sync(this.uid(req), id);
   }
 
+  // ── AI description ────────────────────────────────────────────────────────
+
+  @Post(':id/generate-description')
+  @HttpCode(200)
+  generateDescription(@Req() req: Request, @Param('id') id: string) {
+    return this.svc.generateDescription(this.uid(req), id);
+  }
+
   // ── Bulk re-price ─────────────────────────────────────────────────────────
 
   @Post('resync-prices')

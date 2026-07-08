@@ -24,9 +24,13 @@ export interface PricingConfig {
 export class PricingService {
   /** Clamp the user's config to the skill's validated ranges. */
   sanitize(cfg?: PricingConfig): Required<PricingConfig> {
-    const mode: RoundingMode = cfg?.rounding_mode === 'charming' || cfg?.rounding_mode === 'exact'
+    // Default is 'exact': show the SAME price the user sees on aliexpress.com.
+    // 'natural'/'charming' rounding is an opt-in for resellers who add markup —
+    // as a default it made every displayed price deviate from the site (₪11.68→₪12),
+    // which reads as "the system pulls wrong prices".
+    const mode: RoundingMode = cfg?.rounding_mode === 'charming' || cfg?.rounding_mode === 'natural'
       ? cfg.rounding_mode
-      : 'natural';
+      : 'exact';
     return {
       markup_pct: clamp(cfg?.markup_pct ?? 0, 0, 100),
       shipping_buffer_ils: clamp(cfg?.shipping_buffer_ils ?? 0, 0, 200),
@@ -54,7 +58,8 @@ export class PricingService {
     if (!(value > 0)) return 0;
     switch (mode) {
       case 'exact':
-        return +(Math.round(value * 10) / 10).toFixed(2);
+        // TRUE exact — the price as-is to the agora, identical to the site.
+        return +value.toFixed(2);
       case 'charming': {
         // Round DOWN to the nearest price ending in 9 (…9, …19, …29).
         const down = Math.floor(value);
