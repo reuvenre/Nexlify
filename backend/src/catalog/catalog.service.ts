@@ -254,36 +254,82 @@ export class CatalogService {
    * price. Processed in small concurrent batches to stay fast without tripping
    * rate limits.
    */
-  async resyncPrices(userId: string) {
+  // A whole-catalog re-price is too long for one HTTP request (the UI timed out
+  // and reported "nothing happened" while the sync kept running server-side).
+  // It now runs as a BACKGROUND job per user: POST starts it, GET polls progress.
+  private resyncJobs = new Map<string, {
+    running: boolean; total: number; done: number; updated: number; failed: number;
+    started_at: Date; finished_at?: Date;
+  }>();
+
+  /** Starts a background re-price of the user's whole catalog (idempotent while running). */
+  async startResyncPrices(userId: string) {
+    const existing = this.resyncJobs.get(userId);
+    if (existing?.running) return { started: false, ...existing };
+
     const products = await this.repo.find({ where: { user_id: userId } });
-    let updated = 0;
-    let failed = 0;
+    const job = {
+      running: true, total: products.length, done: 0, updated: 0, failed: 0,
+      started_at: new Date(), finished_at: undefined as Date | undefined,
+    };
+    this.resyncJobs.set(userId, job);
 
-    // SEQUENTIAL with pacing — the AliExpress gateway bans bursts (>~1 req/sec,
-    // "ApiCallLimit"). The previous 5-concurrent batches tripped that ban and
-    // products randomly "failed" to re-price.
-    for (let i = 0; i < products.length; i++) {
-      const product = products[i];
-      if (i > 0) await new Promise((r) => setTimeout(r, 700));
-      try {
-        const ali = await this.productsService.refreshPrice(userId, product.product_id);
-        if (ali && ali.sale_price > 0) {
-          product.original_price = ali.original_price;
-          product.sale_price = ali.sale_price;
-          product.currency = ali.currency;
-          product.discount_percent = ali.discount_percent;
-          product.synced_at = new Date();
-          await this.repo.save(product);
-          updated++;
-        } else {
-          failed++;
+    // Fire and forget — progress is observable via resyncStatus().
+    this.runResync(userId, products, job).catch(() => {
+      job.running = false;
+      job.finished_at = new Date();
+    });
+
+    return { started: true, ...job };
+  }
+
+  /** Progress of the user's re-price job (or an idle stub when never started). */
+  resyncStatus(userId: string) {
+    return this.resyncJobs.get(userId)
+      || { running: false, total: 0, done: 0, updated: 0, failed: 0 };
+  }
+
+  private async runResync(
+    userId: string,
+    products: CatalogProduct[],
+    job: { running: boolean; total: number; done: number; updated: number; failed: number; finished_at?: Date },
+  ) {
+    // Batched: one productdetail.get per 20 products (the API accepts a comma-
+    // separated id list) — the whole catalog re-prices in seconds instead of the
+    // old one-call-per-product loop that fought the rate limit for minutes.
+    const CHUNK = 20;
+    try {
+      for (let i = 0; i < products.length; i += CHUNK) {
+        const chunk = products.slice(i, i + CHUNK);
+        if (i > 0) await new Promise((r) => setTimeout(r, 900)); // rate-limit pacing
+        try {
+          const fresh = await this.productsService.refreshPricesBatch(
+            userId, chunk.map((p) => p.product_id),
+          );
+          for (const product of chunk) {
+            const ali = fresh.get(String(product.product_id));
+            if (ali && ali.sale_price > 0) {
+              product.original_price = ali.original_price;
+              product.sale_price = ali.sale_price;
+              product.currency = ali.currency;
+              product.discount_percent = ali.discount_percent;
+              product.synced_at = new Date();
+              await this.repo.save(product);
+              job.updated++;
+            } else {
+              job.failed++;
+            }
+            job.done++;
+          }
+        } catch {
+          job.failed += chunk.length;
+          job.done += chunk.length;
         }
-      } catch {
-        failed++;
       }
+    } finally {
+      job.running = false;
+      job.finished_at = new Date();
     }
-
-    return { total: products.length, updated, failed };
   }
 
   // ── AI product description ────────────────────────────────────────────────

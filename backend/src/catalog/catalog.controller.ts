@@ -35,6 +35,12 @@ export class CatalogController {
     return this.svc.stats(this.uid(req));
   }
 
+  // NOTE: must be declared BEFORE @Get(':id') or the ':id' route swallows it.
+  @Get('resync-status')
+  resyncStatus(@Req() req: Request) {
+    return this.svc.resyncStatus(this.uid(req));
+  }
+
   // ── Import ────────────────────────────────────────────────────────────────
 
   @Post('import')
@@ -119,13 +125,14 @@ export class CatalogController {
     return this.svc.generateDescription(this.uid(req), id);
   }
 
-  // ── Bulk re-price ─────────────────────────────────────────────────────────
+  // ── Bulk re-price (background job + progress polling) ────────────────────
 
   @Post('resync-prices')
   @HttpCode(200)
   resyncPrices(@Req() req: Request) {
-    return this.svc.resyncPrices(this.uid(req));
+    return this.svc.startResyncPrices(this.uid(req));
   }
+
 
   // ── Affiliate link ────────────────────────────────────────────────────────
 

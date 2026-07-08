@@ -569,16 +569,40 @@ export default function ProductsPage() {
     searchTimeout.current = setTimeout(() => setSearch(val), 400);
   }
 
-  // Bulk re-price every catalog product from the AliExpress Affiliate API
+  // Bulk re-price: starts a BACKGROUND job on the server and polls its progress —
+  // a whole-catalog sync outlives any single HTTP request, so the old "wait for
+  // one response" approach timed out and looked like nothing happened.
   const handleResyncPrices = async () => {
-    if (!confirm('לתקן מחירים לכל המוצרים בקטלוג מ-AliExpress? הפעולה עשויה לקחת מספר שניות.')) return;
+    if (!confirm('לתקן מחירים לכל המוצרים בקטלוג מ-AliExpress?')) return;
     setRepricing(true);
     setRepriceMsg('');
     try {
-      const r = await catalogApi.resyncPrices();
-      setRepriceMsg(`✓ עודכנו ${r.updated} מתוך ${r.total} מוצרים${r.failed ? ` · ${r.failed} לא נמצאו` : ''}`);
+      const startRes = await catalogApi.resyncPrices();
+      if (!startRes.started && startRes.running) {
+        setRepriceMsg('סנכרון כבר רץ ברקע — ממתין לסיום...');
+      }
+
+      // Poll progress every 2.5s until the job finishes.
+      const final = await new Promise<typeof startRes>((resolve, reject) => {
+        const timer = setInterval(async () => {
+          try {
+            const s = await catalogApi.resyncStatus();
+            if (s.running) {
+              setRepriceMsg(`מסנכרן מחירים... ${s.done}/${s.total}`);
+            } else {
+              clearInterval(timer);
+              resolve(s);
+            }
+          } catch (e) {
+            clearInterval(timer);
+            reject(e);
+          }
+        }, 2500);
+      });
+
+      setRepriceMsg(`✓ עודכנו ${final.updated} מתוך ${final.total} מוצרים${final.failed ? ` · ${final.failed} לא נמצאו` : ''}`);
       await load(page, true);
-      setTimeout(() => setRepriceMsg(''), 7000);
+      setTimeout(() => setRepriceMsg(''), 10000);
     } catch {
       setRepriceMsg('שגיאה בעדכון המחירים');
     } finally {

@@ -441,6 +441,44 @@ export class ProductsService {
     }
   }
 
+  // ── Batch price refresh ────────────────────────────────────────────────────
+
+  /**
+   * Fetches fresh, destination-accurate prices for MANY products in a single
+   * productdetail.get call (the API accepts comma-separated ids). One call per
+   * 20 products instead of one per product — a 222-product catalog re-prices in
+   * ~15s instead of 7+ minutes of sequential calls fighting the rate limit.
+   * Returns a map keyed by product_id; ids missing from the map are products the
+   * API no longer returns (delisted / not shippable to the destination).
+   */
+  async refreshPricesBatch(userId: string, productIds: string[]): Promise<Map<string, any>> {
+    const out = new Map<string, any>();
+    if (productIds.length === 0) return out;
+
+    const creds = await this.credentials.getRaw(userId);
+    if (!creds?.aliexpress_app_key) return out;
+    const currency = targetCurrency(creds?.currency_pair || 'USD_ILS');
+    const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
+
+    const signed = signAliexpress({
+      method: 'aliexpress.affiliate.productdetail.get',
+      app_key: creds.aliexpress_app_key,
+      product_ids: productIds.join(','),
+      country: this.shipCountry(creds),
+      fields: PRODUCT_FIELDS,
+      target_currency: currency,
+      tracking_id: creds.aliexpress_tracking_id,
+    }, creds.aliexpress_app_secret);
+
+    const res = await this.aliGet(signed, 15000);
+    const items: any[] =
+      res.data?.aliexpress_affiliate_productdetail_get_response?.resp_result?.result?.products?.product || [];
+    for (const item of this.mapProducts(items, rate, currency, this.pricingFrom(creds))) {
+      out.set(String(item.product_id), item);
+    }
+    return out;
+  }
+
   // ── Affiliate link ────────────────────────────────────────────────────────
 
   async affiliateLink(userId: string, productId: string): Promise<{ url: string }> {

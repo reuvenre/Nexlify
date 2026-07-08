@@ -312,6 +312,15 @@ export interface CatalogProduct {
   updated_at: string;
 }
 
+export interface ResyncJob {
+  running: boolean;
+  started?: boolean;
+  total: number;
+  done: number;
+  updated: number;
+  failed: number;
+}
+
 export interface CatalogStats {
   total: number;
   approved: number;

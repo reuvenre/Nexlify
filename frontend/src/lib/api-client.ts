@@ -20,6 +20,7 @@ import type {
   ApiError,
   CatalogProduct,
   CatalogStats,
+  ResyncJob,
   CatalogStatus,
   VerifyResult,
   AdBoost,
@@ -418,10 +419,13 @@ export const catalogApi = {
   generateDescription: (id: string) =>
     http.post<{ description: string }>(`/catalog/${id}/generate-description`, {}, { timeout: AI_TIMEOUT }).then(extract),
 
-  // Re-prices the entire catalog against the AliExpress API (batched, many round-trips),
-  // which easily outlasts the 15s global timeout — give it a generous window.
+  // Starts a BACKGROUND re-price job on the server (returns immediately);
+  // progress is polled via resyncStatus until running=false.
   resyncPrices: () =>
-    http.post<{ total: number; updated: number; failed: number }>('/catalog/resync-prices', {}, { timeout: 240_000 }).then(extract),
+    http.post<ResyncJob>('/catalog/resync-prices').then(extract),
+
+  resyncStatus: () =>
+    http.get<ResyncJob>('/catalog/resync-status').then(extract),
 
   affiliateLink: (id: string) =>
     http.post<{ url: string }>(`/catalog/${id}/affiliate-link`).then(extract),
