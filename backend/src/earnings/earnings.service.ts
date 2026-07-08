@@ -1,13 +1,36 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Earning } from './earning.entity';
 import { CredentialsService } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
+import { signAliexpress } from '../common/aliexpress-sign';
 import axios from 'axios';
+
+const ALI_API = 'https://api-sg.aliexpress.com/sync';
+
+/**
+ * order.list statuses → our local earning status. The API requires an explicit
+ * status per call, so a full sync loops over all of them (estimated orders that
+ * later settle get UPDATED because the settled pass runs after the estimated one).
+ */
+const ORDER_STATUSES: { api: string; local: 'estimated' | 'settled' | 'cancelled' }[] = [
+  { api: 'Payment Completed', local: 'estimated' },
+  { api: 'Buyer Confirmed Goods Receipt', local: 'estimated' },
+  { api: 'Completed Settlement', local: 'settled' },
+  { api: 'Invalid', local: 'cancelled' },
+];
+
+/** The API wants 'yyyy-MM-dd HH:mm:ss' (date-only returns code 407 invalid-pattern). */
+function apiTime(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
 
 @Injectable()
 export class EarningsService {
+  private readonly logger = new Logger(EarningsService.name);
+
   constructor(
     @InjectRepository(Earning)
     private readonly repo: Repository<Earning>,
@@ -78,55 +101,109 @@ export class EarningsService {
     return { data, total, page, limit };
   }
 
-  async sync(userId: string): Promise<{ synced: number }> {
+  /**
+   * Pulls real orders from aliexpress.affiliate.order.list (SIGNED — the previous
+   * implementation sent an unsigned request, so every call failed and the silent
+   * catch made it look like "0 earnings" forever).
+   *
+   * Response facts (verified live): money fields (paid_amount,
+   * estimated_paid_commission, finished_amount, estimated_finished_commission)
+   * are integer CENTS of settled_currency; times are 'yyyy-MM-dd HH:mm:ss';
+   * the query window is limited, so we fetch the last 60 days per run.
+   */
+  async sync(userId: string): Promise<{ synced: number; updated: number }> {
     const creds = await this.credentials.getRaw(userId);
-    if (!creds?.aliexpress_app_key) return { synced: 0 };
+    if (!creds?.aliexpress_app_key || !creds?.aliexpress_app_secret) {
+      throw new BadRequestException('מפתחות AliExpress לא מוגדרים — הגדר אותם בהגדרות ← שווקים');
+    }
 
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     let synced = 0;
+    let updated = 0;
+    const errors: string[] = [];
 
-    try {
-      const res = await axios.get('https://api-sg.aliexpress.com/sync', {
-        params: {
-          method: 'aliexpress.affiliate.order.list',
-          app_key: creds.aliexpress_app_key,
-          status: 'payment_done_for_buyer',
-          start_time: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          end_time: new Date().toISOString().slice(0, 10),
-          page_size: 50,
-        },
-        timeout: 15000,
-      });
+    const end = new Date();
+    const start = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
 
-      const orders = res.data?.aliexpress_affiliate_order_list_response?.resp_result?.result?.orders?.order || [];
+    for (const st of ORDER_STATUSES) {
+      for (let pageNo = 1; pageNo <= 5; pageNo++) {
+        try {
+          // Pace calls — the gateway bans bursts (>~1 req/sec → ApiCallLimit).
+          await new Promise((r) => setTimeout(r, 1100));
 
-      for (const order of orders) {
-        const exists = await this.repo.findOne({ where: { order_id: order.order_id, user_id: userId } });
-        if (exists) continue;
+          const signed = signAliexpress({
+            method: 'aliexpress.affiliate.order.list',
+            app_key: creds.aliexpress_app_key,
+            status: st.api,
+            start_time: apiTime(start),
+            end_time: apiTime(end),
+            page_no: pageNo,
+            page_size: 50,
+          }, creds.aliexpress_app_secret);
 
-        const commissionUsd = parseFloat(order.estimated_paid_commission) || 0;
-        const orderAmountUsd = parseFloat(order.order_amount) || 0;
+          const res = await axios.get(ALI_API, { params: signed, timeout: 15000 });
+          if (res.data?.error_response) {
+            errors.push(`${st.api}: ${res.data.error_response.msg || res.data.error_response.code}`);
+            break;
+          }
 
-        const earning = this.repo.create({
-          user_id: userId,
-          order_id: String(order.order_id),
-          product_id: String(order.product_id || 'unknown'),
-          order_amount_usd: orderAmountUsd,
-          commission_usd: commissionUsd,
-          commission_ils: +(commissionUsd * rate).toFixed(2),
-          status: order.paid_status === 'Settled' ? 'settled' : 'estimated',
-          order_date: new Date(order.order_create_time),
-          settlement_date: order.paid_status === 'Settled' ? new Date() : null,
-        });
+          const result = res.data?.aliexpress_affiliate_order_list_response?.resp_result?.result;
+          const orders: any[] = result?.orders?.order || [];
 
-        await this.repo.save(earning);
-        synced++;
+          for (const order of orders) {
+            // sub_order_id is the per-item grain (one parent order can hold several
+            // commissionable items) — use it as the unique key.
+            const orderKey = String(order.sub_order_id || order.order_id);
+            const commissionUsd = +(((parseFloat(order.estimated_finished_commission) || parseFloat(order.estimated_paid_commission) || 0) / 100)).toFixed(2);
+            const amountUsd = +(((parseFloat(order.finished_amount) || parseFloat(order.paid_amount) || 0) / 100)).toFixed(2);
+            const settleAt = order.completed_settlement_time ? new Date(order.completed_settlement_time) : null;
+
+            const exists = await this.repo.findOne({ where: { order_id: orderKey, user_id: userId } });
+            if (exists) {
+              // Status/commission transitions (estimated → settled/cancelled).
+              if (exists.status !== st.local || Math.abs((exists.commission_usd || 0) - commissionUsd) > 0.001) {
+                exists.status = st.local;
+                exists.order_amount_usd = amountUsd;
+                exists.commission_usd = commissionUsd;
+                exists.commission_ils = +(commissionUsd * rate).toFixed(2);
+                exists.settlement_date = settleAt;
+                await this.repo.save(exists);
+                updated++;
+              }
+              continue;
+            }
+
+            const earning = this.repo.create({
+              user_id: userId,
+              order_id: orderKey,
+              product_id: String(order.product_id || 'unknown'),
+              order_amount_usd: amountUsd,
+              commission_usd: commissionUsd,
+              commission_ils: +(commissionUsd * rate).toFixed(2),
+              status: st.local,
+              order_date: order.created_time ? new Date(order.created_time) : new Date(),
+              settlement_date: settleAt,
+            });
+            await this.repo.save(earning);
+            synced++;
+          }
+
+          if (!result || pageNo >= (result.total_page_no || 1)) break;
+        } catch (err: any) {
+          errors.push(`${st.api}: ${err?.message || 'request failed'}`);
+          this.logger.error(`Earnings sync (${st.api}) failed: ${err?.message}`);
+          break;
+        }
       }
-    } catch {
-      // API not configured / failed — return 0 synced
     }
 
-    return { synced };
+    // Surface failures instead of pretending "0 new orders": if NOTHING worked and
+    // there were errors, the user must see why (bad keys, missing permission, etc.).
+    if (synced === 0 && updated === 0 && errors.length === ORDER_STATUSES.length) {
+      throw new BadRequestException(`סנכרון הרווחים נכשל: ${errors[0]}`);
+    }
+
+    return { synced, updated };
   }
 
   private periodStart(period: string): Date | null {

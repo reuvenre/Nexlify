@@ -344,7 +344,9 @@ export const earningsApi = {
   list: (params?: { page?: number; limit?: number; status?: string }) =>
     http.get<PaginatedResponse<Earning>>('/earnings', { params }).then(extract),
 
-  sync: () => http.post<{ synced: number }>('/earnings/sync').then(extract),
+  // Sync loops 4 order statuses with pacing against the AliExpress rate limit —
+  // can take ~10-40s, well past the 15s global timeout.
+  sync: () => http.post<{ synced: number; updated: number }>('/earnings/sync', {}, { timeout: 120_000 }).then(extract),
 };
 
 // ─── Channels API ────────────────────────────────────────────────────────────
