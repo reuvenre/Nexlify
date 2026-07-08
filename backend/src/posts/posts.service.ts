@@ -48,6 +48,25 @@ export class PostsService {
     private readonly subscription: SubscriptionService,
   ) {}
 
+  /**
+   * Splits a product's price into USD + local (₪) parts, respecting the product's
+   * currency: search results now carry site-accurate TARGET-currency prices
+   * (currency !== 'USD'), which must NOT be multiplied by the rate again.
+   */
+  private priceParts(product: any, rate: number): {
+    saleUsd: number; origUsd: number; priceIls: number; localOverride?: number;
+  } {
+    const sale = product?.sale_price || 0;
+    const orig = product?.original_price || 0;
+    const converted = !!product?.currency && product.currency !== 'USD';
+    return {
+      saleUsd: converted && rate > 0 ? +(sale / rate).toFixed(2) : +sale.toFixed(2),
+      origUsd: converted && rate > 0 ? +(orig / rate).toFixed(2) : +orig.toFixed(2),
+      priceIls: converted ? +sale.toFixed(2) : +(sale * rate).toFixed(2),
+      localOverride: converted ? sale : undefined,
+    };
+  }
+
   /** Resolve the user's default footer template content (appended to every post). */
   private async getFooterText(userId: string, creds: DecryptedCredentials): Promise<string> {
     const id = creds?.default_footer_template_id;
@@ -122,9 +141,10 @@ export class PostsService {
     const affiliateUrl = affiliateUrlOverride
       || await this.getAffiliateLink(productId, creds);
 
+    const parts = this.priceParts(product, rate);
     const text = textOverride || await this.generateText(
       product || { title: productId, sale_price: 0, original_price: 0, discount_percent: 0, orders_count: 0, rating: 0, currency: 'USD' },
-      'he', rate, creds,
+      'he', rate, creds, undefined, parts.localOverride,
     );
 
     const post = this.repo.create({
@@ -133,9 +153,9 @@ export class PostsService {
       product_title: product?.title || '',
       product_image: productImageOverride || product?.image_url || '',
       affiliate_url: affiliateUrl,
-      original_price_usd: product?.original_price || 0,
-      sale_price_usd: product?.sale_price || 0,
-      price_ils: product ? +(product.sale_price * rate).toFixed(2) : 0,
+      original_price_usd: parts.origUsd,
+      sale_price_usd: parts.saleUsd,
+      price_ils: product ? parts.priceIls : 0,
       generated_text: text,
       status: 'pending',
     });
@@ -166,9 +186,10 @@ export class PostsService {
     const affiliateUrl = affiliateUrlOverride
       || await this.getAffiliateLink(productId, creds);
 
+    const parts = this.priceParts(product, rate);
     const text = textOverride || await this.generateText(
       product || { title: productId, sale_price: 0, original_price: 0, discount_percent: 0, orders_count: 0, rating: 0, currency: 'USD' },
-      'he', rate, creds,
+      'he', rate, creds, undefined, parts.localOverride,
     );
 
     const post = this.repo.create({
@@ -177,9 +198,9 @@ export class PostsService {
       product_title: product?.title || '',
       product_image: productImageOverride || product?.image_url || '',
       affiliate_url: affiliateUrl,
-      original_price_usd: product?.original_price || 0,
-      sale_price_usd: product?.sale_price || 0,
-      price_ils: product ? +(product.sale_price * rate).toFixed(2) : 0,
+      original_price_usd: parts.origUsd,
+      sale_price_usd: parts.saleUsd,
+      price_ils: product ? parts.priceIls : 0,
       generated_text: text,
       status: 'scheduled',
       scheduled_at: scheduledAt,
@@ -343,9 +364,9 @@ export class PostsService {
     const toPost = products.slice(0, campaign.posts_per_run);
 
     for (const product of toPost) {
-      const affiliateUrl = await this.getAffiliateLink(product.product_id, creds);
-      const text = await this.generateText(product, campaign.language, rate, creds, campaign.post_template);
-      const priceIls = +(product.sale_price * rate).toFixed(2);
+      const affiliateUrl = product.affiliate_url || await this.getAffiliateLink(product.product_id, creds);
+      const parts = this.priceParts(product, rate);
+      const text = await this.generateText(product, campaign.language, rate, creds, campaign.post_template, parts.localOverride);
 
       const post = this.repo.create({
         user_id: userId,
@@ -354,9 +375,9 @@ export class PostsService {
         product_title: product.title,
         product_image: product.image_url,
         affiliate_url: affiliateUrl,
-        original_price_usd: product.original_price,
-        sale_price_usd: product.sale_price,
-        price_ils: priceIls,
+        original_price_usd: parts.origUsd,
+        sale_price_usd: parts.saleUsd,
+        price_ils: parts.priceIls,
         generated_text: text,
         status: 'pending',
       });
@@ -387,7 +408,9 @@ export class PostsService {
     creds: DecryptedCredentials,
   ): Promise<Post> {
     const affiliateUrl = await this.getAffiliateLink(data.product_id, creds);
-    const priceIls = +(data.sale_price * data.rate).toFixed(2);
+    // Respect the product's currency — agent products may already carry the
+    // site-accurate local (₪) price, which must not be multiplied by the rate again.
+    const parts = this.priceParts(data, data.rate);
 
     const post = this.repo.create({
       user_id: userId,
@@ -396,9 +419,9 @@ export class PostsService {
       product_title: data.title,
       product_image: data.image_url,
       affiliate_url: affiliateUrl,
-      original_price_usd: data.original_price,
-      sale_price_usd: data.sale_price,
-      price_ils: priceIls,
+      original_price_usd: parts.origUsd,
+      sale_price_usd: parts.saleUsd,
+      price_ils: parts.priceIls,
       generated_text: data.generated_text,
       status: 'pending',
     });
@@ -571,8 +594,10 @@ export class PostsService {
     }
 
     try {
-      // Campaign prices are stored in the user's display currency — convert to USD cents for AliExpress API
-      const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
+      const currencyPair = creds.currency_pair || 'USD_ILS';
+      const targetCcy = currencyPair.split('_')[1] || 'ILS';
+      const rate = await this.rates.getRate(currencyPair);
+
       const signed = signAliexpress({
         method: 'aliexpress.affiliate.product.query',
         app_key: creds.aliexpress_app_key,
@@ -580,8 +605,16 @@ export class PostsService {
         category_ids: params.category_id,
         min_sale_price: params.min_price ? Math.round(params.min_price / rate * 100) : undefined,
         max_sale_price: params.max_price ? Math.round(params.max_price / rate * 100) : undefined,
-        fields: 'product_id,product_title,original_price,sale_price,discount,product_main_image_url,product_detail_url,evaluate_rate,first_level_category_name,lastest_volume',
+        // Destination pricing + AliExpress's own currency conversion — without these
+        // the API returns the SELLER-currency price (often CNY) for a default country,
+        // which does not match the site and was parsed here as if it were USD.
+        ship_to_country: process.env.SHIP_TO_COUNTRY || ({ ILS: 'IL', GBP: 'GB' } as any)[targetCcy],
+        target_currency: targetCcy,
+        fields: 'product_id,product_title,original_price,sale_price,sale_price_currency,' +
+          'target_original_price,target_sale_price,target_sale_price_currency,promotion_link,' +
+          'discount,product_main_image_url,product_detail_url,evaluate_rate,first_level_category_name,lastest_volume',
         page_size: params.limit || 10,
+        sort: 'LAST_VOLUME_DESC',
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
@@ -592,18 +625,28 @@ export class PostsService {
         const rawEval = String(p.evaluate_rate || '').replace('%', '').trim();
         const evalPct = parseFloat(rawEval) || 0;
         const rating  = evalPct > 5 ? +(evalPct / 20).toFixed(1) : +evalPct.toFixed(1);
+
+        // Prefer the site-accurate target (₪) price; raw sale_price is only usable
+        // when it's genuinely USD.
+        const targetSale = parseFloat(p.target_sale_price);
+        const targetOrig = parseFloat(p.target_original_price);
+        const rawIsUsd = (p.sale_price_currency || 'USD') === 'USD';
+        const sale = targetSale > 0 ? targetSale : (rawIsUsd ? parseFloat(p.sale_price) || 0 : 0);
+        const orig = targetOrig > 0 ? targetOrig : (rawIsUsd ? parseFloat(p.original_price) || 0 : 0);
+
         return {
           product_id: String(p.product_id),
           title: p.product_title,
-          original_price: parseFloat(p.original_price),
-          sale_price: parseFloat(p.sale_price),
-          discount_percent: parseInt(p.discount),
+          original_price: orig,
+          sale_price: sale,
+          discount_percent: parseInt(p.discount) || 0,
           image_url: p.product_main_image_url,
           product_url: p.product_detail_url,
+          affiliate_url: p.promotion_link || undefined,
           category: p.first_level_category_name,
           orders_count: parseInt(String(p.lastest_volume || '0').replace(/,/g, ''), 10) || 0,
           rating,
-          currency: 'USD',
+          currency: targetSale > 0 ? (p.target_sale_price_currency || targetCcy) : 'USD',
         };
       });
     } catch {

@@ -5,6 +5,7 @@ import axios from 'axios';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
 import { PricingService, PricingConfig } from '../pricing/pricing.service';
+import { AiService } from '../ai/ai.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
@@ -48,8 +49,53 @@ export class ProductsService {
     private readonly credentials: CredentialsService,
     private readonly rates: RatesService,
     private readonly pricing: PricingService,
+    private readonly ai: AiService,
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
+
+  // ── Destination country & keyword normalization ──────────────────────────
+
+  /**
+   * Destination country for pricing. CRITICAL for price accuracy: without
+   * ship_to_country the API returns a default-country price that can differ
+   * WILDLY from what the user sees on the site (verified live: ₪9.40 vs the
+   * real Israel price of ₪4.44 for the same product). Derived from the target
+   * currency; override with SHIP_TO_COUNTRY.
+   */
+  private shipCountry(creds: DecryptedCredentials | null): string | undefined {
+    if (process.env.SHIP_TO_COUNTRY) return process.env.SHIP_TO_COUNTRY;
+    const cur = targetCurrency(creds?.currency_pair || 'USD_ILS');
+    return { ILS: 'IL', GBP: 'GB' }[cur];
+  }
+
+  /**
+   * The API accepts Hebrew keywords but effectively IGNORES them (a Hebrew query
+   * returns the entire catalog — verified live: "שעון חכם" matched 16M items,
+   * first results were dish sponges). Translate Hebrew queries to English via the
+   * user's AI provider; cached 7 days; falls back to the original on any failure.
+   */
+  private async normalizeKeyword(keyword: string | undefined, creds: DecryptedCredentials | null): Promise<string | undefined> {
+    if (!keyword || !/[֐-׿]/.test(keyword)) return keyword;
+    const cacheKey = `kwtrans:${keyword.trim().toLowerCase()}`;
+    const cached = await this.cacheManager.get<string>(cacheKey);
+    if (cached) return cached;
+    if (!this.ai.hasAnyKey(creds)) return keyword;
+    try {
+      const res = await this.ai.generate(creds, {
+        system: 'You translate Hebrew product-search queries into short English AliExpress search keywords. Reply with ONLY the English keywords — no quotes, no explanation.',
+        prompt: keyword,
+        maxTokens: 30,
+        temperature: 0,
+      });
+      const translated = res?.text?.trim().replace(/^["']+|["']+$/g, '');
+      if (translated) {
+        this.logger.log(`keyword translated: "${keyword}" → "${translated}"`);
+        await this.cacheManager.set(cacheKey, translated, 7 * 24 * 3600 * 1000);
+        return translated;
+      }
+    } catch { /* fall back to the original keyword */ }
+    return keyword;
+  }
 
   // ── Shared API call with rate-limit retry ────────────────────────────────
 
@@ -99,13 +145,18 @@ export class ProductsService {
     }
 
     try {
+      // Hebrew queries are ignored by the API — translate to English first.
+      const keyword = await this.normalizeKeyword(params.keyword, creds);
+
       const signed = signAliexpress({
         method: 'aliexpress.affiliate.product.query',
         app_key: creds.aliexpress_app_key,
-        keywords: params.keyword,
+        keywords: keyword,
         category_ids: params.category_id,
         min_sale_price: params.min_price ? Math.round(params.min_price / rate * 100) : undefined,
         max_sale_price: params.max_price ? Math.round(params.max_price / rate * 100) : undefined,
+        // Destination-specific pricing — REQUIRED for prices to match the site.
+        ship_to_country: this.shipCountry(creds),
         fields: PRODUCT_FIELDS,
         page_no: page,
         page_size: limit,
@@ -190,6 +241,7 @@ export class ProductsService {
         app_key: creds.aliexpress_app_key,
         keywords: keyword || undefined,
         category_ids: params.category_id,
+        ship_to_country: this.shipCountry(creds),
         fields: PRODUCT_FIELDS,
         page_no: page,
         page_size: limit,
@@ -251,13 +303,16 @@ export class ProductsService {
     }
 
     try {
+      const keyword = await this.normalizeKeyword(params.keyword, creds);
+
       const signed = signAliexpress({
         method: 'aliexpress.affiliate.hotproduct.query',
         app_key: creds.aliexpress_app_key,
-        keywords: params.keyword || undefined,
+        keywords: keyword || undefined,
         category_ids: params.category_id,
         min_sale_price: params.min_price ? Math.round(params.min_price / rate * 100) : undefined,
         max_sale_price: params.max_price ? Math.round(params.max_price / rate * 100) : undefined,
+        ship_to_country: this.shipCountry(creds),
         fields: HOT_FIELDS,
         page_no: page,
         page_size: limit,
@@ -342,6 +397,9 @@ export class ProductsService {
         method: 'aliexpress.affiliate.productdetail.get',
         app_key: creds.aliexpress_app_key,
         product_ids: productId,
+        // Local price for the destination country — without it the API returns a
+        // default-country price that does NOT match what the user sees on the site.
+        country: this.shipCountry(creds),
         fields: PRODUCT_FIELDS,
         target_currency: currency,
         tracking_id: creds.aliexpress_tracking_id,
@@ -363,6 +421,7 @@ export class ProductsService {
         method: 'aliexpress.affiliate.product.query',
         app_key: creds.aliexpress_app_key,
         keywords: productId,
+        ship_to_country: this.shipCountry(creds),
         fields: PRODUCT_FIELDS,
         page_size: 20,
         target_currency: currency,
