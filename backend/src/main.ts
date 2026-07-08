@@ -17,11 +17,19 @@ async function bootstrap() {
     }),
   );
 
-  // Allow the configured frontend, local dev, and the project's OWN Vercel preview
-  // deployments only. credentials:true can't use a wildcard, so we reflect the origin
-  // when it matches. We do NOT reflect every *.vercel.app — that would let any attacker
-  // deploy a site to Vercel and make credentialed requests. Restrict to the team suffix.
-  const allowList = [process.env.FRONTEND_URL, 'http://localhost:3000'].filter(Boolean) as string[];
+  // Allow the configured frontend(s), local dev, the project's production domain,
+  // and the project's OWN Vercel preview deployments. credentials:true can't use a
+  // wildcard, so we reflect the origin when it matches. We do NOT reflect every
+  // *.vercel.app — that would let any attacker deploy a site to Vercel and make
+  // credentialed requests. Restrict to specific hosts + the team suffix.
+  // FRONTEND_URL accepts a comma-separated list for multiple domains.
+  const allowList = [
+    ...(process.env.FRONTEND_URL || '').split(',').map((s) => s.trim()).filter(Boolean),
+    'http://localhost:3000',
+  ];
+  // The project's main production domain does NOT carry the team suffix
+  // (ali-bot-pro.vercel.app vs *-reuvenres-projects.vercel.app) — allow it explicitly.
+  const allowedHosts = ['localhost', 'ali-bot-pro.vercel.app'];
   // e.g. "-reuvenres-projects.vercel.app" — override via env if the team slug changes.
   const vercelSuffix = process.env.CORS_VERCEL_SUFFIX || '-reuvenres-projects.vercel.app';
   app.enableCors({
@@ -31,7 +39,7 @@ async function bootstrap() {
       try { host = new URL(origin).hostname; } catch { /* ignore */ }
       const ok =
         allowList.includes(origin) ||
-        host === 'localhost' ||
+        allowedHosts.includes(host) ||
         host.endsWith(vercelSuffix);
       cb(null, ok);
     },
