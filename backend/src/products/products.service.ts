@@ -7,6 +7,7 @@ import { RatesService } from '../rates/rates.service';
 import { PricingService, PricingConfig } from '../pricing/pricing.service';
 import { AiService } from '../ai/ai.service';
 import { signAliexpress } from '../common/aliexpress-sign';
+import { cacheGet, cacheSet } from '../common/safe-cache';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
 
@@ -77,7 +78,7 @@ export class ProductsService {
   private async normalizeKeyword(keyword: string | undefined, creds: DecryptedCredentials | null): Promise<string | undefined> {
     if (!keyword || !/[֐-׿]/.test(keyword)) return keyword;
     const cacheKey = `kwtrans:${keyword.trim().toLowerCase()}`;
-    const cached = await this.cacheManager.get<string>(cacheKey);
+    const cached = await cacheGet<string>(this.cacheManager, cacheKey);
     if (cached) return cached;
     if (!this.ai.hasAnyKey(creds)) return keyword;
     try {
@@ -90,7 +91,7 @@ export class ProductsService {
       const translated = res?.text?.trim().replace(/^["']+|["']+$/g, '');
       if (translated) {
         this.logger.log(`keyword translated: "${keyword}" → "${translated}"`);
-        await this.cacheManager.set(cacheKey, translated, 7 * 24 * 3600 * 1000);
+        await cacheSet(this.cacheManager, cacheKey, translated, 7 * 24 * 3600 * 1000);
         return translated;
       }
     } catch { /* fall back to the original keyword */ }
@@ -345,7 +346,7 @@ export class ProductsService {
 
   async getCategories(userId: string) {
     const cacheKey = `categories:${userId}`;
-    const cached = await this.cacheManager.get<any[]>(cacheKey);
+    const cached = await cacheGet<any[]>(this.cacheManager, cacheKey);
     if (cached) return cached;
 
     const creds = await this.credentials.getRaw(userId);
@@ -372,7 +373,7 @@ export class ProductsService {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      await this.cacheManager.set(cacheKey, categories, CATEGORIES_TTL_SEC * 1000);
+      await cacheSet(this.cacheManager, cacheKey, categories, CATEGORIES_TTL_SEC * 1000);
       return categories;
     } catch (err: any) {
       this.logger.error(`AliExpress categories failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);

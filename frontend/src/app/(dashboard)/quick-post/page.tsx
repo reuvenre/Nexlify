@@ -5,14 +5,32 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search, Loader2, Zap, ChevronDown, TrendingUp,
   Percent, Globe, Languages, Tag, ArrowRight,
-  ExternalLink, Copy, Check, RefreshCw,
+  ExternalLink, Copy, Check, RefreshCw, Package,
 } from 'lucide-react';
 import { ProductCard } from '@/components/products/ProductCard';
 import { PostPreview } from '@/components/products/PostPreview';
 import { ProductEditPanel } from '@/components/products/ProductEditPanel';
 import { TemplatePanel } from '@/components/templates/TemplatePanel';
-import { productsApi, postsApi, templatesApi, credentialsApi } from '@/lib/api-client';
-import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate } from '@/types';
+import { productsApi, postsApi, templatesApi, credentialsApi, catalogApi } from '@/lib/api-client';
+import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate, CatalogProduct } from '@/types';
+
+/** The quick-post grid renders AliProduct — adapt a catalog row to that shape. */
+function catalogToAli(c: CatalogProduct): AliProduct {
+  return {
+    product_id: c.product_id,
+    title: c.title,
+    original_price: c.original_price,
+    sale_price: c.sale_price,
+    discount_percent: c.discount_percent,
+    image_url: c.image_url,
+    product_url: c.product_url,
+    affiliate_url: c.affiliate_url,
+    category: c.category,
+    orders_count: c.orders_count,
+    rating: c.rating,
+    currency: c.currency,
+  };
+}
 
 // ── Hebrew detection & translation ────────────────────────────────────────────
 
@@ -59,6 +77,11 @@ export default function QuickPostPage() {
 
   // ── View state: 'products' | 'review'
   const [view, setView] = useState<'products' | 'review'>('products');
+
+  // ── Product source: the user's own catalog (instant, reliable, searchable) is
+  // the DEFAULT; live AliExpress browsing is the secondary mode. This unifies the
+  // flow with discovery: scan → catalog → quick-post from the catalog.
+  const [source, setSource] = useState<'catalog' | 'live'>('catalog');
 
   // ── Product list state
   const [products, setProducts] = useState<AliProduct[]>([]);
@@ -139,6 +162,24 @@ export default function QuickPostPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Load the user's own catalog (default source — instant, from our DB)
+  const loadCatalog = useCallback(async (nextPage: number, append: boolean, search?: string) => {
+    if (nextPage === 1 && !append) setLoadingInitial(true);
+    else setLoadingMore(true);
+    try {
+      const res = await catalogApi.list({ page: nextPage, limit: LIMIT, search: search?.trim() || undefined });
+      const mapped = res.data.map(catalogToAli);
+      setProducts((prev) => append ? [...prev, ...mapped] : mapped);
+      setHasMore(nextPage * LIMIT < res.total);
+      setPage(nextPage);
+      // Empty catalog and no active search → live browsing is more useful.
+      if (!append && !search && res.total === 0) setSource('live');
+    } finally {
+      setLoadingInitial(false);
+      setLoadingMore(false);
+    }
+  }, []);
+
   // ── Load featured products
   const loadFeatured = useCallback(async (nextPage: number, append: boolean) => {
     if (nextPage === 1 && !append) setLoadingInitial(true);
@@ -150,6 +191,9 @@ export default function QuickPostPage() {
       setProducts((prev) => append ? [...prev, ...res.data] : res.data);
       setHasMore(res.data.length === LIMIT);
       setPage(nextPage);
+    } catch {
+      // Live AliExpress browsing can time out — never leave a silent empty grid.
+      if (!append) { setProducts([]); setHasMore(false); }
     } finally {
       setLoadingInitial(false);
       setLoadingMore(false);
@@ -157,8 +201,10 @@ export default function QuickPostPage() {
   }, [selectedCategory, sortMode]);
 
   useEffect(() => {
+    if (source === 'catalog') { loadCatalog(1, false, isSearchMode ? query : undefined); return; }
     if (!isSearchMode) loadFeatured(1, false);
-  }, [isSearchMode, loadFeatured]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, isSearchMode, loadFeatured, loadCatalog]);
 
   // ── Run search
   const runSearch = useCallback(async (nextPage: number, append: boolean, keyword: string) => {
@@ -183,6 +229,14 @@ export default function QuickPostPage() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
+
+    // Catalog search runs against our own DB — instant, no translation needed.
+    if (source === 'catalog') {
+      setIsSearchMode(true);
+      loadCatalog(1, false, query.trim());
+      return;
+    }
+
     setIsTranslating(HE_RE.test(query));
     const english = await translateHebrew(query.trim());
     setTranslatedQuery(english !== query.trim() ? english : '');
@@ -195,6 +249,16 @@ export default function QuickPostPage() {
     setQuery('');
     setTranslatedQuery('');
     setIsSearchMode(false);
+    if (source === 'catalog') loadCatalog(1, false);
+  };
+
+  const handleSourceChange = (s: 'catalog' | 'live') => {
+    if (s === source) return;
+    setSource(s);
+    setQuery('');
+    setTranslatedQuery('');
+    setIsSearchMode(false);
+    setProducts([]);
   };
 
   const handleCategoryChange = (catId: string) => {
@@ -211,7 +275,8 @@ export default function QuickPostPage() {
       (entries) => {
         if (entries[0]?.isIntersecting && hasMore && !loadingMore && !loadingInitial) {
           const nextPage = page + 1;
-          if (isSearchMode) runSearch(nextPage, true, translatedQuery || query);
+          if (source === 'catalog') loadCatalog(nextPage, true, isSearchMode ? query : undefined);
+          else if (isSearchMode) runSearch(nextPage, true, translatedQuery || query);
           else loadFeatured(nextPage, true);
         }
       },
@@ -219,7 +284,7 @@ export default function QuickPostPage() {
     );
     if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
     return () => observerRef.current?.disconnect();
-  }, [hasMore, loadingMore, loadingInitial, page, isSearchMode, translatedQuery, query, runSearch, loadFeatured]);
+  }, [hasMore, loadingMore, loadingInitial, page, isSearchMode, translatedQuery, query, source, runSearch, loadFeatured, loadCatalog]);
 
   // ── Select product → go to review view (NO refreshPrice — it returns wrong products)
   const handleSelect = async (product: AliProduct) => {
@@ -544,6 +609,26 @@ export default function QuickPostPage() {
         <p className="text-sm text-white/40 mt-1">בחר מוצר כדי לערוך ולפרסם אותו בטלגרם</p>
       </div>
 
+      {/* Source toggle: my catalog (default, instant) vs live AliExpress browsing */}
+      <div className="flex bg-surface-secondary border border-edge-hover rounded-xl p-1 gap-1 mb-4 w-fit">
+        <button
+          onClick={() => handleSourceChange('catalog')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all
+            ${source === 'catalog' ? 'bg-blue-600/20 text-blue-400' : 'text-white/40 hover:text-white/70'}`}
+        >
+          <Package size={13} />
+          הקטלוג שלי
+        </button>
+        <button
+          onClick={() => handleSourceChange('live')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all
+            ${source === 'live' ? 'bg-blue-600/20 text-blue-400' : 'text-white/40 hover:text-white/70'}`}
+        >
+          <Globe size={13} />
+          חיפוש חי ב-AliExpress
+        </button>
+      </div>
+
       {/* Search + filters */}
       <div className="space-y-3 mb-6">
         <form onSubmit={handleSearch} className="flex gap-3">
@@ -583,7 +668,7 @@ export default function QuickPostPage() {
           </div>
         )}
 
-        <div className="flex items-center gap-3 flex-wrap">
+        {source === 'live' && <div className="flex items-center gap-3 flex-wrap">
           <div className="relative">
             <select
               value={selectedCategory}
@@ -611,7 +696,7 @@ export default function QuickPostPage() {
               </button>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* Section label */}
@@ -622,6 +707,14 @@ export default function QuickPostPage() {
             <span className="text-xs text-white/30">
               תוצאות עבור "{query}"
               {translatedQuery && ` (${translatedQuery})`}
+              {products.length > 0 && ` — ${products.length} מוצרים`}
+            </span>
+          </>
+        ) : source === 'catalog' ? (
+          <>
+            <Package size={13} className="text-blue-400" />
+            <span className="text-xs text-white/40">
+              המוצרים מהקטלוג שלך
               {products.length > 0 && ` — ${products.length} מוצרים`}
             </span>
           </>

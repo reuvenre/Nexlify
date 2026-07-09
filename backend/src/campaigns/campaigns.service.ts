@@ -38,7 +38,11 @@ export class CampaignsService {
     const campaign = this.repo.create({
       ...dto,
       user_id: userId,
-      status: 'draft',
+      // Campaigns start ACTIVE — the scheduler only runs status='active', and a
+      // silent 'draft' default meant every new campaign never ran until the user
+      // discovered the resume button ("campaigns don't run automatically").
+      // Pausing is an explicit action, not the default.
+      status: 'active' as const,
       next_run_at: this.nextRun(dto.schedule_cron),
     });
     return this.repo.save(campaign);

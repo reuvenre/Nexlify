@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import axios from 'axios';
+import { cacheGet, cacheSet } from '../common/safe-cache';
 
 export interface RateCache {
   USD_ILS: number;
@@ -27,11 +28,13 @@ export class RatesService {
   ) {}
 
   async getRates(): Promise<RateCache> {
-    const cached = await this.cacheManager.get<RateCache>(RATES_CACHE_KEY);
+    // safe-cache: a dead Redis must degrade to a direct fetch, never hang the
+    // request (this exact call used to freeze every products endpoint).
+    const cached = await cacheGet<RateCache>(this.cacheManager, RATES_CACHE_KEY);
     if (cached) return cached;
 
     const fresh = await this.fetchRates();
-    await this.cacheManager.set(RATES_CACHE_KEY, fresh, RATES_TTL_SEC * 1000);
+    await cacheSet(this.cacheManager, RATES_CACHE_KEY, fresh, RATES_TTL_SEC * 1000);
     return fresh;
   }
 
