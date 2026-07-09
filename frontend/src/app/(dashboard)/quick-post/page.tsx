@@ -452,7 +452,7 @@ export default function QuickPostPage() {
         )}
 
         {/* Main review layout */}
-        <div className="flex gap-5 items-start">
+        <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-start">
 
           {/* Left: product image + affiliate link */}
           <div className="w-72 shrink-0 space-y-3">

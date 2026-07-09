@@ -41,7 +41,7 @@ const NAV_SECTIONS = [
   },
 ];
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -93,6 +93,7 @@ export function Sidebar() {
                   <Link
                     key={href}
                     href={href}
+                    onClick={onNavigate}
                     className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
                       ${active
                         ? 'bg-gradient-to-l from-blue-500/[0.18] to-violet-500/[0.07] text-blue-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -122,6 +123,7 @@ export function Sidebar() {
           <p className="section-label px-2.5 mb-1.5">ניהול מערכת</p>
           <Link
             href="/admin/users"
+            onClick={onNavigate}
             className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
               ${isActive('/admin/users')
                 ? 'bg-violet-500/[0.14] text-violet-300'
@@ -140,6 +142,7 @@ export function Sidebar() {
       <div className="px-3 pb-2 border-t border-edge pt-2.5">
         <Link
           href="/settings"
+          onClick={onNavigate}
           className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
             ${isActive('/settings')
               ? 'bg-gradient-to-l from-blue-500/[0.18] to-violet-500/[0.07] text-blue-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -175,7 +178,7 @@ export function Sidebar() {
 
           <button
             onClick={logout}
-            className="p-1 rounded-md text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+            className="p-1 rounded-md text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
             title="התנתק"
           >
             <LogOut size={13} />

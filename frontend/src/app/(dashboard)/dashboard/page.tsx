@@ -228,7 +228,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Main layout: recent posts + mini earnings */}
-      <div className="flex gap-5">
+      <div className="flex flex-col lg:flex-row gap-5">
         {/* Recent posts */}
         <div className="flex-1 card p-5">
           <div className="flex items-center justify-between mb-4">

@@ -122,7 +122,7 @@ function QueueItem({
         <button
           onClick={handleRemove}
           disabled={removing}
-          className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/55 hover:bg-red-600 text-white/80 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all disabled:opacity-60"
+          className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/55 hover:bg-red-600 text-white/80 hover:text-white flex items-center justify-center opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all disabled:opacity-60"
           title="הסר מהתור"
         >
           {removing ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
@@ -444,8 +444,8 @@ export default function PostsPage() {
           <p className="text-sm text-white/30">אין פוסטים</p>
         </div>
       ) : (
-        <div className="bg-surface-secondary border border-edge rounded-xl overflow-hidden">
-          <table className="w-full">
+        <div className="bg-surface-secondary border border-edge rounded-xl overflow-hidden overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="text-xs text-white/30 border-b border-edge">
                 <th className="py-3 px-4 text-right font-medium">מוצר</th>

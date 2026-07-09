@@ -42,14 +42,15 @@ export default function SettingsPage() {
         <p className="text-sm text-white/40 mt-1">נהל את החשבון, שווקים, אינטגרציות ואבטחה</p>
       </div>
 
-      <div className="flex gap-6 min-h-0">
+      {/* Mobile: horizontal scrollable tab chips · Desktop: vertical side nav */}
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 min-h-0">
         {/* Sidebar */}
-        <aside className="w-52 shrink-0 space-y-1">
+        <aside className="w-full lg:w-52 shrink-0 flex lg:flex-col gap-1 overflow-x-auto pb-1 lg:pb-0 lg:space-y-1 lg:overflow-visible">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-right
+              className={`shrink-0 lg:w-full flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all text-right
                 ${tab === id
                   ? id === 'scheduling'
                     ? 'bg-gradient-to-l from-amber-500/[0.16] to-amber-500/[0.04] text-amber-400 border border-amber-500/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
