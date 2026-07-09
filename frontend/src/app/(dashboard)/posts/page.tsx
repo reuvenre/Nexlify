@@ -7,8 +7,53 @@ import {
   ListOrdered, Trash2, Package, AlertTriangle,
 } from 'lucide-react';
 import Link from 'next/link';
-import { postsApi } from '@/lib/api-client';
+import { postsApi, credentialsApi } from '@/lib/api-client';
 import type { Post } from '@/types';
+
+// ─── Estimated queue send times ───────────────────────────────────────────────
+// Mirrors the scheduler: one post per interval, inside the [start,end) hour window,
+// starting from the later of "now" and "last send + interval". Approximate on
+// purpose (the cron ticks once a minute) — labelled as משוער in the UI.
+
+interface ScheduleInfo {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+  intervalMin: number;
+  lastSentAt: Date | null;
+}
+
+function computeSendSlots(count: number, s: ScheduleInfo): Date[] {
+  const slots: Date[] = [];
+  const intervalMs = Math.max(1, s.intervalMin) * 60_000;
+  let t = new Date(Math.max(
+    Date.now(),
+    s.lastSentAt ? s.lastSentAt.getTime() + intervalMs : 0,
+  ));
+  for (let i = 0; i < count; i++) {
+    // Clamp into the sending window.
+    for (let guard = 0; guard < 3; guard++) {
+      const h = t.getHours();
+      if (h < s.startHour) {
+        t = new Date(t); t.setHours(s.startHour, 0, 0, 0);
+      } else if (h >= s.endHour) {
+        t = new Date(t.getTime() + 24 * 3600_000); t.setHours(s.startHour, 0, 0, 0);
+      } else break;
+    }
+    slots.push(new Date(t));
+    t = new Date(t.getTime() + intervalMs);
+  }
+  return slots;
+}
+
+function slotLabel(d: Date): string {
+  const today = new Date();
+  const tomorrow = new Date(today.getTime() + 24 * 3600_000);
+  const hm = d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === today.toDateString()) return `היום ~${hm}`;
+  if (d.toDateString() === tomorrow.toDateString()) return `מחר ~${hm}`;
+  return `${d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })} ~${hm}`;
+}
 
 const STATUS_TABS = [
   { value: '',        label: 'הכל'     },
@@ -32,10 +77,12 @@ const LIMITS = [10, 20, 50, 100];
 // ─── Queue Item ───────────────────────────────────────────────────────────────
 
 function QueueItem({
-  post, index, onRemove,
+  post, index, sendAt, onRemove,
 }: {
   post: Post;
   index: number;
+  /** Estimated send time (null when the queue is disabled). */
+  sendAt: Date | null;
   onRemove: (id: string) => Promise<void>;
 }) {
   const [removing, setRemoving] = useState(false);
@@ -48,51 +95,53 @@ function QueueItem({
   };
 
   return (
-    <div className="flex items-center gap-4 p-4 border-b border-edge last:border-0 hover:bg-white/[0.02] transition-colors group">
-      {/* Order badge */}
-      <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-        <span className="text-xs font-bold text-amber-400">{index + 1}</span>
+    <div className="group relative bg-surface-secondary border border-edge rounded-2xl overflow-hidden hover:border-edge-hover hover:-translate-y-0.5 transition-all duration-300">
+      {/* Image */}
+      <div className="relative h-40 bg-white/[0.04]">
+        {post.product_image ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={post.product_image} alt="" className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Package size={28} className="text-white/15" />
+          </div>
+        )}
+
+        {/* Position badge */}
+        <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-amber-500 text-black text-xs font-extrabold flex items-center justify-center shadow-md">
+          {index + 1}
+        </div>
+
+        {/* Estimated send time — the headline info of a queue */}
+        <div className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-black/65 backdrop-blur-sm text-white text-2xs font-medium rounded-full px-2.5 py-1">
+          <Clock size={10} className="text-amber-400" />
+          {sendAt ? `יישלח ${slotLabel(sendAt)}` : 'התור כבוי — הפעל בהגדרות'}
+        </div>
+
+        {/* Remove */}
+        <button
+          onClick={handleRemove}
+          disabled={removing}
+          className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/55 hover:bg-red-600 text-white/80 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all disabled:opacity-60"
+          title="הסר מהתור"
+        >
+          {removing ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+        </button>
       </div>
 
-      {/* Image */}
-      {post.product_image ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img src={post.product_image} alt="" className="w-10 h-10 rounded-lg object-cover bg-white/5 shrink-0" />
-      ) : (
-        <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-          <Package size={14} className="text-white/20" />
-        </div>
-      )}
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <p className="text-body text-white/80 truncate">{post.product_title}</p>
-        <div className="flex items-center gap-3 mt-0.5">
-          <span className="text-xs text-white/30">#{post.product_id}</span>
-          <span className="text-xs text-white/30">₪{post.price_ils?.toFixed(2)}</span>
-          <span className="text-2xs text-white/20">
+      {/* Body */}
+      <div className="p-3.5">
+        <p className="text-sm font-medium text-white/85 line-clamp-2 leading-snug min-h-[2.5rem]">{post.product_title}</p>
+        <p className="text-xs text-white/35 line-clamp-2 leading-relaxed mt-1.5 min-h-[2rem]">
+          {post.generated_text?.replace(/<[^>]+>/g, '').slice(0, 110)}
+        </p>
+        <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-edge">
+          <span className="text-sm font-bold text-white">₪{post.price_ils?.toFixed(2)}</span>
+          <span className="text-2xs text-white/25">
             נוסף {new Date(post.created_at).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
       </div>
-
-      {/* Preview text snippet */}
-      <div className="hidden lg:block w-48 shrink-0">
-        <p className="text-xs text-white/25 line-clamp-2 leading-relaxed">
-          {post.generated_text?.replace(/<[^>]+>/g, '').slice(0, 80)}...
-        </p>
-      </div>
-
-      {/* Remove */}
-      <button
-        onClick={handleRemove}
-        disabled={removing}
-        className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400/70 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all disabled:opacity-40"
-        title="הסר מהתור"
-      >
-        {removing ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-        הסר
-      </button>
     </div>
   );
 }
@@ -101,6 +150,7 @@ function QueueItem({
 
 function QueuePanel() {
   const [queue, setQueue] = useState<Post[]>([]);
+  const [schedule, setSchedule] = useState<ScheduleInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -108,8 +158,20 @@ function QueuePanel() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const data = await postsApi.listQueue();
+      const [data, creds] = await Promise.all([
+        postsApi.listQueue(),
+        credentialsApi.get().catch(() => null),
+      ]);
       setQueue(data);
+      if (creds) {
+        setSchedule({
+          enabled: creds.schedule_enabled === true,
+          startHour: creds.schedule_start_hour ?? 9,
+          endHour: creds.schedule_end_hour ?? 22,
+          intervalMin: creds.schedule_interval_minutes ?? 60,
+          lastSentAt: creds.schedule_last_sent_at ? new Date(creds.schedule_last_sent_at) : null,
+        });
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -178,30 +240,34 @@ function QueuePanel() {
         </div>
       ) : (
         <>
-          {/* Info banner */}
+          {/* Info banner — states the actual pace so "added minutes apart" isn't
+              mistaken for "will send minutes apart" */}
           <div className="flex items-start gap-3 p-3.5 bg-amber-500/8 border border-amber-500/15 rounded-xl mb-4">
             <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="text-xs text-amber-400/80 font-medium">תור שליחה אוטומטית</p>
               <p className="text-xs text-white/35 mt-0.5 leading-relaxed">
-                הפוסטים ישלחו אוטומטית לפי הגדרות התזמון שלך. ניתן לשנות שעות שליחה ומרווח בין פוסטים בהגדרות.
+                {schedule?.enabled
+                  ? `פוסט אחד נשלח כל ${schedule.intervalMin} דק׳, בין ${String(schedule.startHour).padStart(2, '0')}:00 ל-${String(schedule.endHour).padStart(2, '0')}:00 — זמן השליחה המשוער מופיע על כל כרטיס. ניתן לשנות בהגדרות ← תזמון אוטומטי.`
+                  : '⚠️ התור כבוי — הפוסטים לא יישלחו עד שתפעיל אותו בהגדרות ← תזמון אוטומטי.'}
               </p>
             </div>
           </div>
 
-          <div className="bg-surface-secondary border border-edge rounded-xl overflow-hidden">
-            {/* Column headers */}
-            <div className="flex items-center gap-4 px-4 py-2.5 border-b border-edge bg-white/[0.02]">
-              <div className="w-8 shrink-0" />
-              <div className="w-10 shrink-0" />
-              <p className="flex-1 text-xs font-medium text-white/30">מוצר</p>
-              <p className="hidden lg:block w-48 shrink-0 text-xs font-medium text-white/30">טקסט</p>
-              <div className="w-16" />
-            </div>
-
-            {queue.map((post, idx) => (
-              <QueueItem key={post.id} post={post} index={idx} onRemove={handleRemove} />
-            ))}
+          {/* Card grid ("windows" style) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {(() => {
+              const slots = schedule?.enabled ? computeSendSlots(queue.length, schedule) : [];
+              return queue.map((post, idx) => (
+                <QueueItem
+                  key={post.id}
+                  post={post}
+                  index={idx}
+                  sendAt={schedule?.enabled ? slots[idx] : null}
+                  onRemove={handleRemove}
+                />
+              ));
+            })()}
           </div>
         </>
       )}
