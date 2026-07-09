@@ -78,6 +78,28 @@ export class PostsController {
     return this.svc.listQueue(this.uid(req));
   }
 
+  /** One-click add-to-queue: send time is decided by the user's schedule settings. */
+  @Post('queue')
+  @HttpCode(201)
+  addToQueue(
+    @Req() req: Request,
+    @Body('product') product: any,
+    @Body('text') text?: string,
+  ) {
+    return this.svc.addToQueue(this.uid(req), {
+      product_id: String(product?.product_id ?? ''),
+      title: product?.title ?? '',
+      image_url: product?.image_url ?? '',
+      affiliate_url: product?.affiliate_url ?? '',
+      sale_price: Number(product?.sale_price) || 0,
+      original_price: Number(product?.original_price) || 0,
+      currency: product?.currency ?? 'USD',
+      discount_percent: Number(product?.discount_percent) || 0,
+      orders_count: Number(product?.orders_count) || 0,
+      rating: Number(product?.rating) || 0,
+    }, text);
+  }
+
   @Delete('queue/:id')
   @HttpCode(200)
   dequeue(@Req() req: Request, @Param('id') id: string) {

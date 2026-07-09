@@ -321,6 +321,24 @@ export default function QuickPostPage() {
     setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
   };
 
+  // One-click queue: send time is decided automatically by the user's schedule
+  // settings (window + interval) — no manual date picking needed.
+  const handleQueue = async (text: string) => {
+    const p = preview?.product || selected!;
+    return postsApi.addToQueue({
+      product_id: p.product_id,
+      title: p.title,
+      image_url: p.image_url,
+      affiliate_url: affiliateUrl || p.affiliate_url || '',
+      sale_price: p.sale_price,
+      original_price: p.original_price,
+      currency: p.currency,
+      discount_percent: p.discount_percent,
+      orders_count: p.orders_count,
+      rating: p.rating,
+    }, text);
+  };
+
   const handleRegenerate = async () => {
     if (!selected) return;
     setIsRegenerating(true);
@@ -498,6 +516,7 @@ export default function QuickPostPage() {
                   onPost={handlePost}
                   onSchedule={handleSchedule}
                   onRegenerate={handleRegenerate}
+                  onQueue={handleQueue}
                   isPosting={isPosting}
                   isRegenerating={isRegenerating}
                 />

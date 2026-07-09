@@ -334,6 +334,12 @@ export const postsApi = {
   // ── Queue ──
   listQueue: () => http.get<Post[]>('/posts/queue').then(extract),
   dequeue: (id: string) => http.delete(`/posts/queue/${id}`).then(extract),
+
+  /** One-click add-to-queue — the scheduler picks the send time from the user's settings. */
+  addToQueue: (product: Partial<AliProduct> & { image_url?: string; affiliate_url?: string }, text?: string) =>
+    http.post<{ post: Post; queue_active: boolean; interval_minutes: number; window_start: number; window_end: number }>(
+      '/posts/queue', { product, text }, { timeout: AI_TIMEOUT },
+    ).then(extract),
 };
 
 // ─── Earnings API ────────────────────────────────────────────────────────────

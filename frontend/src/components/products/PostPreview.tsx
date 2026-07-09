@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Send, Copy, RefreshCw, Check, Clock, X, CalendarClock } from 'lucide-react';
+import { Send, Copy, RefreshCw, Check, Clock, X, CalendarClock, ListPlus, Loader2 } from 'lucide-react';
 import type { PostPreview as PostPreviewType } from '@/types';
 
 const SYMBOLS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
@@ -11,18 +11,22 @@ interface PostPreviewProps {
   onPost: (text: string) => Promise<void>;
   onSchedule: (text: string, scheduledAt: string) => Promise<void>;
   onRegenerate: () => Promise<void>;
+  /** One-click add to the auto-send queue (timing decided by the user's schedule settings). */
+  onQueue?: (text: string) => Promise<{ queue_active: boolean; interval_minutes: number }>;
   isPosting?: boolean;
   isRegenerating?: boolean;
 }
 
 export function PostPreview({
-  preview, onPost, onSchedule, onRegenerate, isPosting, isRegenerating,
+  preview, onPost, onSchedule, onRegenerate, onQueue, isPosting, isRegenerating,
 }: PostPreviewProps) {
   const [text, setText] = useState(preview.generated_text);
   const [copied, setCopied] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledAt, setScheduledAt] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
+  const [isQueueing, setIsQueueing] = useState(false);
+  const [queueMsg, setQueueMsg] = useState<string | null>(null);
 
   // Resync the editable text whenever a NEW server-generated preview arrives (e.g. after
   // "regenerate"). Keying the effect on preview.generated_text means user edits — which
@@ -48,6 +52,22 @@ export function PostPreview({
       setScheduledAt('');
     } finally {
       setIsScheduling(false);
+    }
+  };
+
+  const handleQueue = async () => {
+    if (!onQueue) return;
+    setIsQueueing(true);
+    setQueueMsg(null);
+    try {
+      const res = await onQueue(text);
+      setQueueMsg(res.queue_active
+        ? `✓ נכנס לתור — יישלח אוטומטית (כל ${res.interval_minutes} דק׳ בחלון שהגדרת)`
+        : '✓ נכנס לתור — אבל התור כבוי! הפעל אותו בהגדרות ← תזמון אוטומטי');
+    } catch (e: any) {
+      setQueueMsg(e?.response?.data?.message || 'הוספה לתור נכשלה — נסה שוב');
+    } finally {
+      setIsQueueing(false);
     }
   };
 
@@ -127,6 +147,17 @@ export function PostPreview({
         </div>
       )}
 
+      {/* Queue result message */}
+      {queueMsg && (
+        <div className={`text-xs rounded-xl px-4 py-3 border ${
+          queueMsg.startsWith('✓ נכנס לתור — יישלח')
+            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
+            : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+        }`}>
+          {queueMsg}
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-2">
         <button
@@ -137,6 +168,18 @@ export function PostPreview({
           <Send size={14} />
           {isPosting ? 'שולח...' : 'שלח עכשיו'}
         </button>
+
+        {onQueue && (
+          <button
+            onClick={handleQueue}
+            disabled={isQueueing}
+            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600/20 hover:bg-violet-600/30 disabled:opacity-60 border border-violet-500/30 text-violet-300 text-sm font-medium rounded-xl transition-all"
+            title="הוסף לתור — יישלח אוטומטית לפי הגדרות התזמון שלך"
+          >
+            {isQueueing ? <Loader2 size={14} className="animate-spin" /> : <ListPlus size={14} />}
+            הוסף לתור
+          </button>
+        )}
 
         <button
           onClick={() => setShowScheduler((v) => !v)}

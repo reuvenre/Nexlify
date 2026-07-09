@@ -15,7 +15,7 @@ const ROUNDING: { id: Rounding; label: string; desc: string }[] = [
 // Mirror of the backend rounding logic, for the live preview.
 function roundPrice(v: number, mode: Rounding): number {
   if (!(v > 0)) return 0;
-  if (mode === 'exact') return Math.round(v * 10) / 10;
+  if (mode === 'exact') return Math.round(v * 100) / 100;   // true exact — matches the site
   if (mode === 'charming') { const d = Math.floor(v); const e = d - ((d + 1) % 10); return e > 0 ? e : d; }
   return v > 50 ? Math.ceil(v / 5) * 5 : Math.ceil(v);
 }
@@ -23,7 +23,10 @@ function roundPrice(v: number, mode: Rounding): number {
 export function PricingForm() {
   const [markup, setMarkup] = useState(0);
   const [buffer, setBuffer] = useState(0);
-  const [rounding, setRounding] = useState<Rounding>('natural');
+  // Default 'exact' — the system-wide default that keeps displayed prices identical
+  // to the AliExpress site. A 'natural' fallback here could silently flip the user
+  // back to rounded (wrong-looking) prices on the next settings save.
+  const [rounding, setRounding] = useState<Rounding>('exact');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -33,7 +36,7 @@ export function PricingForm() {
       .then((c) => {
         setMarkup(c.price_markup_pct ?? 0);
         setBuffer(c.price_shipping_buffer_ils ?? 0);
-        setRounding((c.price_rounding_mode as Rounding) || 'natural');
+        setRounding((c.price_rounding_mode as Rounding) || 'exact');
       })
       .catch(() => {})
       .finally(() => setLoading(false));

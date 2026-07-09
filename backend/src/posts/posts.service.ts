@@ -236,6 +236,7 @@ export class PostsService {
       rating: number;
     },
     catalogProductId?: string,
+    textOverride?: string,
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
@@ -255,7 +256,9 @@ export class PostsService {
       ? +(product.original_price / rate).toFixed(2)
       : product.original_price;
 
-    const text = await this.generateText(
+    // When the caller already has final text (e.g. the quick-post review screen),
+    // use it as-is — don't spend AI credits generating a second version.
+    const text = textOverride?.trim() || await this.generateText(
       product as any,
       'he',
       rate,
@@ -315,6 +318,32 @@ export class PostsService {
     // sendToTelegram mutates next.status in place ('sent' | 'failed'); TS still sees the
     // 'pending' we assigned above, so compare via a widened string.
     return { sent: true, ok: (next.status as string) === 'sent', error: next.error_message || undefined };
+  }
+
+  /**
+   * One-click "add to queue" from the review screen: stores the (already generated)
+   * post in the auto-send queue — the scheduler picks the send time automatically
+   * from the user's window/interval settings. Also reports whether the queue is
+   * actually enabled so the UI can warn instead of silently swallowing the post.
+   */
+  async addToQueue(
+    userId: string,
+    product: {
+      product_id: string; title: string; image_url: string; affiliate_url: string;
+      sale_price: number; original_price: number; currency: string;
+      discount_percent: number; orders_count: number; rating: number;
+    },
+    text?: string,
+  ) {
+    const post = await this.createQueuedPost(userId, product, undefined, text);
+    const creds = await this.credentials.getRaw(userId);
+    return {
+      post,
+      queue_active: creds?.schedule_enabled === true,
+      interval_minutes: creds?.schedule_interval_minutes ?? 60,
+      window_start: creds?.schedule_start_hour ?? 9,
+      window_end: creds?.schedule_end_hour ?? 22,
+    };
   }
 
   /** Removes a post from the queue */
@@ -511,23 +540,25 @@ export class PostsService {
     const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
     const wantFacebook = !channelOverride && creds?.publish_facebook === true;
 
+    // Send to all channels IN PARALLEL. Sequential sends meant a hung/expired
+    // Facebook token added its full timeout on top of Telegram — the user waited
+    // ~15+ extra seconds per post for a channel that was going to fail anyway.
+    const tasks: Promise<void>[] = [];
     if (wantTelegram) {
-      try {
-        await this.sendToTelegramChannel(post, creds, body, channelOverride);
-        anySuccess = true;
-      } catch (err: any) {
-        errors.push(`Telegram: ${err?.response?.data?.description || err.message}`);
-      }
+      tasks.push(
+        this.sendToTelegramChannel(post, creds, body, channelOverride)
+          .then(() => { anySuccess = true; })
+          .catch((err: any) => { errors.push(`Telegram: ${err?.response?.data?.description || err.message}`); }),
+      );
     }
-
     if (wantFacebook) {
-      try {
-        await this.sendToFacebook(post, creds, body);
-        anySuccess = true;
-      } catch (err: any) {
-        errors.push(`Facebook: ${err?.response?.data?.error?.message || err.message}`);
-      }
+      tasks.push(
+        this.sendToFacebook(post, creds, body)
+          .then(() => { anySuccess = true; })
+          .catch((err: any) => { errors.push(`Facebook: ${err?.response?.data?.error?.message || err.message}`); }),
+      );
     }
+    await Promise.all(tasks);
 
     if (anySuccess) {
       post.status = 'sent';
@@ -571,7 +602,9 @@ export class PostsService {
     const res = await axios.post(
       `https://graph.facebook.com/v19.0/${pageId}/feed`,
       params.toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 },
+      // 8s is plenty for the Graph API — a longer timeout just makes an
+      // expired-token failure feel like the whole system is stuck.
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 },
     );
     if (res.data?.error) throw new Error(res.data.error.message);
     post.facebook_post_id = res.data?.id;

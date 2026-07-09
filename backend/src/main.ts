@@ -4,6 +4,17 @@ import { ValidationPipe } from '@nestjs/common';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
+// Crash safety: since Node 15 an unhandled promise rejection KILLS the process —
+// on a free single-instance host that reads as "the server randomly falls over".
+// Log loudly and keep serving instead of dying; the offending flow already failed
+// on its own and every scheduler tick is individually try/catch-guarded.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
