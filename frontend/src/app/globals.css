@@ -231,8 +231,11 @@ input:-webkit-autofill {
 [data-theme="light"] .text-white        { color: #0f1117 !important; }
 [data-theme="light"] .text-white\/95    { color: rgba(15,17,23,0.95) !important; }
 [data-theme="light"] .text-white\/90    { color: rgba(15,17,23,0.90) !important; }
+[data-theme="light"] .text-white\/85    { color: rgba(15,17,23,0.85) !important; }
 [data-theme="light"] .text-white\/80    { color: rgba(15,17,23,0.80) !important; }
+[data-theme="light"] .text-white\/75    { color: rgba(15,17,23,0.78) !important; }
 [data-theme="light"] .text-white\/70    { color: rgba(15,17,23,0.70) !important; }
+[data-theme="light"] .text-white\/65    { color: rgba(15,17,23,0.66) !important; }
 [data-theme="light"] .text-white\/60    { color: rgba(15,17,23,0.62) !important; }
 [data-theme="light"] .text-white\/55    { color: rgba(15,17,23,0.75) !important; }
 [data-theme="light"] .text-white\/50    { color: rgba(15,17,23,0.62) !important; }
