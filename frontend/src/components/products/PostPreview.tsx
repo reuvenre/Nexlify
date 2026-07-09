@@ -170,10 +170,12 @@ export function PostPreview({
         </button>
 
         {onQueue && (
+          // Solid violet — the translucent violet-300 version was unreadable on the
+          // light theme (looked like a disabled button).
           <button
             onClick={handleQueue}
             disabled={isQueueing}
-            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600/20 hover:bg-violet-600/30 disabled:opacity-60 border border-violet-500/30 text-violet-300 text-sm font-medium rounded-xl transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl transition-all"
             title="הוסף לתור — יישלח אוטומטית לפי הגדרות התזמון שלך"
           >
             {isQueueing ? <Loader2 size={14} className="animate-spin" /> : <ListPlus size={14} />}
@@ -183,12 +185,12 @@ export function PostPreview({
 
         <button
           onClick={() => setShowScheduler((v) => !v)}
-          className={`p-2.5 rounded-xl transition-all ${
+          className={`p-2.5 rounded-xl border transition-all ${
             showScheduler
-              ? 'bg-blue-600/20 border border-blue-500/30 text-blue-400'
-              : 'bg-white/5 hover:bg-white/10 text-white/60'
+              ? 'bg-blue-600/20 border-blue-500/30 text-blue-400'
+              : 'bg-white/5 hover:bg-white/10 border-edge-hover text-white/70'
           }`}
-          title="תזמן פרסום"
+          title="תזמן לתאריך ושעה"
         >
           <Clock size={14} />
         </button>
@@ -196,7 +198,7 @@ export function PostPreview({
         <button
           onClick={onRegenerate}
           disabled={isRegenerating}
-          className="p-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 text-white/60 rounded-xl transition-all"
+          className="p-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 border border-edge-hover text-white/70 rounded-xl transition-all"
           title="צור טקסט מחדש"
         >
           <RefreshCw size={14} className={isRegenerating ? 'animate-spin' : ''} />
@@ -204,12 +206,19 @@ export function PostPreview({
 
         <button
           onClick={handleCopy}
-          className="p-2.5 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl transition-all"
+          className="p-2.5 bg-white/5 hover:bg-white/10 border border-edge-hover text-white/70 rounded-xl transition-all"
           title="העתק טקסט"
         >
           {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
         </button>
       </div>
+
+      {/* Icon-button legend — the icons alone were not self-explanatory */}
+      <p className="text-2xs text-white/30 flex items-center gap-3 justify-end">
+        <span className="flex items-center gap-1"><Clock size={10} /> תזמון ידני</span>
+        <span className="flex items-center gap-1"><RefreshCw size={10} /> צור מחדש</span>
+        <span className="flex items-center gap-1"><Copy size={10} /> העתק</span>
+      </p>
     </div>
   );
 }
