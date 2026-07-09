@@ -83,7 +83,12 @@ export class CredentialsService {
 
     // Facebook / Meta (non-secret)
     if (dto.facebook_page_id?.trim())        cred.facebook_page_id = dto.facebook_page_id.trim();
-    if (dto.meta_ad_account_id?.trim())      cred.meta_ad_account_id = dto.meta_ad_account_id.trim();
+    if (dto.meta_ad_account_id?.trim()) {
+      // Graph API requires the act_ prefix; users naturally paste the bare number
+      // from Business Manager — normalize so both forms work.
+      const v = dto.meta_ad_account_id.trim();
+      cred.meta_ad_account_id = /^\d+$/.test(v) ? `act_${v}` : v;
+    }
     if (dto.publish_telegram !== undefined)  cred.publish_telegram = dto.publish_telegram;
     if (dto.publish_facebook !== undefined)  cred.publish_facebook = dto.publish_facebook;
 
@@ -224,8 +229,12 @@ export class CredentialsService {
     try {
       const token = decrypt(cred.facebook_page_token_enc);
       if (token && cred.meta_ad_account_id) {
+        // Defensive normalization for rows saved before act_ auto-prefixing.
+        const adAccount = cred.meta_ad_account_id.startsWith('act_')
+          ? cred.meta_ad_account_id
+          : `act_${cred.meta_ad_account_id}`;
         const res = await axios.get(
-          `https://graph.facebook.com/v19.0/${cred.meta_ad_account_id}?fields=name,account_status&access_token=${token}`,
+          `https://graph.facebook.com/v19.0/${adAccount}?fields=name,account_status&access_token=${token}`,
           { timeout: 5000 },
         );
         results.metaAdAccount = res.status === 200 && !res.data?.error;
