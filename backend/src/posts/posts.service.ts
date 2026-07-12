@@ -112,6 +112,21 @@ export class PostsService {
     return t?.content?.trim() || '';
   }
 
+  /**
+   * Footer for a post: when routed to a specific saved channel that has its OWN footer
+   * template (each group has its own join link), use that; otherwise the global default.
+   */
+  private async resolveFooterText(userId: string, creds: DecryptedCredentials, channelOverride?: string): Promise<string> {
+    if (channelOverride) {
+      const id = await this.channels.getFooterTemplateId(userId, channelOverride);
+      if (id) {
+        const t = await this.templateRepo.findOne({ where: { id, user_id: userId } });
+        return t?.content?.trim() || '';
+      }
+    }
+    return this.getFooterText(userId, creds);
+  }
+
   // ── List ──────────────────────────────────────────────────────────────────
 
   async list(userId: string, page = 1, limit = 20, status?: string, campaignId?: string) {
@@ -637,9 +652,9 @@ export class PostsService {
       ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
       : post.generated_text;
 
-    // Append the user's default footer (channel branding) to every post, if set
-    // and not already present in the text.
-    const footer = await this.getFooterText(post.user_id, creds);
+    // Append the footer (channel branding + that group's OWN join link) if set and not
+    // already present. Per-channel footer overrides the global default when routed.
+    const footer = await this.resolveFooterText(post.user_id, creds, channelOverride);
     if (footer && !body.includes(footer)) {
       body = `${body}\n\n${footer}`;
     }

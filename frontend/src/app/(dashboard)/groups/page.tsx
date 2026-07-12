@@ -5,8 +5,8 @@ import {
   Users, Plus, Trash2, CheckCircle2, XCircle,
   Loader2, Send, Eye, EyeOff, ToggleLeft, ToggleRight, Pencil,
 } from 'lucide-react';
-import { channelsApi } from '@/lib/api-client';
-import type { Channel, CreateChannelInput, UpdateChannelInput } from '@/types';
+import { channelsApi, templatesApi } from '@/lib/api-client';
+import type { Channel, CreateChannelInput, UpdateChannelInput, PostTemplate } from '@/types';
 
 const PLATFORM_ICON: Record<string, string> = { telegram: '📨' };
 const PLATFORM_LABEL: Record<string, string> = { telegram: 'Telegram' };
@@ -19,6 +19,7 @@ function ChannelFormFields({
   channelId, setChannelId,
   description, setDescription,
   showToken, setShowToken,
+  footerTemplateId, setFooterTemplateId, footerTemplates,
   isEdit,
 }: {
   name: string; setName: (v: string) => void;
@@ -26,6 +27,8 @@ function ChannelFormFields({
   channelId: string; setChannelId: (v: string) => void;
   description: string; setDescription: (v: string) => void;
   showToken: boolean; setShowToken: (v: boolean) => void;
+  footerTemplateId: string; setFooterTemplateId: (v: string) => void;
+  footerTemplates: PostTemplate[];
   isEdit?: boolean;
 }) {
   return (
@@ -91,17 +94,36 @@ function ChannelFormFields({
           className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
         />
       </div>
+
+      <div>
+        <label className="block text-xs text-white/50 mb-1.5">כותרת תחתונה לקבוצה</label>
+        <select
+          value={footerTemplateId}
+          onChange={(e) => setFooterTemplateId(e.target.value)}
+          className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
+        >
+          <option value="">— כותרת ברירת המחדל הכללית —</option>
+          {footerTemplates.map((t) => (
+            <option key={t.id} value={t.id}>{t.icon} {t.name}</option>
+          ))}
+        </select>
+        <p className="text-2xs text-white/25 mt-1">
+          תצורף לכל פוסט שמתפרסם לקבוצה הזו — כאן שמים את קישור ההצטרפות שלה.{' '}
+          {footerTemplates.length === 0 && 'צור תבניות מסוג "כותרת תחתונה" במסך התבניות.'}
+        </p>
+      </div>
     </>
   );
 }
 
 // ── Add modal ────────────────────────────────────────────────────────────────
 
-function AddChannelModal({ onClose, onAdd }: { onClose: () => void; onAdd: (c: Channel) => void }) {
+function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => void; onAdd: (c: Channel) => void; footerTemplates: PostTemplate[] }) {
   const [name, setName] = useState('');
   const [botToken, setBotToken] = useState('');
   const [channelId, setChannelId] = useState('');
   const [description, setDescription] = useState('');
+  const [footerTemplateId, setFooterTemplateId] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -118,6 +140,7 @@ function AddChannelModal({ onClose, onAdd }: { onClose: () => void; onAdd: (c: C
         bot_token: botToken || undefined,
         channel_id: channelId || undefined,
         description: description || undefined,
+        footer_template_id: footerTemplateId || undefined,
       } as CreateChannelInput);
       onAdd(channel);
       onClose();
@@ -139,6 +162,7 @@ function AddChannelModal({ onClose, onAdd }: { onClose: () => void; onAdd: (c: C
             channelId={channelId} setChannelId={setChannelId}
             description={description} setDescription={setDescription}
             showToken={showToken} setShowToken={setShowToken}
+            footerTemplateId={footerTemplateId} setFooterTemplateId={setFooterTemplateId} footerTemplates={footerTemplates}
           />
           {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="flex gap-3 pt-1">
@@ -164,15 +188,18 @@ function EditChannelModal({
   channel,
   onClose,
   onSave,
+  footerTemplates,
 }: {
   channel: Channel;
   onClose: () => void;
   onSave: (updated: Channel) => void;
+  footerTemplates: PostTemplate[];
 }) {
   const [name, setName] = useState(channel.name);
   const [botToken, setBotToken] = useState('');
   const [channelId, setChannelId] = useState(channel.channel_id);
   const [description, setDescription] = useState(channel.description);
+  const [footerTemplateId, setFooterTemplateId] = useState(channel.footer_template_id || '');
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -187,6 +214,7 @@ function EditChannelModal({
         name: name.trim(),
         channel_id: channelId,
         description,
+        footer_template_id: footerTemplateId,
       };
       if (botToken.trim()) dto.bot_token = botToken.trim();
       const updated = await channelsApi.update(channel.id, dto);
@@ -227,6 +255,7 @@ function EditChannelModal({
             channelId={channelId} setChannelId={setChannelId}
             description={description} setDescription={setDescription}
             showToken={showToken} setShowToken={setShowToken}
+            footerTemplateId={footerTemplateId} setFooterTemplateId={setFooterTemplateId} footerTemplates={footerTemplates}
             isEdit
           />
           {error && <p className="text-xs text-red-400">{error}</p>}
@@ -251,12 +280,14 @@ function EditChannelModal({
 
 function ChannelCard({
   channel,
+  footerName,
   onDelete,
   onTest,
   onToggle,
   onEdit,
 }: {
   channel: Channel;
+  footerName?: string | null;
   onDelete: (id: string) => void;
   onTest: (id: string) => Promise<{ ok: boolean; error?: string }>;
   onToggle: (id: string, active: boolean) => void;
@@ -301,6 +332,9 @@ function ChannelCard({
             )}
             {channel.description && (
               <p className="text-xs text-white/30 mt-0.5 truncate">{channel.description}</p>
+            )}
+            {footerName && (
+              <p className="text-2xs text-blue-400/70 mt-0.5 truncate">כותרת תחתונה: {footerName}</p>
             )}
           </div>
         </div>
@@ -364,6 +398,7 @@ function ChannelCard({
 
 export default function GroupsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [footerTemplates, setFooterTemplates] = useState<PostTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
@@ -374,7 +409,14 @@ export default function GroupsPage() {
       .then(setChannels)
       .catch(() => {})
       .finally(() => setLoading(false));
+    // Footer templates (type='footer') selectable per channel — each group's join link.
+    templatesApi.list()
+      .then((ts) => setFooterTemplates(ts.filter((t) => t.type === 'footer')))
+      .catch(() => {});
   }, []);
+
+  const footerName = (id: string | null) =>
+    id ? footerTemplates.find((t) => t.id === id)?.name : null;
 
   const handleDelete = async (id: string) => {
     await channelsApi.delete(id).catch(() => {});
@@ -460,6 +502,7 @@ export default function GroupsPage() {
             <ChannelCard
               key={channel.id}
               channel={channel}
+              footerName={footerName(channel.footer_template_id)}
               onDelete={handleDelete}
               onTest={handleTest}
               onToggle={handleToggle}
@@ -473,6 +516,7 @@ export default function GroupsPage() {
         <AddChannelModal
           onClose={() => setShowAddModal(false)}
           onAdd={(c) => setChannels((cs) => [...cs, c])}
+          footerTemplates={footerTemplates}
         />
       )}
 
@@ -481,6 +525,7 @@ export default function GroupsPage() {
           channel={editingChannel}
           onClose={() => setEditingChannel(null)}
           onSave={handleSaveEdit}
+          footerTemplates={footerTemplates}
         />
       )}
     </div>
