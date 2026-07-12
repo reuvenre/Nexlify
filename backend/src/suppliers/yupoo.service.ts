@@ -29,12 +29,40 @@ const BROWSER_HEADERS = {
 export class YupooService {
   private readonly logger = new Logger(YupooService.name);
 
-  /** Parse "LUN1526 $56.99 COACH" → { code, price, description }. */
+  /**
+   * Parse an album title into { code, price, description }. Stores format titles very
+   * differently, e.g.:
+   *   "LUN1526 $56.99 COACH"   (space-separated)
+   *   "MM-68SM2606-$45"        (hyphen, no space, price stuck to the code)
+   *   "MM-148A0B-$99.86 ADA"
+   * So we find the price by its `$` anchor ANYWHERE (either side), strip it out, and
+   * treat the first remaining token as the code and the rest as the description.
+   */
   private parseTitle(raw: string): { code: string; price: number; description: string } {
     const title = (raw || '').replace(/\s+/g, ' ').trim();
-    const m = title.match(/^(\S+)\s+\$?\s*([\d.]+)\s*(.*)$/);
-    if (m) return { code: m[1], price: parseFloat(m[2]) || 0, description: (m[3] || '').trim() };
-    // No price in the title — take the first token as the code.
+
+    // Price = a number adjacent to a "$" (dollar on either side), anywhere in the title.
+    const priceMatch = title.match(/\$\s*(\d+(?:[.,]\d+)?)/) || title.match(/(\d+(?:[.,]\d+)?)\s*\$/);
+    if (priceMatch) {
+      const price = parseFloat(priceMatch[1].replace(',', '.')) || 0;
+      // Remove the "$price" token, then trim stray separators ($ - – — spaces) left behind.
+      // Internal hyphens in the code (MM-68SM2606) are preserved.
+      const rest = title.replace(priceMatch[0], ' ')
+        .replace(/^[\s$\-–—]+|[\s$\-–—]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const [codeRaw, ...descParts] = rest.split(' ');
+      // Strip a separator left dangling on the code token (e.g. "MM-148A0B-" → "MM-148A0B");
+      // internal hyphens are kept.
+      const code = (codeRaw || '').replace(/^[$\-–—]+|[$\-–—]+$/g, '');
+      return { code: code || title, price, description: descParts.join(' ').trim() };
+    }
+
+    // Legacy "CODE PRICE DESC" with no "$" (space-separated).
+    const m = title.match(/^(\S+)\s+(\d+(?:[.,]\d+)?)\s+(.*)$/);
+    if (m) return { code: m[1], price: parseFloat(m[2].replace(',', '.')) || 0, description: (m[3] || '').trim() };
+
+    // No price in the title — first token is the code.
     const [code, ...rest] = title.split(' ');
     return { code: code || title, price: 0, description: rest.join(' ') };
   }
