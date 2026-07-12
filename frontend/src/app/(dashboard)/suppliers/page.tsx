@@ -22,6 +22,10 @@ const BUILTIN_DEFAULT_TEMPLATE: PostTemplate = { id: 'builtin_default', name: '�
 const SYMS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
 const priceSym = (c: string) => SYMS[c] || '$';
 
+// datetime-local strings in LOCAL time; scheduling defaults to one hour ahead.
+const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+const localPlusHour = () => localInput(new Date(Date.now() + 60 * 60 * 1000));
+
 // The FLYLINK affiliate link is already saved on the product and comes back on the
 // preview — append it to the post text automatically so it never has to be re-pasted.
 function withPreviewLink(r: PostPreviewType & { gallery: string[]; vision_used?: boolean }) {
@@ -991,9 +995,9 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
   const [queued, setQueued] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
-  const [scheduledAt, setScheduledAt] = useState('');
+  const [scheduledAt, setScheduledAt] = useState(() => localPlusHour());
   const [scheduling, setScheduling] = useState(false);
-  const minDateTime = new Date(Date.now() + 2 * 60 * 1000).toISOString().slice(0, 16);
+  const minDateTime = localInput(new Date(Date.now() + 2 * 60 * 1000));
   const s = priceSym(product.currency);
 
   const handleDelete = async () => {
@@ -1020,7 +1024,7 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
   const handleSchedule = async () => {
     if (!scheduledAt) return;
     setScheduling(true);
-    try { await suppliersApi.schedule(product.id, new Date(scheduledAt).toISOString()); setShowSchedule(false); setScheduledAt(''); reload(); }
+    try { await suppliersApi.schedule(product.id, new Date(scheduledAt).toISOString()); setShowSchedule(false); setScheduledAt(localPlusHour()); reload(); }
     catch (e: any) { alert(e?.response?.data?.message || 'שגיאה בתזמון'); }
     finally { setScheduling(false); }
   };

@@ -6,6 +6,15 @@ import type { PostPreview as PostPreviewType } from '@/types';
 
 const SYMBOLS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
 
+// Format a Date as a `datetime-local` value in the user's LOCAL time (the raw
+// toISOString() is UTC, which showed the wrong hour for non-UTC users).
+function toLocalInput(d: Date): string {
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+// Default schedule = one hour ahead, so confirming never publishes "right now".
+const plusOneHourLocal = () => toLocalInput(new Date(Date.now() + 60 * 60 * 1000));
+
 interface PostPreviewProps {
   preview: PostPreviewType;
   onPost: (text: string) => Promise<void>;
@@ -23,7 +32,7 @@ export function PostPreview({
   const [text, setText] = useState(preview.generated_text);
   const [copied, setCopied] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
-  const [scheduledAt, setScheduledAt] = useState('');
+  const [scheduledAt, setScheduledAt] = useState(() => plusOneHourLocal());
   const [isScheduling, setIsScheduling] = useState(false);
   const [isQueueing, setIsQueueing] = useState(false);
   const [queue, setQueue] = useState<{ msg: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -49,7 +58,7 @@ export function PostPreview({
     try {
       await onSchedule(text, new Date(scheduledAt).toISOString());
       setShowScheduler(false);
-      setScheduledAt('');
+      setScheduledAt(plusOneHourLocal());
     } finally {
       setIsScheduling(false);
     }
@@ -72,10 +81,8 @@ export function PostPreview({
     }
   };
 
-  // min datetime = now + 2 minutes (can't schedule in the past)
-  const minDateTime = new Date(Date.now() + 2 * 60 * 1000)
-    .toISOString()
-    .slice(0, 16);
+  // min datetime = now + 2 minutes (can't schedule in the past), in LOCAL time.
+  const minDateTime = toLocalInput(new Date(Date.now() + 2 * 60 * 1000));
 
   return (
     <div className="space-y-4">
@@ -126,7 +133,7 @@ export function PostPreview({
           </div>
 
           <div>
-            <label className="block text-2xs text-white/40 mb-1.5">תאריך ושעה לפרסום</label>
+            <label className="block text-2xs text-white/40 mb-1.5">תאריך ושעה לפרסום <span className="text-white/25">(ברירת מחדל: עוד שעה)</span></label>
             <input
               type="datetime-local"
               value={scheduledAt}
