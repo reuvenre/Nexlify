@@ -12,8 +12,21 @@ function toLocalInput(d: Date): string {
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
 }
-// Default schedule = one hour ahead, so confirming never publishes "right now".
-const plusOneHourLocal = () => toLocalInput(new Date(Date.now() + 60 * 60 * 1000));
+// Default schedule = one hour ahead, but kept inside the user's publishing window
+// (הגדרות פרסום) — otherwise "+1h" at 23:20 defaulted to 00:20, outside 06:00–23:00.
+function defaultScheduleLocal(window?: { start: number; end: number }): string {
+  const d = new Date(Date.now() + 60 * 60 * 1000);
+  if (window && window.end > window.start) {
+    const h = d.getHours();
+    if (h < window.start) {
+      d.setHours(window.start, d.getMinutes(), 0, 0);            // before window today → window start today
+    } else if (h >= window.end) {
+      d.setDate(d.getDate() + 1);
+      d.setHours(window.start, d.getMinutes(), 0, 0);            // after window → window start tomorrow
+    }
+  }
+  return toLocalInput(d);
+}
 
 interface PostPreviewProps {
   preview: PostPreviewType;
@@ -22,17 +35,19 @@ interface PostPreviewProps {
   onRegenerate: () => Promise<void>;
   /** One-click add to the auto-send queue (timing decided by the user's schedule settings). */
   onQueue?: (text: string) => Promise<{ queue_active: boolean; interval_minutes: number }>;
+  /** The user's publishing window (hours) — the schedule default is kept inside it. */
+  scheduleWindow?: { start: number; end: number };
   isPosting?: boolean;
   isRegenerating?: boolean;
 }
 
 export function PostPreview({
-  preview, onPost, onSchedule, onRegenerate, onQueue, isPosting, isRegenerating,
+  preview, onPost, onSchedule, onRegenerate, onQueue, scheduleWindow, isPosting, isRegenerating,
 }: PostPreviewProps) {
   const [text, setText] = useState(preview.generated_text);
   const [copied, setCopied] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
-  const [scheduledAt, setScheduledAt] = useState(() => plusOneHourLocal());
+  const [scheduledAt, setScheduledAt] = useState(() => defaultScheduleLocal(scheduleWindow));
   const [isScheduling, setIsScheduling] = useState(false);
   const [isQueueing, setIsQueueing] = useState(false);
   const [queue, setQueue] = useState<{ msg: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
@@ -58,7 +73,7 @@ export function PostPreview({
     try {
       await onSchedule(text, new Date(scheduledAt).toISOString());
       setShowScheduler(false);
-      setScheduledAt(plusOneHourLocal());
+      setScheduledAt(defaultScheduleLocal(scheduleWindow));
     } finally {
       setIsScheduling(false);
     }

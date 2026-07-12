@@ -419,6 +419,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [ready, setReady] = useState(false); // gate generation until the group's template is resolved
+  const [scheduleWindow, setScheduleWindow] = useState<{ start: number; end: number } | undefined>();
   const galleryInited = useRef(false);
 
   const chLabel = (ch: string) => ch === 'default' ? 'ברירת מחדל' : 'קבוצה';
@@ -471,6 +472,9 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
         setCustomTemplates(ts);
         setGlobalBodyId(gid);
         setTemplate(resolveTemplateFor(channelId, ts, gid));
+        if (typeof c.schedule_start_hour === 'number' && typeof c.schedule_end_hour === 'number') {
+          setScheduleWindow({ start: c.schedule_start_hour, end: c.schedule_end_hour });
+        }
       })
       .catch(() => {})
       .finally(() => setReady(true)); // now allow the first generation (once)
@@ -509,7 +513,11 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
     finally { setPosting(false); }
   };
   const onSchedule = async (text: string, at: string) => {
-    try { const r = await suppliersApi.schedule(productId, at, channelId || undefined, text, selectedImages(), cells()); setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.(); }
+    try {
+      const r = await suppliersApi.schedule(productId, at, channelId || undefined, text, selectedImages(), cells());
+      const when = new Date(at).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      setDone(`✓ תוזמן ל-${when} (${chLabel(r.channel)}) — צפייה ב"פוסטים → מתוזמן"`); onSent?.();
+    }
     catch (e: any) { setErr(e?.response?.data?.message || 'התזמון נכשל — נסה שוב'); throw e; }
   };
   const onQueue = async (text: string) => {
@@ -634,7 +642,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
           <div className="bg-surface-secondary border border-edge rounded-xl p-10 flex justify-center"><Loader2 size={20} className="animate-spin text-blue-400" /></div>
         ) : pv ? (
           <PostPreview preview={pv} onPost={onPost} onSchedule={onSchedule} onQueue={onQueue}
-            onRegenerate={onRegenerate} isPosting={posting} isRegenerating={regen} />
+            onRegenerate={onRegenerate} scheduleWindow={scheduleWindow} isPosting={posting} isRegenerating={regen} />
         ) : null}
       </div>
 
