@@ -20,15 +20,30 @@ export class CollageService {
     const perSheet = [4, 6, 9].includes(cells) ? cells : 6;
     const cols = perSheet >= 9 ? 3 : 2;
     const sheets: Buffer[] = [];
+    // Diagnostics so a silent failure (Render sharp/binary or a blocked fetch) surfaces
+    // in the post's error_message instead of quietly falling back to a plain album.
+    const diag = { fetched: 0, fetchFail: 0, sharpFail: 0, firstErr: '' };
+    const note = (e: any) => { if (!diag.firstErr) diag.firstErr = String(e?.message || e).slice(0, 200); };
+
     // Telegram albums cap at 10 — never emit more than 10 sheets.
     for (let i = 0; i < urls.length && sheets.length < 10; i += perSheet) {
-      const sheet = await this.buildSheet(urls.slice(i, i + perSheet), cols);
+      const sheet = await this.buildSheet(urls.slice(i, i + perSheet), cols, diag, note);
       if (sheet) sheets.push(sheet);
+    }
+
+    if (!sheets.length) {
+      throw new Error(
+        `collage produced 0 sheets — fetched ${diag.fetched}/${urls.length}, fetchFail ${diag.fetchFail}, sharpFail ${diag.sharpFail}${diag.firstErr ? ` — ${diag.firstErr}` : ''}`,
+      );
     }
     return sheets;
   }
 
-  private async buildSheet(urls: string[], cols: number): Promise<Buffer | null> {
+  private async buildSheet(
+    urls: string[], cols: number,
+    diag: { fetched: number; fetchFail: number; sharpFail: number; firstErr: string },
+    note: (e: any) => void,
+  ): Promise<Buffer | null> {
     const W = 1080, pad = 18, gap = 14, bg = '#ffffff';
     const rows = Math.ceil(urls.length / cols);
     const cellW = Math.floor((W - pad * 2 - gap * (cols - 1)) / cols);
@@ -38,7 +53,8 @@ export class CollageService {
     const composites: OverlayOptions[] = [];
     for (let idx = 0; idx < urls.length; idx++) {
       const buf = await this.fetchImage(urls[idx]);
-      if (!buf) continue;
+      if (!buf) { diag.fetchFail++; continue; }
+      diag.fetched++;
       try {
         const cell = await sharp(buf)
           .resize(cellW, cellH, { fit: 'cover', position: 'centre' })
@@ -47,14 +63,21 @@ export class CollageService {
         const r = Math.floor(idx / cols), c = idx % cols;
         composites.push({ input: cell, left: pad + c * (cellW + gap), top: pad + r * (cellH + gap) });
       } catch (e: any) {
+        diag.sharpFail++; note(e);
         this.logger.warn(`collage cell failed: ${e?.message}`);
       }
     }
     if (!composites.length) return null;
-    return sharp({ create: { width: W, height: H, channels: 3, background: bg } })
-      .composite(composites)
-      .jpeg({ quality: 82 })
-      .toBuffer();
+    try {
+      return await sharp({ create: { width: W, height: H, channels: 3, background: bg } })
+        .composite(composites)
+        .jpeg({ quality: 82 })
+        .toBuffer();
+    } catch (e: any) {
+      diag.sharpFail++; note(e);
+      this.logger.warn(`collage sheet composite failed: ${e?.message}`);
+      return null;
+    }
   }
 
   /**
