@@ -477,6 +477,27 @@ export class PostsService {
     return post;
   }
 
+  /** Delete any post (queued / scheduled / sent / failed) — from the posts screen. */
+  async deletePost(userId: string, postId: string): Promise<{ deleted: boolean }> {
+    const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
+    if (!post) throw new NotFoundException('פוסט לא נמצא');
+    await this.repo.remove(post);
+    return { deleted: true };
+  }
+
+  /** Edit a post's text and/or scheduled time. (Editing a sent post's text does not
+   * change the already-published Telegram message — it only affects a later retry.) */
+  async updatePost(userId: string, postId: string, dto: { text?: string; scheduled_at?: string }): Promise<Post> {
+    const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
+    if (!post) throw new NotFoundException('פוסט לא נמצא');
+    if (typeof dto.text === 'string') post.generated_text = dto.text;
+    if (dto.scheduled_at) {
+      post.scheduled_at = new Date(dto.scheduled_at);
+      if (post.status === 'failed') post.status = 'scheduled'; // reschedule a failed post
+    }
+    return this.repo.save(post);
+  }
+
   /** Lists all queued posts for a user in order */
   async listQueue(userId: string): Promise<Post[]> {
     return this.repo

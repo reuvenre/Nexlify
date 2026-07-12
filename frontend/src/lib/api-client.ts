@@ -347,6 +347,13 @@ export const postsApi = {
 
   retry: (id: string) => http.post<Post>(`/posts/${id}/retry`).then(extract),
 
+  /** Edit a post's text and/or scheduled time (posts management screen). */
+  update: (id: string, data: { text?: string; scheduled_at?: string }) =>
+    http.patch<Post>(`/posts/${id}`, data).then(extract),
+
+  /** Delete any post (queued/scheduled/sent/failed). */
+  remove: (id: string) => http.delete(`/posts/${id}`).then(extract),
+
   schedulePost: (data: { product_id: string; scheduled_at: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string }) =>
     http.post<Post>('/posts/schedule', data, { timeout: AI_TIMEOUT }).then(extract),
 

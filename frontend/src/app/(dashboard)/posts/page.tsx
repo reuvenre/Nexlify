@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
-  ListOrdered, Trash2, Package, AlertTriangle,
+  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save,
 } from 'lucide-react';
 import Link from 'next/link';
 import { postsApi, credentialsApi } from '@/lib/api-client';
@@ -244,7 +244,7 @@ function QueuePanel() {
           <ListOrdered size={36} className="text-white/15 mx-auto mb-4" />
           <p className="text-sm font-medium text-white/40 mb-1">התור ריק</p>
           <p className="text-xs text-white/25">
-            לך לעמוד המוצרים ולחץ על "הוסף לתור" כדי להתחיל
+            לך לעמוד המוצרים ולחץ על &quot;הוסף לתור&quot; כדי להתחיל
           </p>
           <Link
             href="/products"
@@ -293,14 +293,26 @@ function QueuePanel() {
 
 // ─── Post Row ─────────────────────────────────────────────────────────────────
 
-function PostRow({ post, onRetry }: { post: Post; onRetry: (id: string) => Promise<void> }) {
+function PostRow({ post, onRetry, onDelete, onEdit }: {
+  post: Post;
+  onRetry: (id: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onEdit: (post: Post) => void;
+}) {
   const [retrying, setRetrying] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const cfg = STATUS_CONFIG[post.status] || STATUS_CONFIG.pending;
 
   const handleRetry = async () => {
     setRetrying(true);
     await onRetry(post.id).catch(() => {});
     setRetrying(false);
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('למחוק את הפוסט?')) return;
+    setDeleting(true);
+    await onDelete(post.id).catch(() => setDeleting(false));
   };
 
   return (
@@ -342,16 +354,22 @@ function PostRow({ post, onRetry }: { post: Post; onRetry: (id: string) => Promi
         )}
       </td>
       <td className="py-3 px-4">
-        {post.status === 'failed' && (
-          <button
-            onClick={handleRetry}
-            disabled={retrying}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 text-white/60 rounded-lg transition-all"
-          >
-            {retrying ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
-            נסה שוב
+        <div className="flex items-center gap-1">
+          {post.status === 'failed' && (
+            <button onClick={handleRetry} disabled={retrying} title="נסה שוב"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-blue-400/70 hover:text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 transition-all">
+              {retrying ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+            </button>
+          )}
+          <button onClick={() => onEdit(post)} title="ערוך פוסט"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition-all">
+            <Pencil size={13} />
           </button>
-        )}
+          <button onClick={handleDelete} disabled={deleting} title="מחק פוסט"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400/60 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-all">
+            {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+          </button>
+        </div>
         {post.error_message && (
           <p className="text-2xs text-red-400/70 mt-1 max-w-[180px] truncate" title={post.error_message}>
             {post.error_message}
@@ -359,6 +377,70 @@ function PostRow({ post, onRetry }: { post: Post; onRetry: (id: string) => Promi
         )}
       </td>
     </tr>
+  );
+}
+
+// ─── Edit post modal ──────────────────────────────────────────────────────────
+function toLocalInput(iso?: string): string {
+  const d = iso ? new Date(iso) : new Date(Date.now() + 60 * 60 * 1000);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function EditPostModal({ post, onClose, onSaved }: {
+  post: Post; onClose: () => void; onSaved: () => void;
+}) {
+  const isScheduled = post.status === 'scheduled';
+  const [text, setText] = useState(post.generated_text || '');
+  const [scheduledAt, setScheduledAt] = useState(() => toLocalInput(post.scheduled_at));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      await postsApi.update(post.id, {
+        text,
+        scheduled_at: isScheduled && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+      });
+      onSaved();
+    } catch (e: any) { setError(e?.response?.data?.message || 'שמירה נכשלה'); setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-lg p-6" dir="rtl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-white truncate">עריכת פוסט</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
+        </div>
+        <p className="text-xs text-white/40 truncate mb-3" dir="ltr">{post.product_title}</p>
+
+        <label className="block text-xs text-white/50 mb-1.5">טקסט הפוסט</label>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={9}
+          className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white leading-relaxed outline-none focus:border-blue-500/50 resize-none font-mono" dir="rtl" />
+
+        {isScheduled && (
+          <div className="mt-3">
+            <label className="block text-xs text-white/50 mb-1.5">מועד פרסום</label>
+            <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
+              className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-blue-500/50" dir="ltr" />
+          </div>
+        )}
+        {post.status === 'sent' && (
+          <p className="text-2xs text-amber-400/80 mt-2">הפוסט כבר נשלח — עריכת הטקסט לא תשנה את ההודעה שכבר פורסמה בטלגרם.</p>
+        )}
+        {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={save} disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} שמור
+          </button>
+          <button onClick={onClose} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl">ביטול</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -395,6 +477,13 @@ export default function PostsPage() {
     await postsApi.retry(id);
     load({ silent: true });
   };
+
+  const handleDelete = async (id: string) => {
+    await postsApi.remove(id);
+    load({ silent: true });
+  };
+
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -473,7 +562,7 @@ export default function PostsPage() {
             </thead>
             <tbody>
               {posts.map((p) => (
-                <PostRow key={p.id} post={p} onRetry={handleRetry} />
+                <PostRow key={p.id} post={p} onRetry={handleRetry} onDelete={handleDelete} onEdit={setEditingPost} />
               ))}
             </tbody>
           </table>
@@ -524,6 +613,14 @@ export default function PostsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {editingPost && (
+        <EditPostModal
+          post={editingPost}
+          onClose={() => setEditingPost(null)}
+          onSaved={() => { setEditingPost(null); load({ silent: true }); }}
+        />
       )}
     </div>
   );

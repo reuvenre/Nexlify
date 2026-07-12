@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, HttpCode,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, UseGuards, HttpCode,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -106,5 +106,18 @@ export class PostsController {
   @HttpCode(200)
   dequeue(@Req() req: Request, @Param('id') id: string) {
     return this.svc.dequeue(this.uid(req), id);
+  }
+
+  /** Edit a post's text and/or scheduled time (from the posts management screen). */
+  @Patch(':id')
+  updatePost(@Req() req: Request, @Param('id') id: string, @Body() dto: { text?: string; scheduled_at?: string }) {
+    return this.svc.updatePost(this.uid(req), id, dto);
+  }
+
+  /** Delete any post (queued/scheduled/sent/failed) from the posts management screen. */
+  @Delete(':id')
+  @HttpCode(200)
+  removePost(@Req() req: Request, @Param('id') id: string) {
+    return this.svc.deletePost(this.uid(req), id);
   }
 }
