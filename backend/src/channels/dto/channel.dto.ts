@@ -22,6 +22,10 @@ export class CreateChannelDto {
 
   @IsOptional()
   @IsString()
+  body_template_id?: string;
+
+  @IsOptional()
+  @IsString()
   footer_template_id?: string;
 }
 
@@ -45,6 +49,10 @@ export class UpdateChannelDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @IsOptional()
+  @IsString()
+  body_template_id?: string;
 
   @IsOptional()
   @IsString()

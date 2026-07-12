@@ -7,7 +7,7 @@ import type { PostTemplate } from '@/types';
 
 // ── Built-in templates ────────────────────────────────────────────────────────
 
-const BUILTIN: PostTemplate[] = [
+export const BUILTIN: PostTemplate[] = [
   {
     id: 'builtin_default',
     name: 'ברירת מחדל',

@@ -468,6 +468,7 @@ export interface Channel {
   is_active: boolean;
   has_token: boolean;
   bot_token_masked: string | null;
+  body_template_id: string | null;
   footer_template_id: string | null;
   members_count: number;
   created_at: string;
@@ -489,6 +490,7 @@ export interface UpdateChannelInput {
   channel_id?: string;
   description?: string;
   is_active?: boolean;
+  body_template_id?: string;
   footer_template_id?: string;
 }
 

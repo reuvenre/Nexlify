@@ -31,8 +31,12 @@ export class Channel {
   @Column({ nullable: true })
   description: string;
 
-  // Per-channel footer template (each group has its own join link). Falls back to the
-  // user's global default_footer_template_id when null.
+  // Per-channel body + footer template (each group can have its own copy style and its
+  // own join link). Fall back to the user's global defaults when null.
+  // body_template_id is varchar (built-in templates use string ids like 'builtin_default').
+  @Column({ type: 'varchar', nullable: true })
+  body_template_id: string | null;
+
   @Column({ type: 'uuid', nullable: true })
   footer_template_id: string | null;
 

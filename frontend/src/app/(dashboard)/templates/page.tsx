@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FileText, Plus, Check, Pencil, Trash2, X, Loader2, Save } from 'lucide-react';
-import { templatesApi, credentialsApi } from '@/lib/api-client';
-import type { PostTemplate } from '@/types';
+import { FileText, Plus, Check, Pencil, Trash2, X, Loader2, Save, Users } from 'lucide-react';
+import { templatesApi, credentialsApi, channelsApi } from '@/lib/api-client';
+import type { PostTemplate, Channel } from '@/types';
 
 // ── Built-in body templates (read-only, not stored in DB) ─────────────────────
 
@@ -263,10 +263,89 @@ function TemplateCard({
   );
 }
 
+// ── Per-group assignment panel ────────────────────────────────────────────────
+// Each group (channel) gets its OWN body template + footer template, instead of one
+// global default for everyone. Empty = fall back to the global default.
+function PerGroupPanel({ bodyTemplates, footerTemplates, flash }: {
+  bodyTemplates: PostTemplate[];
+  footerTemplates: PostTemplate[];
+  flash: (msg: string) => void;
+}) {
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    channelsApi.list().then(setChannels).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const save = async (channel: Channel, patch: { body_template_id?: string; footer_template_id?: string }) => {
+    setSavingId(channel.id);
+    // Optimistic — reflect the choice immediately.
+    setChannels((cs) => cs.map((c) => c.id === channel.id ? { ...c, ...patch } as Channel : c));
+    try {
+      const updated = await channelsApi.update(channel.id, patch);
+      setChannels((cs) => cs.map((c) => c.id === channel.id ? updated : c));
+      flash('נשמר לקבוצה ✓');
+    } catch {
+      flash('שגיאה בשמירה');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  if (loading) {
+    return <div className="flex justify-center py-16"><Loader2 size={22} className="animate-spin text-blue-400" /></div>;
+  }
+  if (channels.length === 0) {
+    return (
+      <div className="bg-surface-secondary border border-dashed border-edge-hover rounded-2xl p-14 text-center">
+        <Users size={32} className="text-white/15 mx-auto mb-3" />
+        <p className="text-sm text-white/40">אין קבוצות עדיין — הוסף קבוצות במסך &quot;ניהול ערוצים&quot;</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-white/40">בחר לכל קבוצה את תבנית הגוף והכותרת התחתונה שלה. ריק = ברירת המחדל הכללית.</p>
+      {channels.map((ch) => (
+        <div key={ch.id} className="bg-surface-secondary border border-edge rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-3">
+          <div className="md:w-52 shrink-0 min-w-0">
+            <p className="text-sm font-semibold text-white truncate flex items-center gap-2">
+              <Users size={13} className="text-blue-400 shrink-0" /> {ch.name}
+              {savingId === ch.id && <Loader2 size={11} className="animate-spin text-white/40" />}
+            </p>
+            <p className="text-2xs text-white/30 truncate" dir="ltr">{ch.channel_id}</p>
+          </div>
+          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-2xs text-white/40 mb-1">תבנית גוף</label>
+              <select value={ch.body_template_id || ''} onChange={(e) => save(ch, { body_template_id: e.target.value })}
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-2.5 py-2 text-sm text-white/80 outline-none focus:border-blue-500/50">
+                <option value="">— ברירת מחדל כללית —</option>
+                {bodyTemplates.map((t) => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-2xs text-white/40 mb-1">כותרת תחתונה</label>
+              <select value={ch.footer_template_id || ''} onChange={(e) => save(ch, { footer_template_id: e.target.value })}
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-2.5 py-2 text-sm text-white/80 outline-none focus:border-blue-500/50">
+                <option value="">— ברירת מחדל כללית —</option>
+                {footerTemplates.map((t) => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TemplatesPage() {
-  const [tab, setTab] = useState<'body' | 'footer'>('body');
+  const [tab, setTab] = useState<'body' | 'footer' | 'groups'>('body');
   const [customTemplates, setCustomTemplates] = useState<PostTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBodyId, setSelectedBodyId] = useState('builtin_default');
@@ -344,7 +423,7 @@ export default function TemplatesPage() {
       {showModal && (
         <TemplateModal
           initial={editingTemplate}
-          templateType={tab}
+          templateType={tab === 'footer' ? 'footer' : 'body'}
           onClose={() => { setShowModal(false); setEditingTemplate(null); }}
           onSaved={handleSaved}
         />
@@ -360,13 +439,15 @@ export default function TemplatesPage() {
           <h1 className="text-2xl font-bold text-white">תבניות פוסטים</h1>
           <p className="text-sm text-white/40 mt-1">צור ונהל תבניות פוסטים</p>
         </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-all"
-        >
-          <Plus size={14} />
-          {tab === 'footer' ? '+ כותרת תחתונה' : 'צור תבנית'}
-        </button>
+        {tab !== 'groups' && (
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-all"
+          >
+            <Plus size={14} />
+            {tab === 'footer' ? '+ כותרת תחתונה' : 'צור תבנית'}
+          </button>
+        )}
       </div>
 
       {/* Saved flash */}
@@ -380,7 +461,8 @@ export default function TemplatesPage() {
       <div className="flex bg-surface-secondary border border-edge rounded-xl p-1 gap-1 mb-6 w-fit">
         {[
           { v: 'body' as const, l: 'תבניות גוף' },
-          { v: 'footer' as const, l: 'כותרות תחתונות לקבוצות' },
+          { v: 'footer' as const, l: 'כותרות תחתונות' },
+          { v: 'groups' as const, l: 'שיוך לקבוצות' },
         ].map(({ v, l }) => (
           <button
             key={v}
@@ -398,6 +480,12 @@ export default function TemplatesPage() {
         <div className="flex justify-center py-20">
           <Loader2 size={24} className="animate-spin text-blue-400" />
         </div>
+      ) : tab === 'groups' ? (
+        <PerGroupPanel
+          bodyTemplates={bodyTemplates}
+          footerTemplates={footerTemplates}
+          flash={(msg) => { setSavedFlash(msg); setTimeout(() => setSavedFlash(''), 2500); }}
+        />
       ) : currentTemplates.length === 0 ? (
         /* Empty state for footer tab */
         <div className="bg-surface-secondary border border-dashed border-edge-hover rounded-2xl p-16 text-center">

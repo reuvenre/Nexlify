@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } from '@/lib/api-client';
 import { PostPreview } from '@/components/products/PostPreview';
-import { TemplatePanel } from '@/components/templates/TemplatePanel';
+import { TemplatePanel, BUILTIN as BUILTIN_BODY_TEMPLATES } from '@/components/templates/TemplatePanel';
 import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel, PostPreview as PostPreviewType, PostTemplate } from '@/types';
 
 const POST_LANGS: { value: string; label: string }[] = [
@@ -404,6 +404,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [posting, setPosting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [ready, setReady] = useState(false); // gate generation until the group's template is resolved
   const galleryInited = useRef(false);
 
   const chLabel = (ch: string) => ch === 'default' ? 'ברירת מחדל' : 'קבוצה';
@@ -438,25 +439,46 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const selectedImages = () => (selected.length ? selected : undefined);
   const cells = () => (collage ? collageCells : undefined);
 
-  // Pre-select the user's saved default body template — same as AliExpress quick-post.
+  // Resolve the body template for a group: the group's OWN template if assigned
+  // (Templates ← שיוך לקבוצות), else the user's global default, else built-in default.
+  const [customTemplates, setCustomTemplates] = useState<PostTemplate[]>([]);
+  const [globalBodyId, setGlobalBodyId] = useState('builtin_default');
+  const resolveTemplateFor = useCallback((chId: string, custom: PostTemplate[], globalId: string): PostTemplate => {
+    const ch = channels.find((c) => c.channel_id === chId);
+    const wantId = ch?.body_template_id || globalId || 'builtin_default';
+    const all = [...BUILTIN_BODY_TEMPLATES, ...custom.map((t) => ({ ...t, builtin: false }))];
+    return all.find((t) => t.id === wantId) || BUILTIN_DEFAULT_TEMPLATE;
+  }, [channels]);
+
   useEffect(() => {
     Promise.all([credentialsApi.get(), templatesApi.list()])
       .then(([c, ts]) => {
-        const id = c.default_body_template_id;
-        if (!id || id === 'builtin_default') return;
-        const t = ts.find((x) => x.id === id);
-        if (t) setTemplate({ ...t, builtin: false });
+        const gid = c.default_body_template_id || 'builtin_default';
+        setCustomTemplates(ts);
+        setGlobalBodyId(gid);
+        setTemplate(resolveTemplateFor(channelId, ts, gid));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setReady(true)); // now allow the first generation (once)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When the target group changes, switch to THAT group's body template.
+  useEffect(() => {
+    if (!ready) return;
+    setTemplate(resolveTemplateFor(channelId, customTemplates, globalBodyId));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId]);
 
   const fetchPreview = useCallback(
     () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined, vision }),
     [productId, postLang, template, vision],
   );
 
-  // Generate on mount + whenever language / template changes (mirrors quick-post).
+  // Generate once the group's template is resolved, and on every language/template
+  // change after (mirrors quick-post). Gated on `ready` so mount generates exactly once.
   useEffect(() => {
+    if (!ready) return;
     let alive = true;
     setGenerating(true); setErr(null);
     fetchPreview()
@@ -464,7 +486,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
       .catch((e: any) => { if (alive) setErr(e?.response?.data?.message || 'יצירת הפוסט נכשלה — נסה שוב'); })
       .finally(() => { if (alive) setGenerating(false); });
     return () => { alive = false; };
-  }, [fetchPreview]);
+  }, [fetchPreview, ready]);
 
   const onPost = async (text: string) => {
     setPosting(true); setDone(null); setErr(null);

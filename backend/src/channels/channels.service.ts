@@ -45,6 +45,7 @@ export class ChannelsService {
       platform: dto.platform || 'telegram',
       channel_id: dto.channel_id,
       description: dto.description,
+      body_template_id: dto.body_template_id || null,
       footer_template_id: dto.footer_template_id || null,
       bot_token_enc: dto.bot_token ? encrypt(dto.bot_token) : null,
     });
@@ -58,6 +59,7 @@ export class ChannelsService {
     if (dto.channel_id !== undefined) channel.channel_id = dto.channel_id;
     if (dto.description !== undefined) channel.description = dto.description;
     if (dto.is_active !== undefined) channel.is_active = dto.is_active;
+    if (dto.body_template_id !== undefined) channel.body_template_id = dto.body_template_id || null;
     if (dto.footer_template_id !== undefined) channel.footer_template_id = dto.footer_template_id || null;
     if (dto.bot_token?.trim()) channel.bot_token_enc = encrypt(dto.bot_token.trim());
     await this.repo.save(channel);
@@ -155,6 +157,12 @@ export class ChannelsService {
     return c?.footer_template_id || null;
   }
 
+  /** The per-channel body template id (each group can have its own copy style). Null → global default. */
+  async getBodyTemplateId(userId: string, channelId: string): Promise<string | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    return c?.body_template_id || null;
+  }
+
   private async findOwned(userId: string, id: string): Promise<Channel> {
     const channel = await this.repo.findOne({ where: { id, user_id: userId } });
     if (!channel) throw new NotFoundException('Channel not found');
@@ -171,6 +179,7 @@ export class ChannelsService {
       is_active: c.is_active,
       has_token: !!c.bot_token_enc,
       bot_token_masked: c.bot_token_enc ? mask(decrypt(c.bot_token_enc)) : null,
+      body_template_id: c.body_template_id || null,
       footer_template_id: c.footer_template_id || null,
       members_count: c.members_count || 0,
       created_at: c.created_at,
