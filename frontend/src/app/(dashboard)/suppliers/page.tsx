@@ -5,6 +5,7 @@ import {
   Store, Plus, Loader2, Trash2, Link2, Sparkles, X,
   Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, Images, Wand2,
   Globe, FileText, ListOrdered, Clock, CheckCheck, AlertCircle, ShoppingBag, Layers,
+  Maximize2, ChevronLeft, ChevronRight, Check,
 } from 'lucide-react';
 import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } from '@/lib/api-client';
 import { PostPreview } from '@/components/products/PostPreview';
@@ -397,6 +398,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [vision, setVision] = useState(true); // let the AI write from the actual product photo
   const [pv, setPv] = useState<(PostPreviewType & { gallery: string[]; vision_used?: boolean }) | null>(null);
   const [selected, setSelected] = useState<string[]>([]); // ordered manual image selection for the album
+  const [lightbox, setLightbox] = useState<number | null>(null); // index into gallery for the enlarged viewer
   const [generating, setGenerating] = useState(true);
   const [regen, setRegen] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -486,26 +488,35 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
               <p className="text-2xs text-white/40 flex items-center gap-1"><Images size={11} /> בחר תמונות לאלבום</p>
               <span className={`text-2xs ${selected.length >= MAX_ALBUM ? 'text-amber-400' : 'text-white/40'}`}>{selected.length}/{MAX_ALBUM}</span>
             </div>
-            <div className="grid grid-cols-4 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
+            <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-0.5">
               {gallery.map((g, i) => {
                 const idx = selected.indexOf(g);
                 const on = idx !== -1;
                 const atMax = selected.length >= MAX_ALBUM;
                 return (
-                  <button key={i} type="button" onClick={() => toggleImage(g)}
-                    disabled={!on && atMax}
-                    className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${on ? 'border-blue-500' : 'border-transparent hover:border-white/20'}`}>
+                  <div key={i}
+                    className={`group/th relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${on ? 'border-blue-500' : 'border-transparent'}`}>
+                    {/* Click the image to open it large (some photos carry the product code) */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={g} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    {on && (
-                      <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center">{idx + 1}</span>
-                    )}
-                    {!on && <span className="absolute inset-0 bg-black/40" />}
-                  </button>
+                    <img src={g} alt="" onClick={() => setLightbox(i)}
+                      className="w-full h-full object-cover cursor-zoom-in" loading="lazy" />
+                    {!on && <span className="absolute inset-0 bg-black/30 pointer-events-none" />}
+                    {/* Quick select/deselect toggle */}
+                    <button type="button" onClick={() => toggleImage(g)} disabled={!on && atMax}
+                      title={on ? 'הסר מהאלבום' : 'הוסף לאלבום'}
+                      className={`absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${on ? 'bg-blue-600 text-white' : 'bg-black/60 text-white/70 hover:bg-black/80'}`}>
+                      {on ? idx + 1 : <Check size={11} />}
+                    </button>
+                    {/* Enlarge affordance */}
+                    <button type="button" onClick={() => setLightbox(i)} title="הגדל"
+                      className="absolute bottom-1 left-1 w-5 h-5 rounded-full bg-black/60 text-white/80 flex items-center justify-center opacity-0 group-hover/th:opacity-100 transition-opacity">
+                      <Maximize2 size={11} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
-            <p className="text-2xs text-white/25 mt-1.5">טלגרם מגביל אלבום ל-10 תמונות. הסדר = סדר הבחירה.</p>
+            <p className="text-2xs text-white/25 mt-1.5">לחץ תמונה להגדלה. טלגרם מגביל ל-10 · הסדר = סדר הבחירה.</p>
           </div>
         )}
         <div className="bg-surface-secondary border border-edge rounded-xl p-3">
@@ -554,6 +565,65 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
           <PostPreview preview={pv} onPost={onPost} onSchedule={onSchedule} onQueue={onQueue}
             onRegenerate={onRegenerate} isPosting={posting} isRegenerating={regen} />
         ) : null}
+      </div>
+
+      {lightbox !== null && gallery[lightbox] && (
+        <ImageLightbox
+          images={gallery}
+          index={lightbox}
+          selected={selected}
+          maxAlbum={MAX_ALBUM}
+          onIndex={setLightbox}
+          onToggle={toggleImage}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Enlarged image viewer with select/deselect + navigation ───────────────────
+function ImageLightbox({ images, index, selected, maxAlbum, onIndex, onToggle, onClose }: {
+  images: string[]; index: number; selected: string[]; maxAlbum: number;
+  onIndex: (i: number) => void; onToggle: (url: string) => void; onClose: () => void;
+}) {
+  const url = images[index];
+  const order = selected.indexOf(url);
+  const on = order !== -1;
+  const atMax = selected.length >= maxAlbum;
+  const prev = () => onIndex((index - 1 + images.length) % images.length);
+  const next = () => onIndex((index + 1) % images.length);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowLeft') onIndex((index + 1) % images.length);      // RTL: left = next
+      else if (e.key === 'ArrowRight') onIndex((index - 1 + images.length) % images.length);
+      else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (on || !atMax) onToggle(url); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [index, images.length, on, atMax, url, onIndex, onToggle, onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center p-4" onClick={onClose} dir="rtl">
+      <button onClick={onClose} className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><X size={18} /></button>
+      <span className="absolute top-5 right-5 text-white/60 text-sm">{index + 1} / {images.length}</span>
+
+      {/* prev (right, RTL) */}
+      <button onClick={(e) => { e.stopPropagation(); prev(); }}
+        className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><ChevronRight size={22} /></button>
+      {/* next (left, RTL) */}
+      <button onClick={(e) => { e.stopPropagation(); next(); }}
+        className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><ChevronLeft size={22} /></button>
+
+      <div className="flex flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt="" className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg" />
+        <button onClick={() => onToggle(url)} disabled={!on && atMax}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${on ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
+          {on ? <><Check size={15} /> נבחרה (#{order + 1}) — הסר</> : atMax ? 'הגעת ל-10 תמונות' : <><Plus size={15} /> הוסף לאלבום</>}
+        </button>
       </div>
     </div>
   );
