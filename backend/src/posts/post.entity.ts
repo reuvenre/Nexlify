@@ -75,6 +75,10 @@ export class Post {
   @Column({ nullable: true })
   catalog_product_id: string;
 
+  /** Target Telegram chat id for this post (queue/scheduled). null = default channel. */
+  @Column({ nullable: true })
+  channel_override: string;
+
   @CreateDateColumn()
   created_at: Date;
 }

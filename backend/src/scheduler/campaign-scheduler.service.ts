@@ -6,6 +6,7 @@ import { PostsService } from '../posts/posts.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { OrchestratorAgent } from '../agents/orchestrator.agent';
 import { AdsService } from '../ads/ads.service';
+import { SupplierProductsService } from '../suppliers/supplier-products.service';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -14,6 +15,7 @@ export class CampaignSchedulerService {
   private sendingScheduled = false;
   private processingQueue = false;
   private boosting = false;
+  private syncingSuppliers = false;
 
   constructor(
     private readonly campaigns: CampaignsService,
@@ -21,7 +23,35 @@ export class CampaignSchedulerService {
     private readonly credentials: CredentialsService,
     @Optional() private readonly orchestrator: OrchestratorAgent,
     @Optional() private readonly ads: AdsService,
+    @Optional() private readonly supplierProducts: SupplierProductsService,
   ) {}
+
+  /**
+   * Runs every 6 hours — refreshes supplier-product prices from Yupoo and checks
+   * FLYLINK link liveness (→ in_stock). Small sequential batches per tick to bound
+   * RAM on the 512MB host; per-row try/catch so one dead URL never aborts the run.
+   */
+  @Cron('0 0 */6 * * *')
+  async syncSupplierProducts() {
+    if (!this.supplierProducts || this.syncingSuppliers) return;
+    this.syncingSuppliers = true;
+    try {
+      const due = await this.supplierProducts.dueForSync(25);
+      for (const product of due) {
+        try {
+          await this.supplierProducts.refreshOne(product);
+          await new Promise((r) => setTimeout(r, 800)); // pace Yupoo requests
+        } catch (err: any) {
+          this.logger.warn(`Supplier product ${product.id} sync failed: ${err.message}`);
+        }
+      }
+      if (due.length) this.logger.log(`Supplier sync: refreshed ${due.length} products`);
+    } catch (err: any) {
+      this.logger.error(`Supplier sync tick failed: ${err.message}`);
+    } finally {
+      this.syncingSuppliers = false;
+    }
+  }
 
   /**
    * Runs every 10 minutes — self-pings the public health endpoint to keep the host

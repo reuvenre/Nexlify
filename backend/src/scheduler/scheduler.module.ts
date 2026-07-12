@@ -5,9 +5,10 @@ import { PostsModule } from '../posts/posts.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { AgentsModule } from '../agents/agents.module';
 import { AdsModule } from '../ads/ads.module';
+import { SuppliersModule } from '../suppliers/suppliers.module';
 
 @Module({
-  imports: [CampaignsModule, PostsModule, CredentialsModule, AgentsModule, AdsModule],
+  imports: [CampaignsModule, PostsModule, CredentialsModule, AgentsModule, AdsModule, SuppliersModule],
   providers: [CampaignSchedulerService],
 })
 export class SchedulerModule {}

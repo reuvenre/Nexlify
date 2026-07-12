@@ -263,6 +263,7 @@ export class PostsService {
     },
     catalogProductId?: string,
     textOverride?: string,
+    channelOverride?: string,
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
     const currencyPair = creds?.currency_pair || 'USD_ILS';
@@ -321,6 +322,7 @@ export class PostsService {
       status: 'queued',
       queue_order: nextOrder,
       catalog_product_id: catalogProductId,
+      channel_override: channelOverride || null,
     });
 
     return this.repo.save(post);
@@ -347,7 +349,8 @@ export class PostsService {
     const creds = await this.credentials.getRaw(userId);
     next.status = 'pending';
     await this.repo.save(next);
-    await this.sendToTelegram(next, creds);
+    // Route to the post's target group if set (supplier products / per-catalog channel).
+    await this.sendToTelegram(next, creds, next.channel_override || undefined);
     // sendToTelegram mutates next.status in place ('sent' | 'failed'); TS still sees the
     // 'pending' we assigned above, so compare via a widened string.
     return { sent: true, ok: (next.status as string) === 'sent', error: next.error_message || undefined };
@@ -411,7 +414,7 @@ export class PostsService {
     const creds = await this.credentials.getRaw(post.user_id);
     post.status = 'pending';
     await this.repo.save(post);
-    await this.sendToTelegram(post, creds);
+    await this.sendToTelegram(post, creds, post.channel_override || undefined);
   }
 
   // ── Run campaign ──────────────────────────────────────────────────────────
@@ -526,7 +529,7 @@ export class PostsService {
     post.status = 'pending';
     post.error_message = null;
     await this.repo.save(post);
-    await this.sendToTelegram(post, creds);
+    await this.sendToTelegram(post, creds, post.channel_override || undefined);
     return post;
   }
 
