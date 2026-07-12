@@ -66,7 +66,7 @@ export default function SuppliersPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Store size={22} className="text-blue-400" /> ספקים
+          <Store size={22} className="text-blue-400" /> Flylink
         </h1>
         <p className="text-sm text-white/40 mt-1">
           חבר מוצרי Yupoo (תוכן אמיתי) לקישורי השותפים של FLYLINK — מבודד לחלוטין מ-AliExpress
