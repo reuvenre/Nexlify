@@ -4,11 +4,18 @@ import { DecryptedCredentials } from '../credentials/credentials.service';
 
 export type AiProvider = 'anthropic' | 'openai' | 'gemini';
 
+export interface GenerateImage {
+  mime: string;
+  data: string; // base64 (no data: prefix)
+}
+
 export interface GenerateOptions {
   system: string;
   prompt: string;
   maxTokens?: number;
   temperature?: number;
+  /** Optional images for vision — the model describes what it actually sees. */
+  images?: GenerateImage[];
 }
 
 export interface GenerateResult {
@@ -82,7 +89,18 @@ export class AiService {
           max_tokens: maxTokens,
           temperature,
           system: opts.system,
-          messages: [{ role: 'user', content: opts.prompt }],
+          messages: [{
+            role: 'user',
+            content: opts.images?.length
+              ? [
+                  ...opts.images.map((img) => ({
+                    type: 'image',
+                    source: { type: 'base64', media_type: img.mime, data: img.data },
+                  })),
+                  { type: 'text', text: opts.prompt },
+                ]
+              : opts.prompt,
+          }],
         },
         {
           headers: {
@@ -117,7 +135,18 @@ export class AiService {
           temperature,
           messages: [
             { role: 'system', content: opts.system },
-            { role: 'user', content: opts.prompt },
+            {
+              role: 'user',
+              content: opts.images?.length
+                ? [
+                    { type: 'text', text: opts.prompt },
+                    ...opts.images.map((img) => ({
+                      type: 'image_url',
+                      image_url: { url: `data:${img.mime};base64,${img.data}` },
+                    })),
+                  ]
+                : opts.prompt,
+            },
           ],
         },
         { headers: { Authorization: `Bearer ${creds.openai_api_key}` }, timeout: 25_000 },
@@ -142,8 +171,14 @@ export class AiService {
       axios.post(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${creds.gemini_api_key}`,
         {
-          // Gemini has no separate system role — prepend the system prompt.
-          contents: [{ parts: [{ text: `${opts.system}\n\n${opts.prompt}` }] }],
+          // Gemini has no separate system role — prepend the system prompt. Images (if
+          // any) go as inline_data parts so the model describes what it actually sees.
+          contents: [{
+            parts: [
+              { text: `${opts.system}\n\n${opts.prompt}` },
+              ...(opts.images || []).map((img) => ({ inline_data: { mime_type: img.mime, data: img.data } })),
+            ],
+          }],
           generationConfig: {
             temperature,
             // Give headroom so the full post is never cut off mid-sentence (pro also

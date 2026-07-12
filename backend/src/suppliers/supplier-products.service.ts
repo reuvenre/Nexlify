@@ -7,7 +7,7 @@ import { SupplierCatalogsService } from './supplier-catalogs.service';
 import { YupooService } from './yupoo.service';
 import { normalizeSku } from './sku-match.util';
 import { PostsService } from '../posts/posts.service';
-import { AiService } from '../ai/ai.service';
+import { AiService, GenerateImage } from '../ai/ai.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 
@@ -191,14 +191,44 @@ export class SupplierProductsService {
    * Credit for ai_generate is consumed inside generateText, exactly like AliExpress
    * (no extra supplier-level charge).
    */
-  async preview(userId: string, id: string, opts?: { language?: string; template?: string }) {
+  async preview(userId: string, id: string, opts?: { language?: string; template?: string; vision?: boolean }) {
     const p = await this.get(userId, id);
     const gallery = this.proxiedGallery(p);
     const image = this.proxyImage(p.image_url) || gallery[0] || '';
+
+    // Vision: fetch the real product photo so the AI writes from what it SEES — crucial
+    // for Yupoo albums with no textual description (text-only AI would invent details).
+    let images: GenerateImage[] | undefined;
+    let visionUsed = false;
+    if (opts?.vision && p.image_url) {
+      const img = await this.fetchImageBase64(p.image_url);
+      if (img) { images = [img]; visionUsed = true; }
+    }
+
     const result = await this.posts.preview(
-      userId, p.sku || p.id, opts?.language || 'he', this.toPostProduct(p, image), opts?.template,
+      userId, p.sku || p.id, opts?.language || 'he', this.toPostProduct(p, image), opts?.template, images,
     );
-    return { ...result, gallery };
+    return { ...result, gallery, vision_used: visionUsed };
+  }
+
+  /** Fetch a Yupoo image → base64 for vision (Yupoo hotlink-protects → needs the Referer). */
+  private async fetchImageBase64(url: string): Promise<GenerateImage | null> {
+    const axios = require('axios');
+    try {
+      const res = await axios.get(url, {
+        responseType: 'arraybuffer',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          Referer: 'https://x.yupoo.com/',
+        },
+        timeout: 12000, maxContentLength: 6 * 1024 * 1024, validateStatus: () => true,
+      });
+      if (res.status !== 200) return null;
+      const mime = (res.headers['content-type'] || 'image/jpeg').split(';')[0];
+      return { mime, data: Buffer.from(res.data).toString('base64') };
+    } catch {
+      return null;
+    }
   }
 
   /**

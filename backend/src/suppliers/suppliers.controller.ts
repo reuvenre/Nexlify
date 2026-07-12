@@ -87,7 +87,7 @@ export class SuppliersController {
   /** AI-generate / regenerate the post text without saving — same Gemini + template flow as AliExpress. */
   @Post('products/:id/preview')
   @HttpCode(200)
-  preview(@Req() req: Request, @Param('id') id: string, @Body() body: { language?: string; template?: string }) {
+  preview(@Req() req: Request, @Param('id') id: string, @Body() body: { language?: string; template?: string; vision?: boolean }) {
     return this.products.preview(this.uid(req), id, body);
   }
 

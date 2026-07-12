@@ -7,7 +7,7 @@ import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
-import { AiService } from '../ai/ai.service';
+import { AiService, GenerateImage } from '../ai/ai.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ChannelsService } from '../channels/channels.service';
 import { signAliexpress } from '../common/aliexpress-sign';
@@ -148,7 +148,7 @@ export class PostsService {
 
   // ── Preview ───────────────────────────────────────────────────────────────
 
-  async preview(userId: string, productId: string, language = 'he', customProduct?: any, template?: string) {
+  async preview(userId: string, productId: string, language = 'he', customProduct?: any, template?: string, images?: GenerateImage[]) {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
     const product = customProduct || await this.searchProduct(productId, creds);
@@ -162,6 +162,7 @@ export class PostsService {
       product, language, rate, creds,
       template || undefined,
       priceAlreadyConverted ? product.sale_price : undefined,
+      images,
     );
 
     return {
@@ -909,7 +910,7 @@ export class PostsService {
 
   // ── OpenAI text generation ────────────────────────────────────────────────
 
-  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number): Promise<string> {
+  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[]): Promise<string> {
     // Use direct local price if already converted, otherwise multiply by rate
     const priceLocal = priceLocalOverride !== undefined
       ? priceLocalOverride.toFixed(0)
@@ -946,9 +947,16 @@ export class PostsService {
     // only the product facts. Mixing in the default style rules would override the
     // template's exact structure, tone and fixed lines — which is what we want to avoid.
     const hasTemplate = !!template?.trim();
-    const systemPrompt = hasTemplate
+    let systemPrompt = hasTemplate
       ? this.templateSystemPrompt(language, template!.trim())
       : this.defaultSystemPrompt(language);
+
+    // Vision: when a product image is attached, ground the copy in what's ACTUALLY
+    // visible (color, type, material, details) and forbid inventing facts — this is the
+    // whole point for catalogs with no textual description.
+    if (images?.length) {
+      systemPrompt += '\n\nמצורפת תמונת המוצר. תאר את המוצר אך ורק לפי מה שנראה בתמונה בפועל (סוג הפריט, צבע, חומר, פרטים בולטים) ולפי העובדות שסופקו. אל תמציא מאפיינים, מותג או שימושים שאינם נראים בתמונה או מופיעים בעובדות. אם פרט לא ידוע — פשוט אל תזכיר אותו.';
+    }
 
     const userPrompt = hasTemplate
       ? this.buildProductFacts(language, product, symbol, priceLocal, originalLocal, discount)
@@ -957,6 +965,7 @@ export class PostsService {
     const result = await this.ai.generate(creds, {
       system: systemPrompt,
       prompt: userPrompt,
+      images,
       // Custom templates often produce longer, structured posts → give more room
       // and lower the temperature so the model adheres to the exact structure.
       maxTokens: hasTemplate ? 900 : 400,

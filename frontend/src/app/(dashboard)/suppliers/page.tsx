@@ -394,7 +394,8 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [channelId, setChannelId] = useState(defaultChannel || '');
   const [postLang, setPostLang] = useState('he');
   const [template, setTemplate] = useState<PostTemplate>(BUILTIN_DEFAULT_TEMPLATE);
-  const [pv, setPv] = useState<(PostPreviewType & { gallery: string[] }) | null>(null);
+  const [vision, setVision] = useState(true); // let the AI write from the actual product photo
+  const [pv, setPv] = useState<(PostPreviewType & { gallery: string[]; vision_used?: boolean }) | null>(null);
   const [selected, setSelected] = useState<string[]>([]); // ordered manual image selection for the album
   const [generating, setGenerating] = useState(true);
   const [regen, setRegen] = useState(false);
@@ -438,8 +439,8 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   }, []);
 
   const fetchPreview = useCallback(
-    () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined }),
-    [productId, postLang, template],
+    () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined, vision }),
+    [productId, postLang, template, vision],
   );
 
   // Generate on mount + whenever language / template changes (mirrors quick-post).
@@ -521,21 +522,31 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
 
       {/* Right: language selector + Telegram preview */}
       <div className="flex-1 min-w-0 space-y-4">
-        <div className="flex items-center gap-2">
-          <Globe size={13} className="text-white/30" />
-          <span className="text-xs text-white/40">שפת פוסט:</span>
-          <div className="flex bg-surface-secondary border border-edge-hover rounded-xl p-1 gap-0.5">
-            {POST_LANGS.map(({ value, label }) => (
-              <button key={value} onClick={() => setPostLang(value)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${postLang === value ? 'bg-white/10 text-white' : 'text-white/30 hover:text-white/60'}`}>
-                {label}
-              </button>
-            ))}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Globe size={13} className="text-white/30" />
+            <span className="text-xs text-white/40">שפת פוסט:</span>
+            <div className="flex bg-surface-secondary border border-edge-hover rounded-xl p-1 gap-0.5">
+              {POST_LANGS.map(({ value, label }) => (
+                <button key={value} onClick={() => setPostLang(value)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${postLang === value ? 'bg-white/10 text-white' : 'text-white/30 hover:text-white/60'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          <button onClick={() => setVision((v) => !v)}
+            title="הבינה תכתוב לפי מה שהיא מזהה בתמונת המוצר (מומלץ כשאין תיאור בקטלוג)"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${vision ? 'bg-violet-600/20 border-violet-500/40 text-violet-300' : 'bg-white/5 border-edge-hover text-white/40 hover:text-white/70'}`}>
+            <Images size={12} /> כתוב לפי התמונה {vision ? '✓' : ''}
+          </button>
         </div>
 
         {done && <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-sm rounded-xl px-4 py-2.5">{done}</div>}
         {err && <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{err}</div>}
+        {vision && pv && pv.vision_used === false && !generating && (
+          <div className="text-2xs text-amber-400/80">לא ניתן היה לטעון את תמונת המוצר — הטקסט נכתב ללא ניתוח תמונה.</div>
+        )}
 
         {generating ? (
           <div className="bg-surface-secondary border border-edge rounded-xl p-10 flex justify-center"><Loader2 size={20} className="animate-spin text-blue-400" /></div>
