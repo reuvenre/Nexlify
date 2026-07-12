@@ -11,6 +11,7 @@ import { PostsModule } from '../posts/posts.module';
 import { AiModule } from '../ai/ai.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
+import { RatesModule } from '../rates/rates.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SubscriptionModule } from '../subscription/subscription.module';
     AiModule,
     CredentialsModule,
     SubscriptionModule,
+    RatesModule,
   ],
   providers: [YupooService, SupplierCatalogsService, SupplierProductsService],
   controllers: [SuppliersController, SupplierImageController],

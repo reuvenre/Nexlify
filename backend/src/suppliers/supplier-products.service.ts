@@ -10,6 +10,7 @@ import { PostsService } from '../posts/posts.service';
 import { AiService, GenerateImage } from '../ai/ai.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { RatesService } from '../rates/rates.service';
 
 const EDITABLE = ['title', 'description', 'image_url', 'price', 'currency', 'flylink_url', 'status'] as const;
 
@@ -23,7 +24,21 @@ export class SupplierProductsService {
     private readonly ai: AiService,
     private readonly credentials: CredentialsService,
     private readonly subscription: SubscriptionService,
+    private readonly rates: RatesService,
   ) {}
+
+  /**
+   * Convert a supplier price (Yupoo = USD) to the user's target currency, exactly like
+   * the AliExpress flow. Returns the converted price + target currency code so the whole
+   * post pipeline treats it as ALREADY converted (no double conversion downstream).
+   */
+  private async pricing(userId: string, sourcePrice: number): Promise<{ price: number; currency: string }> {
+    const creds = await this.credentials.getRaw(userId);
+    const pair = creds?.currency_pair || 'USD_ILS';
+    const rate = await this.rates.getRate(pair);
+    const ccy = pair.split('_')[1] || 'ILS';
+    return { price: +((sourcePrice || 0) * (rate || 1)).toFixed(2), currency: ccy };
+  }
 
   list(userId: string, catalogId?: string) {
     const where: any = { user_id: userId };
@@ -167,20 +182,22 @@ export class SupplierProductsService {
     return catalog?.target_channel_id || undefined;
   }
 
-  /** Map a supplier product to the AliProduct-ish shape the post pipeline expects. */
-  private toPostProduct(p: SupplierProduct, image: string) {
+  /** Map a supplier product to the AliProduct-ish shape the post pipeline expects.
+   * `price`/`currency` are ALREADY converted to the user's currency (via pricing()), and
+   * currency !== 'USD' signals the pipeline not to convert again. */
+  private toPostProduct(p: SupplierProduct, image: string, price: number, currency: string) {
     return {
       product_id: p.sku || p.id,
       title: p.title,
       image_url: image,
       affiliate_url: p.flylink_url,
-      sale_price: p.price,
-      original_price: p.price,
-      currency: p.currency,
+      sale_price: price,
+      original_price: price,
+      currency,
       discount_percent: 0,
       orders_count: 0,
       rating: 0,
-      price_ils: p.price, // already the catalog currency; no USD→ILS conversion
+      price_ils: price,
     };
   }
 
@@ -207,8 +224,9 @@ export class SupplierProductsService {
       if (img) { images = [img]; visionUsed = true; }
     }
 
+    const { price, currency } = await this.pricing(userId, p.price);
     const result = await this.posts.preview(
-      userId, p.sku || p.id, opts?.language || 'he', this.toPostProduct(p, image), opts?.template, images,
+      userId, p.sku || p.id, opts?.language || 'he', this.toPostProduct(p, image, price, currency), opts?.template, images,
     );
     return { ...result, gallery, vision_used: visionUsed };
   }
@@ -258,10 +276,11 @@ export class SupplierProductsService {
     const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
     const channel = await this.targetChannel(p, channelId);
+    const { price } = await this.pricing(userId, p.price);
 
     const post = await this.posts.sendCustomNow(userId, {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
-      affiliateUrl: p.flylink_url, text: finalText, priceIls: p.price, channelOverride: channel, collageCells,
+      affiliateUrl: p.flylink_url, text: finalText, priceIls: price, channelOverride: channel, collageCells,
     });
     p.has_post = true;
     await this.repo.save(p);
@@ -278,10 +297,11 @@ export class SupplierProductsService {
     const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
     const channel = await this.targetChannel(p, channelId);
+    const { price } = await this.pricing(userId, p.price);
 
     const post = await this.posts.scheduleCustom(userId, {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
-      affiliateUrl: p.flylink_url, text: finalText, priceIls: p.price, channelOverride: channel, collageCells,
+      affiliateUrl: p.flylink_url, text: finalText, priceIls: price, channelOverride: channel, collageCells,
     }, scheduledAt);
     p.has_post = true;
     await this.repo.save(p);
@@ -300,10 +320,11 @@ export class SupplierProductsService {
     const gallery = this.selectGallery(p, images, collageCells ? 30 : 10);
     const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const channel = await this.targetChannel(p, channelId);
+    const { price, currency } = await this.pricing(userId, p.price);
 
     const post = await this.posts.createQueuedPost(
       userId,
-      this.toPostProduct(p, image),
+      this.toPostProduct(p, image, price, currency),
       undefined,
       text?.trim() || p.description || undefined,
       channel,
