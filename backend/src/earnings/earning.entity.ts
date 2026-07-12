@@ -1,12 +1,15 @@
 import {
   Entity, PrimaryGeneratedColumn, Column,
-  CreateDateColumn, ManyToOne, JoinColumn,
+  CreateDateColumn, ManyToOne, JoinColumn, Unique, Index,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 
 export type EarningStatus = 'estimated' | 'settled' | 'cancelled';
 
 @Entity('earnings')
+// One row per (user, order) — prevents duplicate money rows from concurrent syncs.
+@Unique('uq_earnings_user_order', ['user_id', 'order_id'])
+@Index('idx_earnings_user_date', ['user_id', 'order_date'])
 export class Earning {
   @PrimaryGeneratedColumn('uuid')
   id: string;

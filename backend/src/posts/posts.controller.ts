@@ -93,7 +93,9 @@ export class PostsController {
       affiliate_url: product?.affiliate_url ?? '',
       sale_price: Number(product?.sale_price) || 0,
       original_price: Number(product?.original_price) || 0,
-      currency: product?.currency ?? 'USD',
+      // Empty string → service fills the user's target currency (NOT USD, which would
+      // mis-convert an already-₪ price).
+      currency: product?.currency ?? '',
       discount_percent: Number(product?.discount_percent) || 0,
       orders_count: Number(product?.orders_count) || 0,
       rating: Number(product?.rating) || 0,

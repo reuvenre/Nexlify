@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import axios from 'axios';
@@ -25,9 +25,26 @@ const ALI_API = 'https://api-sg.aliexpress.com/sync';
 // for formatting. Everything else stays safely escaped.
 const TG_TAGS = 'b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler';
 
+/** True if every whitelisted opening tag has a matching closing tag, correctly nested. */
+function tagsBalanced(html: string): boolean {
+  const stack: string[] = [];
+  const re = /<(\/?)([a-z-]+)(?:\s[^>]*)?>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const closing = m[1] === '/';
+    const tag = m[2].toLowerCase();
+    if (closing) {
+      if (stack.pop() !== tag) return false;
+    } else {
+      stack.push(tag);
+    }
+  }
+  return stack.length === 0;
+}
+
 function mdBoldToHtml(s: string): string {
   if (!s) return s;
-  let out = s
+  const escaped = s
     // 1. Escape all HTML-special chars.
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -38,9 +55,18 @@ function mdBoldToHtml(s: string): string {
     .replace(/\*\*/g, '');
   // 3. Restore the Telegram-allowed formatting tags the model emits on purpose
   //    (they were escaped in step 1 → bring the whitelisted ones back).
-  out = out.replace(new RegExp(`&lt;(/?(?:${TG_TAGS}))&gt;`, 'gi'), '<$1>');
-  // 3b. Restore <a href="..."> links (rare — the model is told not to add links).
-  out = out.replace(/&lt;a href=(?:&quot;|")(.*?)(?:&quot;|")&gt;/gi, '<a href="$1">');
+  let out = escaped
+    .replace(new RegExp(`&lt;(/?(?:${TG_TAGS}))&gt;`, 'gi'), '<$1>')
+    .replace(/&lt;a href=(?:&quot;|")(.*?)(?:&quot;|")&gt;/gi, '<a href="$1">');
+
+  // 4. Safety net: a product title containing a literal "<b>" (etc.) would restore
+  //    to an UNBALANCED tag → Telegram rejects the whole message with a 400 and the
+  //    post fails. If the result isn't valid, strip ALL formatting tags and send the
+  //    escaped plain text — the post still goes out, just without bold.
+  if (!tagsBalanced(out)) {
+    out = escaped.replace(new RegExp(`&lt;/?(?:${TG_TAGS})&gt;`, 'gi'), '')
+                 .replace(/&lt;\/?a[^&]*&gt;/gi, '');
+  }
   return out.trim();
 }
 
@@ -239,7 +265,14 @@ export class PostsService {
     textOverride?: string,
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
-    const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
+    const currencyPair = creds?.currency_pair || 'USD_ILS';
+    const rate = await this.rates.getRate(currencyPair);
+
+    // Products from discovery/catalog carry prices ALREADY in the target currency (₪).
+    // A missing currency must NOT default to USD — that would multiply an ILS price by
+    // the rate (₪31 → ₪114). Assume the user's target currency when unspecified.
+    const targetCcy = currencyPair.split('_')[1] || 'ILS';
+    if (!product.currency) product.currency = targetCcy;
 
     const priceAlreadyConverted = product.currency && product.currency !== 'USD';
     const priceIls = priceAlreadyConverted
@@ -484,6 +517,11 @@ export class PostsService {
   async retry(userId: string, postId: string) {
     const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
     if (!post) throw new NotFoundException('Post not found');
+    // Only failed/pending posts may be retried — retrying a 'sent' post would
+    // re-publish it to the live channel and re-charge publish credits.
+    if (post.status === 'sent') {
+      throw new BadRequestException('הפוסט כבר נשלח — אי אפשר לשלוח אותו שוב');
+    }
     const creds = await this.credentials.getRaw(userId);
     post.status = 'pending';
     post.error_message = null;
@@ -503,9 +541,22 @@ export class PostsService {
     const errors: string[] = [];
     let anySuccess = false;
 
+    // A channelOverride always targets Telegram. Otherwise respect the user's
+    // per-channel publish toggles (Telegram defaults on, Facebook defaults off).
+    const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
+    const wantFacebook = !channelOverride && creds?.publish_facebook === true;
+
+    // No channel enabled → fail WITHOUT charging credits (the check used to run
+    // after the consume, so users were billed for a post sent nowhere).
+    if (!wantTelegram && !wantFacebook) {
+      post.status = 'failed';
+      post.error_message = 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
+      await this.repo.save(post);
+      return;
+    }
+
     // Plan enforcement: publishing a post costs credits (flat per post, however many
-    // platforms it fans out to). Consumed up front so a user can't burn through the
-    // queue with an empty balance; interactive callers see the failed post + message.
+    // platforms it fans out to). Consumed only once we know a channel is enabled.
     if (post.user_id) {
       const ok = await this.subscription.tryConsume(
         post.user_id, this.subscription.costs.publish, 'publish',
@@ -534,11 +585,6 @@ export class PostsService {
 
     // Normalise any Markdown bold the model emitted so Telegram doesn't show ** literally.
     body = mdBoldToHtml(body);
-
-    // A channelOverride always targets Telegram. Otherwise respect the user's
-    // per-channel publish toggles (Telegram defaults on, Facebook defaults off).
-    const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
-    const wantFacebook = !channelOverride && creds?.publish_facebook === true;
 
     // Send to all channels IN PARALLEL. Sequential sends meant a hung/expired
     // Facebook token added its full timeout on top of Telegram — the user waited
@@ -577,12 +623,31 @@ export class PostsService {
     const channel = normalizeTelegramChatId(channelOverride || creds?.telegram_channel_id);
     if (!token || !channel) throw new Error('Missing Telegram credentials');
 
-    const res = await axios.post(
-      `https://api.telegram.org/bot${token}/sendPhoto`,
-      { chat_id: channel, photo: post.product_image, caption, parse_mode: 'HTML' },
-      { timeout: 15000 },
-    );
-    post.telegram_message_id = res.data?.result?.message_id;
+    const url = `https://api.telegram.org/bot${token}/sendPhoto`;
+    try {
+      const res = await axios.post(
+        url,
+        { chat_id: channel, photo: post.product_image, caption, parse_mode: 'HTML' },
+        { timeout: 15000 },
+      );
+      post.telegram_message_id = res.data?.result?.message_id;
+    } catch (err: any) {
+      // Last-resort safety net: if Telegram rejects the HTML (400 "can't parse
+      // entities"), resend as PLAIN text so the post still goes out rather than
+      // failing entirely. Any other error rethrows.
+      const desc: string = err?.response?.data?.description || '';
+      if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
+        const plain = caption.replace(/<[^>]+>/g, '');
+        const res = await axios.post(
+          url,
+          { chat_id: channel, photo: post.product_image, caption: plain },
+          { timeout: 15000 },
+        );
+        post.telegram_message_id = res.data?.result?.message_id;
+        return;
+      }
+      throw err;
+    }
   }
 
   /** Publishes the post to the user's Facebook Page feed. Throws on failure. */

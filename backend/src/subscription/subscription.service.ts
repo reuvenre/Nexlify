@@ -67,19 +67,38 @@ export class SubscriptionService {
     if (!plan) throw new BadRequestException('תוכנית לא מוכרת');
     if (billing !== 'monthly' && billing !== 'annual') billing = 'monthly';
 
+    const user = await this.users.findOne({ where: { id: userId } });
+    const isSamePlan = user?.subscription_plan === plan.id;
+
+    // Only (re)fill credits on a REAL plan change — otherwise re-posting the same
+    // plan would reset credits to full on demand, an unlimited free-AI bypass
+    // (AI can fall back to the operator's server key). Switching plan grants the
+    // new plan's credits; staying on the same plan keeps the current balance.
+    const patch: any = {
+      subscription_plan: plan.id,
+      plan_billing: billing,
+    };
+    if (!isSamePlan) {
+      patch.credits_remaining = plan.monthly_credits;
+      patch.plan_renews_at = nextMonth();
+    }
+    await this.users.update(userId, patch);
+    this.logger.log(`User ${userId} switched to plan ${plan.id} (${billing}) [demo mode, refill=${!isSamePlan}]`);
+    return this.getStatus(userId);
+  }
+
+  /** Admin: set any user's plan. Always refills (an admin action, not self-service). */
+  async setPlanForUser(userId: string, planId: string, billing: BillingCycle = 'monthly') {
+    const plan = PLANS[planId as PlanId];
+    if (!plan) throw new BadRequestException('תוכנית לא מוכרת');
+    if (billing !== 'monthly' && billing !== 'annual') billing = 'monthly';
     await this.users.update(userId, {
       subscription_plan: plan.id,
       plan_billing: billing,
       credits_remaining: plan.monthly_credits,
       plan_renews_at: nextMonth(),
     });
-    this.logger.log(`User ${userId} switched to plan ${plan.id} (${billing}) [demo mode]`);
     return this.getStatus(userId);
-  }
-
-  /** Admin: set any user's plan (same effect as switchPlan). */
-  setPlanForUser(userId: string, planId: string, billing: BillingCycle = 'monthly') {
-    return this.switchPlan(userId, planId, billing);
   }
 
   /** Max channels/groups allowed on the user's plan (null = unlimited). */

@@ -30,6 +30,8 @@ function apiTime(d: Date): string {
 @Injectable()
 export class EarningsService {
   private readonly logger = new Logger(EarningsService.name);
+  /** Users with an in-flight sync — blocks concurrent/duplicate runs. */
+  private readonly syncing = new Set<string>();
 
   constructor(
     @InjectRepository(Earning)
@@ -117,6 +119,20 @@ export class EarningsService {
       throw new BadRequestException('מפתחות AliExpress לא מוגדרים — הגדר אותם בהגדרות ← שווקים');
     }
 
+    // In-flight guard: a double-click / overlapping sync would otherwise run the
+    // same check-then-insert twice and duplicate earnings rows (real money).
+    if (this.syncing.has(userId)) {
+      throw new BadRequestException('סנכרון כבר רץ — נסה שוב בעוד רגע');
+    }
+    this.syncing.add(userId);
+    try {
+      return await this.doSync(userId, creds);
+    } finally {
+      this.syncing.delete(userId);
+    }
+  }
+
+  private async doSync(userId: string, creds: any): Promise<{ synced: number; updated: number }> {
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     let synced = 0;
     let updated = 0;
@@ -184,8 +200,15 @@ export class EarningsService {
               order_date: order.created_time ? new Date(order.created_time) : new Date(),
               settlement_date: settleAt,
             });
-            await this.repo.save(earning);
-            synced++;
+            try {
+              await this.repo.save(earning);
+              synced++;
+            } catch (e: any) {
+              // Unique (user_id, order_id) violation → a concurrent pass already
+              // inserted it; safe to skip rather than duplicate.
+              if (e?.code === '23505') continue;
+              throw e;
+            }
           }
 
           if (!result || pageNo >= (result.total_page_no || 1)) break;

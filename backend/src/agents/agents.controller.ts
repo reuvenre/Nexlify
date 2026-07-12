@@ -21,7 +21,7 @@ export class AgentsController {
   /** Manually trigger the orchestrator for a specific campaign */
   @Post('run')
   async triggerRun(@Req() req: any, @Body() body: { campaign_id: string }) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     const campaign = await this.campaigns.get(userId, body.campaign_id);
     return this.orchestrator.run(campaign as any, userId);
   }
@@ -29,7 +29,7 @@ export class AgentsController {
   /** List recent agent runs for the authenticated user */
   @Get('runs')
   async listRuns(@Req() req: any) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     return this.runRepo.find({
       where: { user_id: userId },
       order: { created_at: 'DESC' },
@@ -40,7 +40,7 @@ export class AgentsController {
   /** Get a specific agent run by ID */
   @Get('runs/:id')
   async getRun(@Req() req: any, @Param('id') id: string) {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     return this.runRepo.findOne({ where: { id, user_id: userId } });
   }
 }
