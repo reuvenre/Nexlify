@@ -136,7 +136,9 @@ export function SubscriptionForm() {
           onClick={() => setBilling(billing === 'monthly' ? 'annual' : 'monthly')}
           className={`relative w-11 h-6 rounded-full transition-colors ${billing === 'annual' ? 'bg-blue-600' : 'bg-white/15'}`}
         >
-          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${billing === 'annual' ? 'right-0.5' : 'right-5'}`} />
+          {/* RTL: חודשי is on the right, שנתי on the left — so monthly puts the knob
+              on the right, annual on the left (was inverted, pointing at the wrong label). */}
+          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${billing === 'annual' ? 'left-0.5' : 'right-0.5'}`} />
         </button>
         <span className={`text-sm font-medium transition-colors ${billing === 'annual' ? 'text-white' : 'text-white/40'}`}>שנתי</span>
         {billing === 'annual' && annualSaving > 0 && (

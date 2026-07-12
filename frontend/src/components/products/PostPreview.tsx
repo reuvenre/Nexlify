@@ -26,7 +26,7 @@ export function PostPreview({
   const [scheduledAt, setScheduledAt] = useState('');
   const [isScheduling, setIsScheduling] = useState(false);
   const [isQueueing, setIsQueueing] = useState(false);
-  const [queueMsg, setQueueMsg] = useState<string | null>(null);
+  const [queue, setQueue] = useState<{ msg: string; tone: 'ok' | 'warn' | 'error' } | null>(null);
 
   // Resync the editable text whenever a NEW server-generated preview arrives (e.g. after
   // "regenerate"). Keying the effect on preview.generated_text means user edits — which
@@ -58,14 +58,15 @@ export function PostPreview({
   const handleQueue = async () => {
     if (!onQueue) return;
     setIsQueueing(true);
-    setQueueMsg(null);
+    setQueue(null);
     try {
       const res = await onQueue(text);
-      setQueueMsg(res.queue_active
-        ? `✓ נכנס לתור — יישלח אוטומטית (כל ${res.interval_minutes} דק׳ בחלון שהגדרת)`
-        : '✓ נכנס לתור — אבל התור כבוי! הפעל אותו בהגדרות ← תזמון אוטומטי');
+      // Tone comes from a real boolean, not a fragile string match on the message.
+      setQueue(res.queue_active
+        ? { tone: 'ok', msg: `✓ נכנס לתור — יישלח אוטומטית (כל ${res.interval_minutes} דק׳ בחלון שהגדרת)` }
+        : { tone: 'warn', msg: '✓ נכנס לתור — אבל התור כבוי! הפעל אותו בהגדרות ← תזמון אוטומטי' });
     } catch (e: any) {
-      setQueueMsg(e?.response?.data?.message || 'הוספה לתור נכשלה — נסה שוב');
+      setQueue({ tone: 'error', msg: e?.response?.data?.message || 'הוספה לתור נכשלה — נסה שוב' });
     } finally {
       setIsQueueing(false);
     }
@@ -148,13 +149,15 @@ export function PostPreview({
       )}
 
       {/* Queue result message */}
-      {queueMsg && (
+      {queue && (
         <div className={`text-xs rounded-xl px-4 py-3 border ${
-          queueMsg.startsWith('✓ נכנס לתור — יישלח')
+          queue.tone === 'ok'
             ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
-            : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+            : queue.tone === 'warn'
+              ? 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+              : 'bg-red-500/10 border-red-500/25 text-red-300'
         }`}>
-          {queueMsg}
+          {queue.msg}
         </div>
       )}
 

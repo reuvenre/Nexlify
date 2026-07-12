@@ -21,6 +21,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Close the mobile drawer on navigation.
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
 
+  // Lock background scroll while the mobile drawer is open (the fixed overlay
+  // otherwise lets the page scroll underneath the menu).
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [mobileNavOpen]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-surface-primary flex items-center justify-center">

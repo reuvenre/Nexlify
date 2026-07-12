@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
   Search, Loader2, Zap, ChevronDown, TrendingUp,
@@ -120,6 +121,9 @@ export default function QuickPostPage() {
   // ── Infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  // Auto-switch empty catalog → live browsing at most ONCE (on first mount). After
+  // the user explicitly picks a source, respect their choice (don't bounce them out).
+  const autoSwitchedRef = useRef(false);
 
   // ── Load categories once
   useEffect(() => {
@@ -172,8 +176,12 @@ export default function QuickPostPage() {
       setProducts((prev) => append ? [...prev, ...mapped] : mapped);
       setHasMore(nextPage * LIMIT < res.total);
       setPage(nextPage);
-      // Empty catalog and no active search → live browsing is more useful.
-      if (!append && !search && res.total === 0) setSource('live');
+      // Empty catalog on first mount → live browsing is more useful. Only once —
+      // if the user later clicks "הקטלוג שלי" they see the empty state, not a bounce.
+      if (!append && !search && res.total === 0 && !autoSwitchedRef.current) {
+        autoSwitchedRef.current = true;
+        setSource('live');
+      }
     } finally {
       setLoadingInitial(false);
       setLoadingMore(false);
@@ -254,6 +262,7 @@ export default function QuickPostPage() {
 
   const handleSourceChange = (s: 'catalog' | 'live') => {
     if (s === source) return;
+    autoSwitchedRef.current = true; // an explicit choice — never auto-bounce again
     setSource(s);
     setQuery('');
     setTranslatedQuery('');
@@ -357,6 +366,7 @@ export default function QuickPostPage() {
   const handlePost = async (text: string) => {
     if (!selected) return;
     setIsPosting(true);
+    setPreviewError(null);
     try {
       await postsApi.quickPost({
         product_id: selected.product_id,
@@ -368,6 +378,11 @@ export default function QuickPostPage() {
       });
       setPosted(true);
       setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
+    } catch (e: any) {
+      // A failed send (timeout / out of credits / no channel) must surface — the
+      // button previously just re-enabled with no feedback.
+      setPreviewError(e?.response?.data?.message
+        || (e?.code === 'ECONNABORTED' ? 'השליחה ארכה יותר מדי — נסה שוב' : 'השליחה נכשלה — נסה שוב'));
     } finally {
       setIsPosting(false);
     }
@@ -375,15 +390,21 @@ export default function QuickPostPage() {
 
   const handleSchedule = async (text: string, scheduledAt: string) => {
     if (!selected) return;
-    await postsApi.schedulePost({
-      product_id: selected.product_id,
-      text,
-      scheduled_at: scheduledAt,
-      product_image: preview?.product?.image_url || selected.image_url || undefined,
-      affiliate_url: affiliateUrl || undefined,
-    });
-    setPosted(true);
-    setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
+    // Rethrow to PostPreview's handler so the scheduler panel shows the failure.
+    try {
+      await postsApi.schedulePost({
+        product_id: selected.product_id,
+        text,
+        scheduled_at: scheduledAt,
+        product_image: preview?.product?.image_url || selected.image_url || undefined,
+        affiliate_url: affiliateUrl || undefined,
+      });
+      setPosted(true);
+      setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
+    } catch (e: any) {
+      setPreviewError(e?.response?.data?.message || 'התזמון נכשל — נסה שוב');
+      throw e;
+    }
   };
 
   // One-click queue: send time is decided automatically by the user's schedule
@@ -742,7 +763,22 @@ export default function QuickPostPage() {
       ) : products.length === 0 ? (
         <div className="bg-surface-secondary border border-dashed border-edge-hover rounded-2xl p-16 flex flex-col items-center text-center">
           <Search size={36} className="text-white/15 mb-4" />
-          <p className="text-sm text-white/30">לא נמצאו מוצרים</p>
+          {source === 'catalog' && !isSearchMode ? (
+            <>
+              <p className="text-sm text-white/50 mb-1">הקטלוג שלך ריק</p>
+              <p className="text-xs text-white/30 mb-4">הרץ סריקת מוצרים כדי למלא את הקטלוג, או עבור לחיפוש חי ב-AliExpress</p>
+              <div className="flex items-center gap-2">
+                <Link href="/discovery" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-xl transition-all">
+                  לגילוי מוצרים
+                </Link>
+                <button onClick={() => handleSourceChange('live')} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/60 text-xs rounded-xl transition-all">
+                  חיפוש חי
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-white/30">לא נמצאו מוצרים</p>
+          )}
         </div>
       ) : (
         <>

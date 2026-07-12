@@ -11,9 +11,12 @@ import { postsApi, credentialsApi } from '@/lib/api-client';
 import type { Post } from '@/types';
 
 // ─── Estimated queue send times ───────────────────────────────────────────────
-// Mirrors the scheduler: one post per interval, inside the [start,end) hour window,
-// starting from the later of "now" and "last send + interval". Approximate on
-// purpose (the cron ticks once a minute) — labelled as משוער in the UI.
+// Mirrors the scheduler: one post per interval, inside the [start,end) hour window.
+// The SERVER runs the window in Asia/Jerusalem, so we clamp/label in that timezone
+// too (not the browser's) — otherwise a user in another timezone sees a shifted
+// estimate. Approximate on purpose (labelled משוער in the UI).
+
+const TZ = 'Asia/Jerusalem';
 
 interface ScheduleInfo {
   enabled: boolean;
@@ -23,22 +26,35 @@ interface ScheduleInfo {
   lastSentAt: Date | null;
 }
 
+/** Hour (0-23) of an instant, in the scheduler's timezone. */
+function hourInTz(d: Date): number {
+  const h = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: TZ }).format(d);
+  const n = parseInt(h, 10);
+  return n === 24 ? 0 : n;
+}
+
+/** yyyy-mm-dd of an instant, in the scheduler's timezone (for today/tomorrow labels). */
+function dayInTz(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d); // en-CA → ISO-like
+}
+
 function computeSendSlots(count: number, s: ScheduleInfo): Date[] {
   const slots: Date[] = [];
+  const start = Math.max(0, Math.min(23, s.startHour));
+  const end = Math.max(start + 1, Math.min(24, s.endHour)); // guard endHour<=startHour
   const intervalMs = Math.max(1, s.intervalMin) * 60_000;
   let t = new Date(Math.max(
     Date.now(),
     s.lastSentAt ? s.lastSentAt.getTime() + intervalMs : 0,
   ));
   for (let i = 0; i < count; i++) {
-    // Clamp into the sending window.
-    for (let guard = 0; guard < 3; guard++) {
-      const h = t.getHours();
-      if (h < s.startHour) {
-        t = new Date(t); t.setHours(s.startHour, 0, 0, 0);
-      } else if (h >= s.endHour) {
-        t = new Date(t.getTime() + 24 * 3600_000); t.setHours(s.startHour, 0, 0, 0);
-      } else break;
+    // Clamp into the window by shifting whole hours (keeps the absolute instant
+    // correct; minute alignment carries from last-send — fine for an estimate).
+    for (let guard = 0; guard < 4; guard++) {
+      const h = hourInTz(t);
+      if (h < start) t = new Date(t.getTime() + (start - h) * 3600_000);
+      else if (h >= end) t = new Date(t.getTime() + (24 - h + start) * 3600_000);
+      else break;
     }
     slots.push(new Date(t));
     t = new Date(t.getTime() + intervalMs);
@@ -47,12 +63,12 @@ function computeSendSlots(count: number, s: ScheduleInfo): Date[] {
 }
 
 function slotLabel(d: Date): string {
-  const today = new Date();
-  const tomorrow = new Date(today.getTime() + 24 * 3600_000);
-  const hm = d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
-  if (d.toDateString() === today.toDateString()) return `היום ~${hm}`;
-  if (d.toDateString() === tomorrow.toDateString()) return `מחר ~${hm}`;
-  return `${d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })} ~${hm}`;
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 24 * 3600_000);
+  const hm = d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+  if (dayInTz(d) === dayInTz(now)) return `היום ~${hm}`;
+  if (dayInTz(d) === dayInTz(tomorrow)) return `מחר ~${hm}`;
+  return `${d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', timeZone: TZ })} ~${hm}`;
 }
 
 const STATUS_TABS = [

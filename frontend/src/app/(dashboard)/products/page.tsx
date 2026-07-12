@@ -533,6 +533,11 @@ export default function ProductsPage() {
   const [repriceMsg, setRepriceMsg] = useState('');
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const resyncTimer = useRef<ReturnType<typeof setInterval>>();
+
+  // Clear the re-price poll if the user navigates away mid-job (was leaking
+  // requests + setState-on-unmounted every 2.5s until the server job finished).
+  useEffect(() => () => clearInterval(resyncTimer.current), []);
 
   const load = useCallback(async (p = 1, silent = false) => {
     if (!silent) setLoading(true);
@@ -582,19 +587,19 @@ export default function ProductsPage() {
         setRepriceMsg('סנכרון כבר רץ ברקע — ממתין לסיום...');
       }
 
-      // Poll progress every 2.5s until the job finishes.
+      // Poll progress every 2.5s until the job finishes (timer ref → cleared on unmount).
       const final = await new Promise<typeof startRes>((resolve, reject) => {
-        const timer = setInterval(async () => {
+        resyncTimer.current = setInterval(async () => {
           try {
             const s = await catalogApi.resyncStatus();
             if (s.running) {
               setRepriceMsg(`מסנכרן מחירים... ${s.done}/${s.total}`);
             } else {
-              clearInterval(timer);
+              clearInterval(resyncTimer.current);
               resolve(s);
             }
           } catch (e) {
-            clearInterval(timer);
+            clearInterval(resyncTimer.current);
             reject(e);
           }
         }, 2500);
