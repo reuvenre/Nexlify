@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 import { SupplierCatalog, SkuMatchMode } from './entities/supplier-catalog.entity';
 import { YupooService } from './yupoo.service';
 import { suggestSkuMode } from './sku-match.util';
+import { RatesService } from '../rates/rates.service';
+import { CredentialsService } from '../credentials/credentials.service';
 
 const EDITABLE = [
   'name', 'source_type', 'source_store', 'affiliate_network',
@@ -24,6 +26,8 @@ export class SupplierCatalogsService {
   constructor(
     @InjectRepository(SupplierCatalog) private readonly repo: Repository<SupplierCatalog>,
     private readonly yupoo: YupooService,
+    private readonly rates: RatesService,
+    private readonly credentials: CredentialsService,
   ) {}
 
   list(userId: string) {
@@ -87,10 +91,16 @@ export class SupplierCatalogsService {
   async browse(userId: string, catalogId: string, opts: { page?: number; categoryId?: string; withCategories?: boolean }) {
     const cat = await this.get(userId, catalogId);
     if (!cat.source_store) throw new BadRequestException('לא הוגדרה חנות Yupoo לקטלוג');
-    const [page, categories] = await Promise.all([
+    const [page, categories, creds] = await Promise.all([
       this.yupoo.fetchStore(cat.source_store, { page: opts.page, categoryId: opts.categoryId }),
       opts.withCategories ? this.yupoo.fetchCategories(cat.source_store) : Promise.resolve(undefined),
+      this.credentials.getRaw(userId),
     ]);
-    return { ...page, categories };
+    // Convert store prices (USD) to the user's currency so the browser shows ₪ like the rest.
+    const pair = creds?.currency_pair || 'USD_ILS';
+    const rate = (await this.rates.getRate(pair)) || 1;
+    const currency = pair.split('_')[1] || 'ILS';
+    const items = page.items.map((it) => ({ ...it, price: +((it.price || 0) * rate).toFixed(2), currency }));
+    return { ...page, items, categories };
   }
 }

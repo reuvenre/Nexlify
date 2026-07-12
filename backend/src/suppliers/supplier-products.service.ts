@@ -27,23 +27,30 @@ export class SupplierProductsService {
     private readonly rates: RatesService,
   ) {}
 
+  /** The user's USD→target rate + target currency code (Yupoo prices are USD). */
+  private async rateFor(userId: string): Promise<{ rate: number; currency: string }> {
+    const creds = await this.credentials.getRaw(userId);
+    const pair = creds?.currency_pair || 'USD_ILS';
+    return { rate: (await this.rates.getRate(pair)) || 1, currency: pair.split('_')[1] || 'ILS' };
+  }
+
   /**
    * Convert a supplier price (Yupoo = USD) to the user's target currency, exactly like
    * the AliExpress flow. Returns the converted price + target currency code so the whole
    * post pipeline treats it as ALREADY converted (no double conversion downstream).
    */
   private async pricing(userId: string, sourcePrice: number): Promise<{ price: number; currency: string }> {
-    const creds = await this.credentials.getRaw(userId);
-    const pair = creds?.currency_pair || 'USD_ILS';
-    const rate = await this.rates.getRate(pair);
-    const ccy = pair.split('_')[1] || 'ILS';
-    return { price: +((sourcePrice || 0) * (rate || 1)).toFixed(2), currency: ccy };
+    const { rate, currency } = await this.rateFor(userId);
+    return { price: +((sourcePrice || 0) * rate).toFixed(2), currency };
   }
 
-  list(userId: string, catalogId?: string) {
+  async list(userId: string, catalogId?: string) {
     const where: any = { user_id: userId };
     if (catalogId) where.supplier_catalog_id = catalogId;
-    return this.repo.find({ where, order: { created_at: 'DESC' }, take: 300 });
+    const products = await this.repo.find({ where, order: { created_at: 'DESC' }, take: 300 });
+    // Attach the converted price (USD→user currency) so the dashboard shows ₪ like AliExpress.
+    const { rate, currency } = await this.rateFor(userId);
+    return products.map((p) => ({ ...p, price_ils: +((p.price || 0) * rate).toFixed(2), display_currency: currency }));
   }
 
   async get(userId: string, id: string): Promise<SupplierProduct> {
@@ -346,10 +353,13 @@ export class SupplierProductsService {
     await this.catalogs.get(userId, catalogId); // authorize catalog ownership
     if (!url?.trim()) throw new BadRequestException('חסר קישור Yupoo');
     const item = await this.yupoo.fetchAlbum(url.trim());
+    const { rate, currency } = await this.rateFor(userId);
     return {
       code: item.code,
-      price: item.price,
-      currency: item.currency,
+      price: +((item.price || 0) * rate).toFixed(2), // converted to the user's currency
+      currency,
+      source_price: item.price,
+      source_currency: item.currency,
       description: item.description,
       title: item.title,
       images: item.images.map((u) => this.proxyImage(u)),

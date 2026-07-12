@@ -486,7 +486,7 @@ export const suppliersApi = {
 
   browse: (catalogId: string, params: { page?: number; category?: string; with_categories?: 0 | 1 }) =>
     http.get<{
-      items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>;
+      items: Array<{ code: string; price: number; currency?: string; description: string; album_url: string; thumb?: string }>;
       hasMore: boolean;
       categories?: Array<{ id: string; name: string }>;
     }>(`/suppliers/catalogs/${catalogId}/browse`, { params, timeout: 30_000 }).then(extract),
@@ -505,8 +505,8 @@ export const suppliersApi = {
   /** Full Yupoo album (all color images) for the post-creation modal — no save. */
   previewAlbum: (catalogId: string, url: string) =>
     http.post<{
-      code: string; price: number; currency: string; description: string; title: string;
-      images: string[]; raw_images: string[]; album_url: string;
+      code: string; price: number; currency: string; source_price?: number; source_currency?: string;
+      description: string; title: string; images: string[]; raw_images: string[]; album_url: string;
     }>('/suppliers/album/preview', { catalogId, url }, { timeout: 30_000 }).then(extract),
 
   /** AI-generate / regenerate the post text (quick-post preview) for a saved product — same Gemini + template flow as AliExpress. `vision` lets the AI write from the product photo. */

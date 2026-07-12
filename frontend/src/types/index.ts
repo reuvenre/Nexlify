@@ -200,6 +200,8 @@ export interface SupplierProduct {
   gallery_json?: string;
   price: number;
   currency: string;
+  price_ils?: number;        // price converted to the user's currency (from the list endpoint)
+  display_currency?: string; // target currency code for price_ils
   yupoo_url?: string;
   flylink_url?: string;
   in_stock?: boolean;

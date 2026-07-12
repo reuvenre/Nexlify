@@ -305,7 +305,7 @@ function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCata
   const [opened, setOpened] = useState<string | null>(null); // album_url of the product modal
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [category, setCategory] = useState('');
-  const [items, setItems] = useState<Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>>([]);
+  const [items, setItems] = useState<Array<{ code: string; price: number; currency?: string; description: string; album_url: string; thumb?: string }>>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -365,7 +365,7 @@ function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCata
                   <p className="text-sm text-white/80 truncate min-h-[1.25rem]" dir="ltr" title={it.description}>{it.description || '—'}</p>
                   <p className="text-xs text-white/40 truncate mt-0.5" dir="ltr">#{it.code}</p>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-base font-bold text-white">${it.price}</span>
+                    <span className="text-base font-bold text-white">{priceSym(it.currency || 'ILS')}{it.price}</span>
                     <span className="text-xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><Wand2 size={12} /> צור פוסט</span>
                   </div>
                 </div>
@@ -771,7 +771,7 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
                 <p className="text-white/85" dir="ltr">{album.description || album.title}</p>
                 <p className="text-2xs text-white/40 mt-0.5" dir="ltr">#{album.code} · {album.images.length} תמונות</p>
               </div>
-              <span className="text-lg font-bold text-white">{album.currency === 'USD' ? '$' : ''}{album.price}</span>
+              <span className="text-lg font-bold text-white">{priceSym(album.currency || 'ILS')}{album.price}</span>
             </div>
 
             {/* FLYLINK link — required to publish (each product has its own generated link) */}
@@ -1006,7 +1006,8 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
   const [scheduledAt, setScheduledAt] = useState(() => localPlusHour());
   const [scheduling, setScheduling] = useState(false);
   const minDateTime = localInput(new Date(Date.now() + 2 * 60 * 1000));
-  const s = priceSym(product.currency);
+  const s = priceSym(product.display_currency || product.currency);
+  const displayPrice = product.price_ils ?? product.price;
 
   const handleDelete = async () => {
     if (!confirm(`למחוק את "${(product.title || '').slice(0, 40)}"?`)) return;
@@ -1056,7 +1057,7 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
           </div>
         </div>
       </td>
-      <td className="px-4 py-3 text-right"><p className="text-body font-semibold text-white">{s}{product.price}</p></td>
+      <td className="px-4 py-3 text-right"><p className="text-body font-semibold text-white">{s}{displayPrice}</p></td>
       <td className="px-4 py-3 text-right"><span className="text-2xs text-blue-400/70">{catalogName}</span></td>
       <td className="px-4 py-3">
         {product.in_stock === false
@@ -1128,7 +1129,9 @@ function SupplierEditModal({ product, onClose, onSaved }: { product: SupplierPro
         </div>
         <div className="space-y-3.5">
           <Field label="כותרת"><Input value={form.title} onChange={(v) => setForm((f) => ({ ...f, title: v }))} dir="ltr" /></Field>
-          <Field label="מחיר"><Input value={form.price} onChange={(v) => setForm((f) => ({ ...f, price: v }))} dir="ltr" /></Field>
+          <Field label="מחיר מקור ($)" hint="מחיר הספק בדולרים — מומר אוטומטית ל-₪ בתצוגה ובפוסטים">
+            <Input value={form.price} onChange={(v) => setForm((f) => ({ ...f, price: v }))} dir="ltr" />
+          </Field>
           <Field label="קישור שותפים FLYLINK"><Input value={form.flylink_url} onChange={(v) => setForm((f) => ({ ...f, flylink_url: v }))} dir="ltr" /></Field>
           <Field label="תיאור">
             <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3}
