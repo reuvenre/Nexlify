@@ -172,6 +172,43 @@ export interface VerifyResult {
   errors?: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'metaAdAccount', string>>;
 }
 
+// ─── Suppliers (Yupoo ↔ FLYLINK) ─────────────────────────────────────────────
+
+export type SkuMatchMode = 'exact' | 'numeric' | 'prefix_map' | 'regex';
+
+export interface SupplierCatalog {
+  id: string;
+  name: string;
+  source_type: string;
+  source_store?: string;
+  affiliate_network: string;
+  sku_match_mode: SkuMatchMode;
+  sku_match_config?: Record<string, any>;
+  selectors_json?: string;
+  target_channel_id?: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface SupplierProduct {
+  id: string;
+  supplier_catalog_id: string;
+  sku?: string;
+  title: string;
+  description?: string;
+  image_url?: string;
+  gallery_json?: string;
+  price: number;
+  currency: string;
+  yupoo_url?: string;
+  flylink_url?: string;
+  in_stock?: boolean;
+  status: string;
+  has_post: boolean;
+  synced_at?: string;
+  created_at: string;
+}
+
 // ─── Ads / Boost ─────────────────────────────────────────────────────────────
 
 export type AdBoostStatus = 'boosted' | 'skipped' | 'failed';

@@ -33,6 +33,8 @@ import type {
   SubscriptionStatus,
   PlanDef,
   BillingCycle,
+  SupplierCatalog,
+  SupplierProduct,
 } from '@/types';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -451,6 +453,35 @@ export const catalogApi = {
 
   queueBatch: (ids: string[]) =>
     http.post<{ id: string; success: boolean; error?: string }[]>('/catalog/queue-batch', { ids }).then(extract),
+};
+
+// ─── Suppliers API (Yupoo ↔ FLYLINK) ─────────────────────────────────────────
+
+export const suppliersApi = {
+  // Catalogs
+  listCatalogs: () => http.get<SupplierCatalog[]>('/suppliers/catalogs').then(extract),
+  createCatalog: (data: Partial<SupplierCatalog>) =>
+    http.post<SupplierCatalog>('/suppliers/catalogs', data).then(extract),
+  updateCatalog: (id: string, data: Partial<SupplierCatalog>) =>
+    http.patch<SupplierCatalog>(`/suppliers/catalogs/${id}`, data).then(extract),
+  deleteCatalog: (id: string) => http.delete(`/suppliers/catalogs/${id}`).then(extract),
+  probeStore: (store: string) =>
+    http.get<{ count: number; sample_code: string | null; suggested_mode: string; samples: any[] }>(
+      '/suppliers/catalogs/probe', { params: { store }, timeout: 30_000 },
+    ).then(extract),
+
+  // Products
+  listProducts: (catalogId?: string) =>
+    http.get<SupplierProduct[]>('/suppliers/products', { params: catalogId ? { catalog_id: catalogId } : undefined }).then(extract),
+  link: (data: { catalogId: string; yupooUrl: string; flylinkUrl: string; code?: string }) =>
+    http.post<SupplierProduct & { sku_verified: boolean }>('/suppliers/products/link', data, { timeout: 30_000 }).then(extract),
+  updateProduct: (id: string, data: Partial<SupplierProduct>) =>
+    http.patch<SupplierProduct>(`/suppliers/products/${id}`, data).then(extract),
+  deleteProduct: (id: string) => http.delete(`/suppliers/products/${id}`).then(extract),
+  generateDescription: (id: string) =>
+    http.post<{ description: string }>(`/suppliers/products/${id}/generate-description`, {}, { timeout: AI_TIMEOUT }).then(extract),
+  queue: (id: string, channelId?: string) =>
+    http.post<{ queued: boolean; post_id: string; channel: string }>(`/suppliers/products/${id}/queue`, { channel_id: channelId }, { timeout: AI_TIMEOUT }).then(extract),
 };
 
 export default http;
