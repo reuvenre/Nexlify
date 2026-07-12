@@ -395,13 +395,35 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [postLang, setPostLang] = useState('he');
   const [template, setTemplate] = useState<PostTemplate>(BUILTIN_DEFAULT_TEMPLATE);
   const [pv, setPv] = useState<(PostPreviewType & { gallery: string[] }) | null>(null);
+  const [selected, setSelected] = useState<string[]>([]); // ordered manual image selection for the album
   const [generating, setGenerating] = useState(true);
   const [regen, setRegen] = useState(false);
   const [posting, setPosting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const galleryInited = useRef(false);
 
   const chLabel = (ch: string) => ch === 'default' ? 'ברירת מחדל' : 'קבוצה';
+  const MAX_ALBUM = 10;
+
+  // First 10 images selected by default; the gallery is stable across text regenerations.
+  const gallery = pv?.gallery || [];
+  useEffect(() => {
+    if (!galleryInited.current && gallery.length) {
+      galleryInited.current = true;
+      setSelected(gallery.slice(0, MAX_ALBUM));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gallery.length]);
+
+  const toggleImage = (url: string) => {
+    setSelected((prev) => {
+      if (prev.includes(url)) return prev.filter((u) => u !== url);
+      if (prev.length >= MAX_ALBUM) return prev; // Telegram caps the album at 10
+      return [...prev, url];
+    });
+  };
+  const selectedImages = () => (selected.length ? selected : undefined);
 
   // Pre-select the user's saved default body template — same as AliExpress quick-post.
   useEffect(() => {
@@ -433,16 +455,16 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
 
   const onPost = async (text: string) => {
     setPosting(true); setDone(null); setErr(null);
-    try { const r = await suppliersApi.send(productId, channelId || undefined, text); setDone(`✓ נשלח (${chLabel(r.channel)})`); onSent?.(); }
+    try { const r = await suppliersApi.send(productId, channelId || undefined, text, selectedImages()); setDone(`✓ נשלח (${chLabel(r.channel)})`); onSent?.(); }
     catch (e: any) { setErr(e?.response?.data?.message || 'השליחה נכשלה — נסה שוב'); }
     finally { setPosting(false); }
   };
   const onSchedule = async (text: string, at: string) => {
-    try { const r = await suppliersApi.schedule(productId, at, channelId || undefined, text); setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.(); }
+    try { const r = await suppliersApi.schedule(productId, at, channelId || undefined, text, selectedImages()); setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.(); }
     catch (e: any) { setErr(e?.response?.data?.message || 'התזמון נכשל — נסה שוב'); throw e; }
   };
   const onQueue = async (text: string) => {
-    const r = await suppliersApi.queue(productId, channelId || undefined, text);
+    const r = await suppliersApi.queue(productId, channelId || undefined, text, selectedImages());
     onSent?.();
     return { queue_active: r.queue_active, interval_minutes: r.interval_minutes };
   };
@@ -457,15 +479,32 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
     <div className="flex flex-col lg:flex-row gap-4 items-start">
       {/* Left: gallery + channel + template panel */}
       <div className="w-full lg:w-64 shrink-0 space-y-3">
-        {pv && pv.gallery.length > 1 && (
+        {gallery.length > 1 && (
           <div className="bg-surface-secondary border border-edge rounded-xl p-3">
-            <p className="text-2xs text-white/40 mb-2 flex items-center gap-1"><Images size={11} /> {pv.gallery.length} תמונות (אלבום נגלל)</p>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {pv.gallery.map((g, i) => (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img key={i} src={g} alt="" className="h-16 w-16 object-cover rounded-lg border border-edge shrink-0" loading="lazy" />
-              ))}
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-2xs text-white/40 flex items-center gap-1"><Images size={11} /> בחר תמונות לאלבום</p>
+              <span className={`text-2xs ${selected.length >= MAX_ALBUM ? 'text-amber-400' : 'text-white/40'}`}>{selected.length}/{MAX_ALBUM}</span>
             </div>
+            <div className="grid grid-cols-4 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
+              {gallery.map((g, i) => {
+                const idx = selected.indexOf(g);
+                const on = idx !== -1;
+                const atMax = selected.length >= MAX_ALBUM;
+                return (
+                  <button key={i} type="button" onClick={() => toggleImage(g)}
+                    disabled={!on && atMax}
+                    className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${on ? 'border-blue-500' : 'border-transparent hover:border-white/20'}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={g} alt="" className="w-full h-full object-cover" loading="lazy" />
+                    {on && (
+                      <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center">{idx + 1}</span>
+                    )}
+                    {!on && <span className="absolute inset-0 bg-black/40" />}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-2xs text-white/25 mt-1.5">טלגרם מגביל אלבום ל-10 תמונות. הסדר = סדר הבחירה.</p>
           </div>
         )}
         <div className="bg-surface-secondary border border-edge rounded-xl p-3">

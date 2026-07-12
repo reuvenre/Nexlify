@@ -98,8 +98,9 @@ export class SuppliersController {
     @Param('id') id: string,
     @Body('channel_id') channelId?: string,
     @Body('text') text?: string,
+    @Body('images') images?: string[],
   ) {
-    return this.products.queue(this.uid(req), id, text, channelId);
+    return this.products.queue(this.uid(req), id, text, channelId, images);
   }
 
   @Post('products/:id/send')
@@ -109,8 +110,9 @@ export class SuppliersController {
     @Param('id') id: string,
     @Body('channel_id') channelId?: string,
     @Body('text') text?: string,
+    @Body('images') images?: string[],
   ) {
-    return this.products.send(this.uid(req), id, text, channelId);
+    return this.products.send(this.uid(req), id, text, channelId, images);
   }
 
   @Post('products/:id/schedule')
@@ -121,7 +123,8 @@ export class SuppliersController {
     @Body('scheduled_at') scheduledAt: string,
     @Body('channel_id') channelId?: string,
     @Body('text') text?: string,
+    @Body('images') images?: string[],
   ) {
-    return this.products.schedule(this.uid(req), id, new Date(scheduledAt), text, channelId);
+    return this.products.schedule(this.uid(req), id, new Date(scheduledAt), text, channelId, images);
   }
 }

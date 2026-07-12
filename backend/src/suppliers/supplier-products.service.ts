@@ -201,14 +201,29 @@ export class SupplierProductsService {
     return { ...result, gallery };
   }
 
+  /**
+   * The images to publish as the album: the user's manual selection (validated against
+   * the product's own gallery, order preserved, ≤10) — or the full gallery when nothing
+   * was picked. Telegram caps a media group at 10.
+   */
+  private selectGallery(p: SupplierProduct, selected?: string[]): string[] {
+    const full = this.proxiedGallery(p);
+    if (selected?.length) {
+      const set = new Set(full);
+      const chosen = selected.filter((u) => set.has(u)).slice(0, 10);
+      if (chosen.length) return chosen;
+    }
+    return full.slice(0, 10);
+  }
+
   /** Send now. */
-  async send(userId: string, id: string, text?: string, channelId?: string) {
+  async send(userId: string, id: string, text?: string, channelId?: string, images?: string[]) {
     const p = await this.get(userId, id);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
-    const gallery = this.proxiedGallery(p);
-    const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    const gallery = this.selectGallery(p, images);
+    const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
     const channel = await this.targetChannel(p, channelId);
 
@@ -222,13 +237,13 @@ export class SupplierProductsService {
   }
 
   /** Schedule for a specific time. */
-  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string) {
+  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string, images?: string[]) {
     const p = await this.get(userId, id);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
-    const gallery = this.proxiedGallery(p);
-    const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    const gallery = this.selectGallery(p, images);
+    const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
     const channel = await this.targetChannel(p, channelId);
 
@@ -245,13 +260,13 @@ export class SupplierProductsService {
    * Publish: push the supplier product into the SHARED post queue, routed to the
    * chosen group (or the catalog's default). Reuses the entire existing pipeline.
    */
-  async queue(userId: string, id: string, text?: string, channelId?: string) {
+  async queue(userId: string, id: string, text?: string, channelId?: string, images?: string[]) {
     const p = await this.get(userId, id);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
-    const gallery = this.proxiedGallery(p);
-    const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    const gallery = this.selectGallery(p, images);
+    const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const channel = await this.targetChannel(p, channelId);
 
     const post = await this.posts.createQueuedPost(
