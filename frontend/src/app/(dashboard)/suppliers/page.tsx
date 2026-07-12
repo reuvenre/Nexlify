@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Store, Plus, Loader2, Trash2, Link2, Sparkles, Send, X,
-  Package, CheckCircle2, AlertTriangle, Search, Pencil,
+  Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, ChevronLeft,
 } from 'lucide-react';
 import { suppliersApi, channelsApi } from '@/lib/api-client';
 import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel } from '@/types';
@@ -216,9 +216,10 @@ function CatalogModal({ catalog, channels, onClose, onSaved }: { catalog: Suppli
 
 // ─── Products tab ─────────────────────────────────────────────────────────────
 function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; channels: Channel[] }) {
+  const [mode, setMode] = useState<'mine' | 'browse'>('mine');
   const [products, setProducts] = useState<SupplierProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [linking, setLinking] = useState(false);
+  const [linkInit, setLinkInit] = useState<{ catalogId?: string; yupooUrl?: string } | null>(null);
 
   const load = useCallback(async () => {
     setProducts(await suppliersApi.listProducts().catch(() => []));
@@ -230,18 +231,32 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
 
   return (
     <div>
-      <button onClick={() => setLinking(true)} disabled={catalogs.length === 0}
-        className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all mb-5">
-        <Link2 size={15} /> חבר מוצר
-      </button>
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div className="flex bg-surface-secondary border border-edge-hover rounded-xl p-1 gap-1">
+          <button onClick={() => setMode('mine')}
+            className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${mode === 'mine' ? 'bg-blue-600/20 text-blue-400' : 'text-white/40 hover:text-white/70'}`}>המוצרים שלי</button>
+          <button onClick={() => setMode('browse')} disabled={catalogs.length === 0}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-40 ${mode === 'browse' ? 'bg-blue-600/20 text-blue-400' : 'text-white/40 hover:text-white/70'}`}>
+            <Grid3x3 size={13} /> עיין בקטלוג
+          </button>
+        </div>
+        {mode === 'mine' && (
+          <button onClick={() => setLinkInit({})} disabled={catalogs.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all">
+            <Link2 size={15} /> חבר מוצר ידני
+          </button>
+        )}
+      </div>
       {catalogs.length === 0 && <p className="text-xs text-amber-400 mb-4">צור קודם קטלוג ספק בטאב "קטלוגים"</p>}
 
-      {loading ? (
+      {mode === 'browse' ? (
+        <StoreBrowser catalogs={catalogs} onPick={(catalogId, yupooUrl) => setLinkInit({ catalogId, yupooUrl })} />
+      ) : loading ? (
         <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
       ) : products.length === 0 ? (
         <div className="bg-surface-secondary border border-dashed border-edge-hover rounded-2xl p-14 text-center">
           <Package size={32} className="text-white/15 mx-auto mb-3" />
-          <p className="text-sm text-white/40">אין מוצרים מחוברים — לחץ "חבר מוצר"</p>
+          <p className="text-sm text-white/40">אין מוצרים מחוברים — "עיין בקטלוג" או "חבר מוצר ידני"</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -251,7 +266,91 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
         </div>
       )}
 
-      {linking && <LinkModal catalogs={catalogs} onClose={() => setLinking(false)} onDone={() => { setLinking(false); load(); }} />}
+      {linkInit && <LinkModal catalogs={catalogs} initial={linkInit} onClose={() => setLinkInit(null)} onDone={() => { setLinkInit(null); setMode('mine'); load(); }} />}
+    </div>
+  );
+}
+
+// ─── In-system Yupoo store browser ────────────────────────────────────────────
+function StoreBrowser({ catalogs, onPick }: { catalogs: SupplierCatalog[]; onPick: (catalogId: string, yupooUrl: string) => void }) {
+  const [catalogId, setCatalogId] = useState(catalogs[0]?.id || '');
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [category, setCategory] = useState('');
+  const [items, setItems] = useState<Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async (p: number, cat: string, withCats: boolean) => {
+    if (!catalogId) return;
+    setLoading(true); setError('');
+    try {
+      const r = await suppliersApi.browse(catalogId, { page: p, category: cat || undefined, with_categories: withCats ? 1 : 0 });
+      setItems(r.items); setHasMore(r.hasMore); setPage(p);
+      if (r.categories) setCategories(r.categories);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'טעינת הקטלוג נכשלה — ייתכן חסימת Yupoo מהשרת');
+      setItems([]);
+    } finally { setLoading(false); }
+  }, [catalogId]);
+
+  useEffect(() => { if (catalogId) { setCategory(''); load(1, '', true); } }, [catalogId, load]);
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <select value={catalogId} onChange={(e) => setCatalogId(e.target.value)}
+          className="bg-surface-secondary border border-edge-hover rounded-xl px-4 py-2 text-sm text-white/70 outline-none focus:border-blue-500/50">
+          {catalogs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        {categories.length > 0 && (
+          <select value={category} onChange={(e) => { setCategory(e.target.value); load(1, e.target.value, false); }}
+            className="bg-surface-secondary border border-edge-hover rounded-xl px-4 py-2 text-sm text-white/70 outline-none focus:border-blue-500/50 max-w-[220px]">
+            <option value="">כל הקטגוריות ({categories.length})</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+      </div>
+
+      {error && <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+            {items.map((it) => (
+              <button key={it.album_url} onClick={() => onPick(catalogId, it.album_url)}
+                className="text-right bg-surface-secondary border border-edge rounded-xl overflow-hidden hover:border-blue-500/40 hover:-translate-y-0.5 transition-all group">
+                <div className="h-28 bg-white/[0.04]">
+                  {it.thumb
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    ? <img src={it.thumb} alt="" className="w-full h-full object-cover" loading="lazy" />
+                    : <div className="w-full h-full flex items-center justify-center"><Package size={20} className="text-white/15" /></div>}
+                </div>
+                <div className="p-2">
+                  <p className="text-2xs text-white/70 truncate" dir="ltr">{it.description || it.code}</p>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-xs font-bold text-white">${it.price}</span>
+                    <span className="text-2xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"><Link2 size={10} /> חבר</span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+          {items.length === 0 && <p className="text-center text-sm text-white/30 py-12">לא נמצאו מוצרים</p>}
+          {(page > 1 || hasMore) && (
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button disabled={page <= 1} onClick={() => load(page - 1, category, false)}
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הקודם</button>
+              <span className="text-xs text-white/40">עמוד {page}</span>
+              <button disabled={!hasMore} onClick={() => load(page + 1, category, false)}
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הבא</button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -307,8 +406,8 @@ function SupplierProductCard({ product, catalogName, channels, reload }: { produ
   );
 }
 
-function LinkModal({ catalogs, onClose, onDone }: { catalogs: SupplierCatalog[]; onClose: () => void; onDone: () => void }) {
-  const [form, setForm] = useState({ catalogId: catalogs[0]?.id || '', yupooUrl: '', flylinkUrl: '', code: '' });
+function LinkModal({ catalogs, initial, onClose, onDone }: { catalogs: SupplierCatalog[]; initial?: { catalogId?: string; yupooUrl?: string }; onClose: () => void; onDone: () => void }) {
+  const [form, setForm] = useState({ catalogId: initial?.catalogId || catalogs[0]?.id || '', yupooUrl: initial?.yupooUrl || '', flylinkUrl: '', code: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 

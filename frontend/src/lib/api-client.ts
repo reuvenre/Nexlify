@@ -470,6 +470,13 @@ export const suppliersApi = {
       '/suppliers/catalogs/probe', { params: { store }, timeout: 30_000 },
     ).then(extract),
 
+  browse: (catalogId: string, params: { page?: number; category?: string; with_categories?: 0 | 1 }) =>
+    http.get<{
+      items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>;
+      hasMore: boolean;
+      categories?: Array<{ id: string; name: string }>;
+    }>(`/suppliers/catalogs/${catalogId}/browse`, { params, timeout: 30_000 }).then(extract),
+
   // Products
   listProducts: (catalogId?: string) =>
     http.get<SupplierProduct[]>('/suppliers/products', { params: catalogId ? { catalog_id: catalogId } : undefined }).then(extract),

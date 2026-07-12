@@ -264,6 +264,7 @@ export class PostsService {
     catalogProductId?: string,
     textOverride?: string,
     channelOverride?: string,
+    images?: string[],
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
     const currencyPair = creds?.currency_pair || 'USD_ILS';
@@ -323,6 +324,9 @@ export class PostsService {
       queue_order: nextOrder,
       catalog_product_id: catalogProductId,
       channel_override: channelOverride || null,
+      // Extra images (product colors/variants) beyond the main one → sent as a
+      // Telegram media group (swipeable album) instead of spamming separate posts.
+      gallery_json: images && images.length > 1 ? JSON.stringify(images.slice(0, 10)) : null,
     });
 
     return this.repo.save(post);
@@ -620,11 +624,21 @@ export class PostsService {
     await this.repo.save(post);
   }
 
-  /** Sends the post photo+caption to a Telegram channel. Throws on failure. */
+  /** Sends the post photo(s)+caption to a Telegram channel. Throws on failure. */
   private async sendToTelegramChannel(post: Post, creds: DecryptedCredentials, caption: string, channelOverride?: string) {
     const token = creds?.telegram_bot_token;
     const channel = normalizeTelegramChatId(channelOverride || creds?.telegram_channel_id);
     if (!token || !channel) throw new Error('Missing Telegram credentials');
+
+    // Multiple images (product colors/variants) → one swipeable media group
+    // instead of separate posts. Telegram caps a group at 10 and puts the caption
+    // on the first item only.
+    let gallery: string[] = [];
+    try { gallery = post.gallery_json ? JSON.parse(post.gallery_json) : []; } catch { /* ignore */ }
+    if (gallery.length > 1) {
+      await this.sendMediaGroup(token, channel, gallery.slice(0, 10), caption, post);
+      return;
+    }
 
     const url = `https://api.telegram.org/bot${token}/sendPhoto`;
     try {
@@ -647,6 +661,31 @@ export class PostsService {
           { timeout: 15000 },
         );
         post.telegram_message_id = res.data?.result?.message_id;
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /** Send up to 10 photos as one album; caption + parse_mode on the first item. */
+  private async sendMediaGroup(token: string, channel: string, images: string[], caption: string, post: Post) {
+    const url = `https://api.telegram.org/bot${token}/sendMediaGroup`;
+    const build = (withHtml: boolean) => images.map((img, i) => ({
+      type: 'photo',
+      media: img,
+      ...(i === 0 ? { caption, ...(withHtml ? { parse_mode: 'HTML' } : {}) } : {}),
+    }));
+    try {
+      const res = await axios.post(url, { chat_id: channel, media: build(true) }, { timeout: 20000 });
+      post.telegram_message_id = res.data?.result?.[0]?.message_id;
+    } catch (err: any) {
+      const desc: string = err?.response?.data?.description || '';
+      // HTML parse error → retry with plain-text caption.
+      if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
+        const plainCaption = caption.replace(/<[^>]+>/g, '');
+        const media = images.map((img, i) => ({ type: 'photo', media: img, ...(i === 0 ? { caption: plainCaption } : {}) }));
+        const res = await axios.post(url, { chat_id: channel, media }, { timeout: 20000 });
+        post.telegram_message_id = res.data?.result?.[0]?.message_id;
         return;
       }
       throw err;

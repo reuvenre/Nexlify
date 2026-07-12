@@ -85,24 +85,54 @@ export class YupooService {
     };
   }
 
-  /** List every album in a store (for bulk browse/import) → light metadata. */
-  async fetchStore(store: string): Promise<Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>> {
+  /** The brand categories of a store — for in-system browsing. */
+  async fetchCategories(store: string): Promise<Array<{ id: string; name: string }>> {
     const base = `https://${store}.x.yupoo.com`;
     const html = await this.get(`${base}/albums`, base + '/');
     const $ = cheerio.load(html);
-    const out: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }> = [];
+    const out: Array<{ id: string; name: string }> = [];
+    const seen = new Set<string>();
+    $('a[href*="/categories/"]').each((_, el) => {
+      const href = $(el).attr('href') || '';
+      const m = href.match(/\/categories\/(\d+)/);
+      if (!m || seen.has(m[1])) return;
+      const name = ($(el).text() || '').replace(/\s+/g, ' ').trim();
+      if (!name) return;
+      seen.add(m[1]);
+      out.push({ id: m[1], name });
+    });
+    return out;
+  }
+
+  /**
+   * Browse a store's albums (optionally within a category), paginated — so the whole
+   * catalog is browsable from inside the app without visiting Yupoo. 120 albums/page.
+   */
+  async fetchStore(
+    store: string,
+    opts: { page?: number; categoryId?: string } = {},
+  ): Promise<{ items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>; hasMore: boolean }> {
+    const base = `https://${store}.x.yupoo.com`;
+    const page = Math.max(1, opts.page || 1);
+    const path = opts.categoryId ? `/categories/${opts.categoryId}` : '/albums';
+    const html = await this.get(`${base}${path}?page=${page}`, base + '/');
+    const $ = cheerio.load(html);
+    const items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }> = [];
     const seen = new Set<string>();
     $('a[href*="/albums/"]').each((_, el) => {
       const href = $(el).attr('href') || '';
-      if (!/\/albums\/\d+/.test(href) || seen.has(href)) return;
-      seen.add(href);
+      if (!/\/albums\/\d+/.test(href)) return;
+      const clean = href.split('?')[0];
+      if (seen.has(clean)) return;
+      seen.add(clean);
       const rawTitle = ($(el).attr('title') || $(el).text() || '').trim();
       if (!rawTitle) return;
       const { code, price, description } = this.parseTitle(rawTitle);
       let thumb = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || undefined;
       if (thumb && thumb.startsWith('//')) thumb = 'https:' + thumb;
-      out.push({ code, price, description, album_url: href.startsWith('http') ? href : base + href, thumb });
+      items.push({ code, price, description, album_url: href.startsWith('http') ? href : base + href, thumb });
     });
-    return out;
+    // A full page (Yupoo returns 120) implies there's likely a next page.
+    return { items, hasMore: items.length >= 100 };
   }
 }

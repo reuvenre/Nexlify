@@ -79,6 +79,10 @@ export class Post {
   @Column({ nullable: true })
   channel_override: string;
 
+  /** JSON array of extra image URLs → sent as a Telegram media group (colors/variants). */
+  @Column({ nullable: true, type: 'text' })
+  gallery_json: string;
+
   @CreateDateColumn()
   created_at: Date;
 }

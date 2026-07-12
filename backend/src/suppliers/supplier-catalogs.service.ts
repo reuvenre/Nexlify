@@ -64,7 +64,7 @@ export class SupplierCatalogsService {
    * catalog" screen so the user gets a sensible default for the code format.
    */
   async probeStore(store: string) {
-    const items = await this.yupoo.fetchStore(store);
+    const { items } = await this.yupoo.fetchStore(store);
     const sample = items[0];
     return {
       count: items.length,
@@ -72,5 +72,16 @@ export class SupplierCatalogsService {
       suggested_mode: sample ? suggestSkuMode(sample.code) : 'exact',
       samples: items.slice(0, 5),
     };
+  }
+
+  /** Browse a catalog's store from inside the app (categories + paginated albums). */
+  async browse(userId: string, catalogId: string, opts: { page?: number; categoryId?: string; withCategories?: boolean }) {
+    const cat = await this.get(userId, catalogId);
+    if (!cat.source_store) throw new BadRequestException('לא הוגדרה חנות Yupoo לקטלוג');
+    const [page, categories] = await Promise.all([
+      this.yupoo.fetchStore(cat.source_store, { page: opts.page, categoryId: opts.categoryId }),
+      opts.withCategories ? this.yupoo.fetchCategories(cat.source_store) : Promise.resolve(undefined),
+    ]);
+    return { ...page, categories };
   }
 }

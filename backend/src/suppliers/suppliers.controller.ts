@@ -27,6 +27,22 @@ export class SuppliersController {
   @Get('catalogs/probe')
   probe(@Req() req: Request, @Query('store') store: string) { return this.catalogs.probeStore(store); }
 
+  /** Browse a catalog's Yupoo store from inside the app (categories + paginated albums). */
+  @Get('catalogs/:id/browse')
+  browse(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('page') page = '1',
+    @Query('category') categoryId?: string,
+    @Query('with_categories') withCategories?: string,
+  ) {
+    return this.catalogs.browse(this.uid(req), id, {
+      page: +page || 1,
+      categoryId: categoryId || undefined,
+      withCategories: withCategories === '1',
+    });
+  }
+
   @Patch('catalogs/:id')
   updateCatalog(@Req() req: Request, @Param('id') id: string, @Body() dto: any) {
     return this.catalogs.update(this.uid(req), id, dto);

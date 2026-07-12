@@ -154,12 +154,17 @@ export class SupplierProductsService {
     const catalog = await this.repo.manager.findOne(SupplierCatalog, { where: { id: p.supplier_catalog_id } });
     const targetChannel = channelId?.trim() || catalog?.target_channel_id || undefined;
 
+    // All product photos (colors/variants) → sent as one swipeable Telegram album.
+    let gallery: string[] = [];
+    try { gallery = p.gallery_json ? JSON.parse(p.gallery_json) : []; } catch { /* ignore */ }
+    if (p.image_url && !gallery.includes(p.image_url)) gallery.unshift(p.image_url);
+
     const post = await this.posts.createQueuedPost(
       userId,
       {
         product_id: p.sku || p.id,
         title: p.title,
-        image_url: p.image_url || '',
+        image_url: p.image_url || gallery[0] || '',
         affiliate_url: p.flylink_url,
         sale_price: p.price,
         original_price: p.price,
@@ -171,6 +176,7 @@ export class SupplierProductsService {
       undefined,
       p.description || undefined,
       targetChannel,
+      gallery,
     );
     p.has_post = true;
     await this.repo.save(p);
