@@ -149,6 +149,8 @@ export class YupooService {
       const { code, price, description } = this.parseTitle(rawTitle);
       let thumb = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || undefined;
       if (thumb && thumb.startsWith('//')) thumb = 'https:' + thumb;
+      // Upgrade the low-res grid thumbnail to the medium size so bigger cards stay sharp.
+      if (thumb) thumb = thumb.replace(/\/(small|thumb)\.jpg/i, '/medium.jpg');
       items.push({ code, price, description, album_url: href.startsWith('http') ? href : base + href, thumb });
     });
     // A full page (Yupoo returns 120) implies there's likely a next page.

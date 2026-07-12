@@ -329,25 +329,25 @@ function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCata
         <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {items.map((it) => (
               <button key={it.album_url} onClick={() => setOpened(it.album_url)}
                 className="text-right bg-surface-secondary border border-edge rounded-xl overflow-hidden hover:border-blue-500/40 hover:-translate-y-0.5 transition-all group">
-                <div className="relative h-28 bg-white/[0.04]">
+                <div className="relative aspect-square bg-white/[0.04]">
                   {it.thumb
                     /* eslint-disable-next-line @next/next/no-img-element */
                     ? <img src={yupooImg(it.thumb)} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    : <div className="w-full h-full flex items-center justify-center"><Package size={20} className="text-white/15" /></div>}
-                  <span className="absolute bottom-1 left-1 bg-black/55 text-white/90 text-2xs rounded-full px-1.5 py-0.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Images size={9} /> פתח
+                    : <div className="w-full h-full flex items-center justify-center"><Package size={32} className="text-white/15" /></div>}
+                  <span className="absolute bottom-2 left-2 bg-black/60 text-white/90 text-xs rounded-full px-2.5 py-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Images size={12} /> פתח
                   </span>
                 </div>
-                <div className="p-2">
-                  <p className="text-2xs text-white/70 truncate min-h-[0.9rem]" dir="ltr" title={it.description}>{it.description || '—'}</p>
-                  <p className="text-2xs text-white/35 truncate" dir="ltr">#{it.code}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-xs font-bold text-white">${it.price}</span>
-                    <span className="text-2xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"><Wand2 size={10} /> צור פוסט</span>
+                <div className="p-3">
+                  <p className="text-sm text-white/80 truncate min-h-[1.25rem]" dir="ltr" title={it.description}>{it.description || '—'}</p>
+                  <p className="text-xs text-white/40 truncate mt-0.5" dir="ltr">#{it.code}</p>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-base font-bold text-white">${it.price}</span>
+                    <span className="text-xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><Wand2 size={12} /> צור פוסט</span>
                   </div>
                 </div>
               </button>
