@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { FileText, Plus, Check, Pencil, Trash2, X, Loader2, Save, Users } from 'lucide-react';
-import { templatesApi, credentialsApi, channelsApi } from '@/lib/api-client';
+import { templatesApi, channelsApi } from '@/lib/api-client';
 import type { PostTemplate, Channel } from '@/types';
 
 // ── Built-in body templates (read-only, not stored in DB) ─────────────────────
@@ -182,8 +182,8 @@ function TemplateCard({
   onDelete,
 }: {
   template: PostTemplate;
-  isSelected: boolean;
-  onSelect: () => void;
+  isSelected?: boolean;
+  onSelect?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -246,19 +246,22 @@ function TemplateCard({
         </div>
       </div>
 
-      {/* Select button */}
-      <div className="px-4 pb-4">
-        <button
-          onClick={onSelect}
-          className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all
-            ${isSelected
-              ? 'bg-blue-600/20 border border-blue-500/40 text-blue-400'
-              : 'bg-white/5 border border-edge-hover text-white/50 hover:bg-white/10 hover:text-white/80'}`}
-        >
-          {isSelected && <Check size={13} />}
-          {isSelected ? 'Selected ✓' : 'Select Template'}
-        </button>
-      </div>
+      {/* Select button — only when a selection handler is provided (assignment lives in
+          "שיוך לקבוצות" now; the library tabs are create/edit/delete only). */}
+      {onSelect && (
+        <div className="px-4 pb-4">
+          <button
+            onClick={onSelect}
+            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all
+              ${isSelected
+                ? 'bg-blue-600/20 border border-blue-500/40 text-blue-400'
+                : 'bg-white/5 border border-edge-hover text-white/50 hover:bg-white/10 hover:text-white/80'}`}
+          >
+            {isSelected && <Check size={13} />}
+            {isSelected ? 'Selected ✓' : 'Select Template'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -348,49 +351,18 @@ export default function TemplatesPage() {
   const [tab, setTab] = useState<'body' | 'footer' | 'groups'>('body');
   const [customTemplates, setCustomTemplates] = useState<PostTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBodyId, setSelectedBodyId] = useState('builtin_default');
-  const [selectedFooterId, setSelectedFooterId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<PostTemplate | null>(null);
   const [savedFlash, setSavedFlash] = useState('');
 
-  // Load saved templates + the persisted default selections from backend
+  // The library tabs are create/edit/delete only — assignment happens per-group in
+  // "שיוך לקבוצות", so no global default selection to load here.
   useEffect(() => {
-    Promise.all([
-      templatesApi.list().then((ts) => setCustomTemplates(ts.map((t) => ({ ...t, builtin: false })))),
-      credentialsApi.get()
-        .then((c) => {
-          if (c.default_body_template_id) setSelectedBodyId(c.default_body_template_id);
-          setSelectedFooterId(c.default_footer_template_id || null);
-        })
-        .catch(() => {}),
-    ])
+    templatesApi.list()
+      .then((ts) => setCustomTemplates(ts.map((t) => ({ ...t, builtin: false }))))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
-
-  // Persist a default selection to the backend so it survives reloads and is
-  // used when posts are sent (footer) / pre-selected (body).
-  const persistDefault = async (type: 'body' | 'footer', id: string | null) => {
-    try {
-      await credentialsApi.upsert(
-        type === 'body'
-          ? { default_body_template_id: id || 'builtin_default' }
-          : { default_footer_template_id: id || '' },
-      );
-      setSavedFlash(type === 'body' ? 'תבנית הגוף נשמרה כברירת מחדל ✓' : 'הכותרת התחתונה נשמרה ✓');
-      setTimeout(() => setSavedFlash(''), 2500);
-    } catch {
-      setSavedFlash('שגיאה בשמירה');
-      setTimeout(() => setSavedFlash(''), 2500);
-    }
-  };
-
-  const handleSelect = (type: 'body' | 'footer', id: string) => {
-    if (type === 'body') setSelectedBodyId(id);
-    else setSelectedFooterId((prev) => (prev === id ? null : id)); // click again to deselect footer
-    persistDefault(type, type === 'footer' && selectedFooterId === id ? null : id);
-  };
 
   const bodyTemplates = [
     ...BUILTIN_BODY,
@@ -408,15 +380,12 @@ export default function TemplatesPage() {
 
   const handleDeleted = (id: string) => {
     setCustomTemplates((prev) => prev.filter((t) => t.id !== id));
-    if (selectedBodyId === id) { setSelectedBodyId('builtin_default'); persistDefault('body', null); }
-    if (selectedFooterId === id) { setSelectedFooterId(null); persistDefault('footer', null); }
   };
 
   const openCreate = () => { setEditingTemplate(null); setShowModal(true); };
   const openEdit = (t: PostTemplate) => { setEditingTemplate(t); setShowModal(true); };
 
   const currentTemplates = tab === 'body' ? bodyTemplates : footerTemplates;
-  const currentSelectedId = tab === 'body' ? selectedBodyId : selectedFooterId;
 
   return (
     <div dir="rtl">
@@ -506,8 +475,6 @@ export default function TemplatesPage() {
             <TemplateCard
               key={t.id}
               template={t}
-              isSelected={currentSelectedId === t.id}
-              onSelect={() => handleSelect(tab, t.id)}
               onEdit={() => openEdit(t)}
               onDelete={() => handleDeleted(t.id)}
             />

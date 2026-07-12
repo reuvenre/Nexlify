@@ -1009,10 +1009,12 @@ export class PostsService {
       ? this.templateSystemPrompt(language, template!.trim())
       : this.defaultSystemPrompt(language);
 
-    // Vision: when a product image is attached, ground the copy in what's ACTUALLY
-    // visible (color, type, material, details) and forbid inventing facts — this is the
-    // whole point for catalogs with no textual description.
-    if (images?.length) {
+    // Vision is for FREE-FORM generation (no template) — it grounds the copy in what's
+    // actually in the photo. With a template, the template's wording is authoritative and
+    // must stay verbatim, so injecting image details would corrupt fixed lines (e.g. it
+    // rewrote "לפי הקוד בתמונות" → "לפי הקוד BBR"). So use vision ONLY when there's no template.
+    const visionImages = hasTemplate ? undefined : images;
+    if (visionImages?.length) {
       systemPrompt += '\n\nמצורפת תמונת המוצר. תאר את המוצר אך ורק לפי מה שנראה בתמונה בפועל (סוג הפריט, צבע, חומר, פרטים בולטים) ולפי העובדות שסופקו. אל תמציא מאפיינים, מותג או שימושים שאינם נראים בתמונה או מופיעים בעובדות. אם פרט לא ידוע — פשוט אל תזכיר אותו.';
     }
 
@@ -1023,7 +1025,7 @@ export class PostsService {
     const result = await this.ai.generate(creds, {
       system: systemPrompt,
       prompt: userPrompt,
-      images,
+      images: visionImages,
       // Custom templates often produce longer, structured posts → give more room
       // and lower the temperature so the model adheres to the exact structure.
       maxTokens: hasTemplate ? 900 : 400,
@@ -1084,18 +1086,22 @@ Critical rules:
       return `${template}
 
 ———
-הוראות מערכת (גוברות רק על פרטים טכניים): כתוב/כתבי את הפוסט בעברית, ועקוב/עקבי אחר ההוראות, המבנה, האימוג'ים והשורות הקבועות שלמעלה במדויק. אל תוסיף/י קישור משלך — קישור השותפים יצורף אוטומטית. החזר/החזירי רק את הפוסט המוגמר, בלי הסברים.`;
+הוראות מערכת (גוברות רק על פרטים טכניים):
+• שכפל/י את נוסח התבנית שלמעלה מילה במילה — כולל השורות הקבועות, האימוג'ים והמבנה. אל תנסח/י מחדש ואל תקצר/י.
+• מלא/י אך ורק מצייני מיקום מפורשים בסוגריים (למשל [מחיר], [שם]). כל שאר הטקסט נשאר בדיוק כפי שנכתב.
+• אל תחליף/י ביטויים כלליים בערך ספציפי. לדוגמה: אם כתוב "לפי הקוד בתמונות" — השאר/י "בתמונות" כפי שהוא, אל תכניס/י את קוד/שם המוצר במקומו.
+• כתוב/כתבי בעברית. אל תוסיף/י קישור — קישור השותפים יצורף אוטומטית. החזר/החזירי רק את הפוסט המוגמר, בלי הסברים.`;
     }
     if (language === 'ar') {
       return `${template}
 
 ———
-تعليمات النظام: اكتب المنشور بالعربية واتبع التعليمات والبنية والرموز والأسطر الثابتة أعلاه بدقة. لا تضف رابطاً؛ سيُضاف رابط الإحالة تلقائياً. أعد المنشور النهائي فقط دون شرح.`;
+تعليمات النظام: انسخ نص القالب أعلاه حرفياً — بما في ذلك الأسطر الثابتة والرموز والبنية. لا تُعِد الصياغة. املأ فقط العناصر النائبة الصريحة بين قوسين (مثل [السعر]). لا تستبدل العبارات العامة بقيمة محددة (مثلاً اترك "حسب الكود في الصور" كما هي). اكتب بالعربية، لا تضف رابطاً، وأعد المنشور النهائي فقط.`;
     }
     return `${template}
 
 ———
-System note: write the post in English and follow the instructions, structure, emojis and fixed lines above exactly. Do not add your own link — the affiliate link is appended automatically. Return only the finished post, no explanations.`;
+System note: reproduce the template text above VERBATIM — including fixed lines, emojis and structure. Do not rephrase. Fill ONLY explicit bracketed placeholders (e.g. [price]); leave everything else exactly as written. Do not replace generic phrases with a specific value (e.g. keep "by the code in the photos" as-is — do NOT substitute the product code/name). Write in English, do not add a link, return only the finished post.`;
   }
 
   /** Product facts only — fills the placeholder in a user-defined template. */
@@ -1117,7 +1123,7 @@ System note: write the post in English and follow the instructions, structure, e
 • דירוג: ${rating}/5
 • קטגוריה: ${category}
 
-כתוב/כתבי כעת את הפוסט עבור המוצר הזה, לפי ההוראות והמבנה שהוגדרו. אם נדרשות תכונות/יתרונות שאינם מופיעים למעלה — הסק/הסיקי אותם בצורה סבירה משם המוצר.`;
+השתמש/י בפרטים האלה אך ורק כדי למלא מצייני מיקום בתבנית (כמו מחיר/שם). אל תשנה/י את הטקסט הקבוע של התבנית ואל תוסיף/י פרטים שלא נדרשו בה.`;
     }
     if (language === 'ar') {
       return `تفاصيل المنتج لكتابة المنشور:

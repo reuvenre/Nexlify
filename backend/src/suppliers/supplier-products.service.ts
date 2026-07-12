@@ -198,9 +198,11 @@ export class SupplierProductsService {
 
     // Vision: fetch the real product photo so the AI writes from what it SEES — crucial
     // for Yupoo albums with no textual description (text-only AI would invent details).
+    // Skipped when a template is active: the template's wording is authoritative and
+    // vision would corrupt its fixed lines (generateText ignores images in template mode).
     let images: GenerateImage[] | undefined;
     let visionUsed = false;
-    if (opts?.vision && p.image_url) {
+    if (opts?.vision && !opts?.template?.trim() && p.image_url) {
       const img = await this.fetchImageBase64(p.image_url);
       if (img) { images = [img]; visionUsed = true; }
     }
