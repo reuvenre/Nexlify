@@ -69,7 +69,7 @@ const POST_LANGS = [
 
 type PostLang = typeof POST_LANGS[number]['value'];
 
-const LIMIT = 30;
+const LIMIT = 50; // AliExpress affiliate API max page size — fewer round-trips, more per load
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -86,6 +86,7 @@ export default function QuickPostPage() {
 
   // ── Product list state
   const [products, setProducts] = useState<AliProduct[]>([]);
+  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(true);
@@ -174,6 +175,7 @@ export default function QuickPostPage() {
       const res = await catalogApi.list({ page: nextPage, limit: LIMIT, search: search?.trim() || undefined });
       const mapped = res.data.map(catalogToAli);
       setProducts((prev) => append ? [...prev, ...mapped] : mapped);
+      setTotal(res.total || 0);
       setHasMore(nextPage * LIMIT < res.total);
       setPage(nextPage);
       // Empty catalog on first mount → live browsing is more useful. Only once —
@@ -197,6 +199,7 @@ export default function QuickPostPage() {
         ? await productsApi.promotional({ category_id: selectedCategory || undefined, page: nextPage, limit: LIMIT })
         : await productsApi.featured({ category_id: selectedCategory || undefined, sort: sortMode as 'best_selling' | 'most_discounted', page: nextPage, limit: LIMIT });
       setProducts((prev) => append ? [...prev, ...res.data] : res.data);
+      setTotal(res.total || 0);
       setHasMore(res.data.length === LIMIT);
       setPage(nextPage);
     } catch {
@@ -224,7 +227,15 @@ export default function QuickPostPage() {
         sort: sortMode === 'best_selling' ? 'LAST_VOLUME_DESC' : 'SALE_PRICE_ASC',
         page: nextPage, limit: LIMIT,
       });
-      setProducts((prev) => append ? [...prev, ...res.data] : res.data);
+      // De-dupe across pages — the API can repeat a product_id on different pages,
+      // which would collide React keys and hide items (looking like "fewer results").
+      setProducts((prev) => {
+        const merged = append ? [...prev, ...res.data] : res.data;
+        const seen = new Set<string>();
+        return merged.filter((p) => (seen.has(p.product_id) ? false : seen.add(p.product_id)));
+      });
+      setTotal(res.total || 0);
+      // Keep loading as long as a full page came back (there's likely more).
       setHasMore(res.data.length === LIMIT);
       setPage(nextPage);
     } finally {
@@ -232,6 +243,16 @@ export default function QuickPostPage() {
       setLoadingMore(false);
     }
   }, [selectedCategory, sortMode]);
+
+  // Explicit "load more" — a reliable fallback for when the scroll observer doesn't
+  // fire (short content, mobile), so the user can pull the FULL result set on demand.
+  const loadMore = useCallback(() => {
+    if (loadingMore || loadingInitial || !hasMore) return;
+    const next = page + 1;
+    if (source === 'catalog') loadCatalog(next, true, isSearchMode ? query : undefined);
+    else if (isSearchMode) runSearch(next, true, translatedQuery || query);
+    else loadFeatured(next, true);
+  }, [loadingMore, loadingInitial, hasMore, page, source, isSearchMode, query, translatedQuery, loadCatalog, runSearch, loadFeatured]);
 
   // ── Search submit
   const handleSearch = async (e: React.FormEvent) => {
@@ -277,23 +298,17 @@ export default function QuickPostPage() {
 
   const handleSortChange = (s: SortMode) => setSortMode(s);
 
-  // ── Infinite scroll
+  // ── Infinite scroll (rootMargin pre-loads the next page before the sentinel is
+  //    fully visible; the explicit "load more" button covers cases it misses)
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
     observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && hasMore && !loadingMore && !loadingInitial) {
-          const nextPage = page + 1;
-          if (source === 'catalog') loadCatalog(nextPage, true, isSearchMode ? query : undefined);
-          else if (isSearchMode) runSearch(nextPage, true, translatedQuery || query);
-          else loadFeatured(nextPage, true);
-        }
-      },
-      { threshold: 0.5 },
+      (entries) => { if (entries[0]?.isIntersecting) loadMore(); },
+      { rootMargin: '600px' },
     );
     if (sentinelRef.current) observerRef.current.observe(sentinelRef.current);
     return () => observerRef.current?.disconnect();
-  }, [hasMore, loadingMore, loadingInitial, page, isSearchMode, translatedQuery, query, source, runSearch, loadFeatured, loadCatalog]);
+  }, [loadMore]);
 
   // ── Select product → go to review view (NO refreshPrice — it returns wrong products)
   const handleSelect = async (product: AliProduct) => {
@@ -728,7 +743,7 @@ export default function QuickPostPage() {
             <span className="text-xs text-white/30">
               תוצאות עבור "{query}"
               {translatedQuery && ` (${translatedQuery})`}
-              {products.length > 0 && ` — ${products.length} מוצרים`}
+              {products.length > 0 && ` — ${products.length}${total > products.length ? ` מתוך ${total.toLocaleString()}` : ''} מוצרים`}
             </span>
           </>
         ) : source === 'catalog' ? (
@@ -793,15 +808,23 @@ export default function QuickPostPage() {
             ))}
           </div>
 
-          <div ref={sentinelRef} className="mt-6 flex justify-center py-4">
+          <div ref={sentinelRef} className="mt-6 flex flex-col items-center gap-3 py-4">
             {loadingMore && (
               <div className="flex items-center gap-2 text-sm text-white/30">
                 <Loader2 size={16} className="animate-spin" />
                 טוען עוד מוצרים...
               </div>
             )}
+            {!loadingMore && hasMore && (
+              <button
+                onClick={loadMore}
+                className="px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-edge-hover text-white/70 text-sm font-medium rounded-xl transition-all"
+              >
+                טען עוד מוצרים
+              </button>
+            )}
             {!loadingMore && !hasMore && products.length > 0 && (
-              <p className="text-xs text-white/20">הגעת לסוף הרשימה</p>
+              <p className="text-xs text-white/20">הגעת לסוף הרשימה — {products.length} מוצרים</p>
             )}
           </div>
         </>
