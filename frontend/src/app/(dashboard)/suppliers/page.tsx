@@ -5,7 +5,7 @@ import {
   Store, Plus, Loader2, Trash2, Link2, Sparkles, Send, X,
   Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, ChevronLeft,
 } from 'lucide-react';
-import { suppliersApi, channelsApi } from '@/lib/api-client';
+import { suppliersApi, channelsApi, yupooImg } from '@/lib/api-client';
 import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel } from '@/types';
 
 const MATCH_MODES: { value: SkuMatchMode; label: string; hint: string }[] = [
@@ -326,7 +326,7 @@ function StoreBrowser({ catalogs, onPick }: { catalogs: SupplierCatalog[]; onPic
                 <div className="h-28 bg-white/[0.04]">
                   {it.thumb
                     /* eslint-disable-next-line @next/next/no-img-element */
-                    ? <img src={it.thumb} alt="" className="w-full h-full object-cover" loading="lazy" />
+                    ? <img src={yupooImg(it.thumb)} alt="" className="w-full h-full object-cover" loading="lazy" />
                     : <div className="w-full h-full flex items-center justify-center"><Package size={20} className="text-white/15" /></div>}
                 </div>
                 <div className="p-2">
@@ -377,7 +377,7 @@ function SupplierProductCard({ product, catalogName, channels, reload }: { produ
       <div className="relative h-40 bg-white/[0.04]">
         {product.image_url
           /* eslint-disable-next-line @next/next/no-img-element */
-          ? <img src={product.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+          ? <img src={yupooImg(product.image_url)} alt="" className="w-full h-full object-cover" loading="lazy" />
           : <div className="w-full h-full flex items-center justify-center"><Package size={26} className="text-white/15" /></div>}
         <span className="absolute top-2 right-2 bg-black/60 text-white text-2xs rounded-full px-2 py-0.5">{catalogName}</span>
         {product.in_stock === false && <span className="absolute top-2 left-2 bg-red-600/90 text-white text-2xs rounded-full px-2 py-0.5">אזל</span>}

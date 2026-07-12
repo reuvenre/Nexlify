@@ -37,6 +37,14 @@ export class SupplierProductsService {
     return p;
   }
 
+  /** Wrap a Yupoo image URL in our public proxy (adds the hotlink Referer). */
+  private proxyImage(url?: string): string {
+    if (!url) return '';
+    if (!/yupoo\.com/i.test(url)) return url; // non-yupoo image → leave as-is
+    const base = (process.env.BACKEND_URL || '').replace(/\/$/, '');
+    return `${base}/suppliers/image?url=${encodeURIComponent(url)}`;
+  }
+
   /**
    * Soft, best-effort code guess from a pasted FLYLINK URL. FLYLINK affiliate links
    * are per-product GENERATED tracking links — usually opaque and WITHOUT a readable
@@ -158,13 +166,16 @@ export class SupplierProductsService {
     let gallery: string[] = [];
     try { gallery = p.gallery_json ? JSON.parse(p.gallery_json) : []; } catch { /* ignore */ }
     if (p.image_url && !gallery.includes(p.image_url)) gallery.unshift(p.image_url);
+    // Yupoo hotlink-protects images → Telegram can't fetch them directly. Route each
+    // through our public proxy (adds the required Referer) so the photo actually sends.
+    gallery = gallery.map((u) => this.proxyImage(u));
 
     const post = await this.posts.createQueuedPost(
       userId,
       {
         product_id: p.sku || p.id,
         title: p.title,
-        image_url: p.image_url || gallery[0] || '',
+        image_url: this.proxyImage(p.image_url) || gallery[0] || '',
         affiliate_url: p.flylink_url,
         sale_price: p.price,
         original_price: p.price,

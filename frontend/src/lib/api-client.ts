@@ -39,6 +39,13 @@ import type {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+/** Wrap a Yupoo image URL in the backend proxy (Yupoo hotlink-blocks direct loads). */
+export const yupooImg = (url?: string): string => {
+  if (!url) return '';
+  if (!/yupoo\.com/i.test(url)) return url;
+  return `${BASE_URL.replace(/\/$/, '')}/suppliers/image?url=${encodeURIComponent(url)}`;
+};
+
 // ─── Axios instance ──────────────────────────────────────────────────────────
 
 const http: AxiosInstance = axios.create({
