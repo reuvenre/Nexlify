@@ -184,13 +184,20 @@ export class SupplierProductsService {
     };
   }
 
-  /** AI-generate (or re-generate) the post text WITHOUT saving a post. */
-  async preview(userId: string, id: string, text?: string) {
+  /**
+   * AI-generate (or re-generate) the post text WITHOUT saving a post — IDENTICAL to
+   * the AliExpress quick-post flow: same PostsService.preview → generateText → Gemini
+   * (per the user's ai_provider), same body-template system prompt, same language.
+   * Credit for ai_generate is consumed inside generateText, exactly like AliExpress
+   * (no extra supplier-level charge).
+   */
+  async preview(userId: string, id: string, opts?: { language?: string; template?: string }) {
     const p = await this.get(userId, id);
     const gallery = this.proxiedGallery(p);
     const image = this.proxyImage(p.image_url) || gallery[0] || '';
-    if (!text) await this.subscription.consumeOrThrow(userId, this.subscription.costs.ai_generate, 'ai_generate_supplier');
-    const result = await this.posts.preview(userId, p.sku || p.id, 'he', this.toPostProduct(p, image));
+    const result = await this.posts.preview(
+      userId, p.sku || p.id, opts?.language || 'he', this.toPostProduct(p, image), opts?.template,
+    );
     return { ...result, gallery };
   }
 

@@ -84,11 +84,11 @@ export class SuppliersController {
     return this.products.previewAlbum(this.uid(req), dto.catalogId, dto.url);
   }
 
-  /** AI-generate / regenerate the post text without saving (quick-post preview). */
+  /** AI-generate / regenerate the post text without saving — same Gemini + template flow as AliExpress. */
   @Post('products/:id/preview')
   @HttpCode(200)
-  preview(@Req() req: Request, @Param('id') id: string, @Body('text') text?: string) {
-    return this.products.preview(this.uid(req), id, text);
+  preview(@Req() req: Request, @Param('id') id: string, @Body() body: { language?: string; template?: string }) {
+    return this.products.preview(this.uid(req), id, body);
   }
 
   @Post('products/:id/queue')

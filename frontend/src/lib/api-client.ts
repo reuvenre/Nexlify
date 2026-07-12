@@ -502,9 +502,9 @@ export const suppliersApi = {
       images: string[]; raw_images: string[]; album_url: string;
     }>('/suppliers/album/preview', { catalogId, url }, { timeout: 30_000 }).then(extract),
 
-  /** AI-generate / regenerate the post text (quick-post preview) for a saved product. */
-  preview: (id: string, text?: string) =>
-    http.post<PostPreview & { gallery: string[] }>(`/suppliers/products/${id}/preview`, { text }, { timeout: AI_TIMEOUT }).then(extract),
+  /** AI-generate / regenerate the post text (quick-post preview) for a saved product — same Gemini + template flow as AliExpress. */
+  preview: (id: string, opts?: { language?: string; template?: string }) =>
+    http.post<PostPreview & { gallery: string[] }>(`/suppliers/products/${id}/preview`, opts || {}, { timeout: AI_TIMEOUT }).then(extract),
 
   queue: (id: string, channelId?: string, text?: string) =>
     http.post<{ queued: boolean; post_id: string; channel: string; queue_active: boolean; interval_minutes: number }>(

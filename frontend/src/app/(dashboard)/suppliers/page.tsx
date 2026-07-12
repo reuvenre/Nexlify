@@ -1,13 +1,26 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Store, Plus, Loader2, Trash2, Link2, Sparkles, Send, X,
+  Store, Plus, Loader2, Trash2, Link2, Sparkles, X,
   Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, Images, Wand2,
+  Globe, FileText, ListOrdered, Clock, CheckCheck, AlertCircle, ShoppingBag, Layers,
 } from 'lucide-react';
-import { suppliersApi, channelsApi, yupooImg } from '@/lib/api-client';
+import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } from '@/lib/api-client';
 import { PostPreview } from '@/components/products/PostPreview';
-import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel, PostPreview as PostPreviewType } from '@/types';
+import { TemplatePanel } from '@/components/templates/TemplatePanel';
+import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel, PostPreview as PostPreviewType, PostTemplate } from '@/types';
+
+const POST_LANGS: { value: string; label: string }[] = [
+  { value: 'he', label: 'עברית' },
+  { value: 'ar', label: 'العربية' },
+  { value: 'en', label: 'English' },
+];
+const BUILTIN_DEFAULT_TEMPLATE: PostTemplate = { id: 'builtin_default', name: 'ברירת מחדל', icon: '✨', content: '', builtin: true };
+
+const SYMS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
+const priceSym = (c: string) => SYMS[c] || '$';
+const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
 
 const MATCH_MODES: { value: SkuMatchMode; label: string; hint: string }[] = [
   { value: 'numeric', label: 'מספרי', hint: 'משווה רק את המספר (LUN1526 = LN1526)' },
@@ -256,18 +269,9 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
         <StoreBrowser catalogs={catalogs} channels={channels} onLinked={() => { setMode('mine'); load(); }} />
       ) : loading ? (
         <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
-      ) : products.length === 0 ? (
-        <div className="bg-surface-secondary border border-dashed border-edge-hover rounded-2xl p-14 text-center">
-          <Package size={32} className="text-white/15 mx-auto mb-3" />
-          <p className="text-sm text-white/40">אין מוצרים מחוברים — &quot;עיין בקטלוג&quot; או &quot;חבר מוצר ידני&quot;</p>
-        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {products.map((p) => (
-            <SupplierProductCard key={p.id} product={p} catalogName={catName(p.supplier_catalog_id)}
-              onCompose={() => setComposing(p)} reload={load} />
-          ))}
-        </div>
+        <SupplierDashboard products={products} catalogs={catalogs} catName={catName}
+          onCompose={(p) => setComposing(p)} reload={load} onManualLink={() => setLinkInit({})} />
       )}
 
       {linkInit && <LinkModal catalogs={catalogs} initial={linkInit} onClose={() => setLinkInit(null)} onDone={() => { setLinkInit(null); setMode('mine'); load(); }} />}
@@ -380,27 +384,62 @@ function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCata
   );
 }
 
-// ─── Post composer (reuses the AliExpress PostPreview, wired to supplier endpoints) ──
-function PostComposer({ productId, preview, gallery, channels, defaultChannel, onSent }: {
-  productId: string; preview: PostPreviewType; gallery: string[];
-  channels: Channel[]; defaultChannel?: string; onSent?: () => void;
+// ─── Post composer — IDENTICAL to the AliExpress quick-post flow ────────────────
+// Same TemplatePanel (built-in + user templates), same language selector, same
+// PostPreview, same Gemini generation (via the suppliers preview endpoint which
+// reuses PostsService.preview → generateText). Wired to the supplier publish endpoints.
+function PostComposer({ productId, channels, defaultChannel, onSent }: {
+  productId: string; channels: Channel[]; defaultChannel?: string; onSent?: () => void;
 }) {
   const [channelId, setChannelId] = useState(defaultChannel || '');
-  const [pv, setPv] = useState(preview);
+  const [postLang, setPostLang] = useState('he');
+  const [template, setTemplate] = useState<PostTemplate>(BUILTIN_DEFAULT_TEMPLATE);
+  const [pv, setPv] = useState<(PostPreviewType & { gallery: string[] }) | null>(null);
+  const [generating, setGenerating] = useState(true);
   const [regen, setRegen] = useState(false);
   const [posting, setPosting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   const chLabel = (ch: string) => ch === 'default' ? 'ברירת מחדל' : 'קבוצה';
 
+  // Pre-select the user's saved default body template — same as AliExpress quick-post.
+  useEffect(() => {
+    Promise.all([credentialsApi.get(), templatesApi.list()])
+      .then(([c, ts]) => {
+        const id = c.default_body_template_id;
+        if (!id || id === 'builtin_default') return;
+        const t = ts.find((x) => x.id === id);
+        if (t) setTemplate({ ...t, builtin: false });
+      })
+      .catch(() => {});
+  }, []);
+
+  const fetchPreview = useCallback(
+    () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined }),
+    [productId, postLang, template],
+  );
+
+  // Generate on mount + whenever language / template changes (mirrors quick-post).
+  useEffect(() => {
+    let alive = true;
+    setGenerating(true); setErr(null);
+    fetchPreview()
+      .then((r) => { if (alive) setPv(r); })
+      .catch((e: any) => { if (alive) setErr(e?.response?.data?.message || 'יצירת הפוסט נכשלה — נסה שוב'); })
+      .finally(() => { if (alive) setGenerating(false); });
+    return () => { alive = false; };
+  }, [fetchPreview]);
+
   const onPost = async (text: string) => {
-    setPosting(true); setDone(null);
+    setPosting(true); setDone(null); setErr(null);
     try { const r = await suppliersApi.send(productId, channelId || undefined, text); setDone(`✓ נשלח (${chLabel(r.channel)})`); onSent?.(); }
+    catch (e: any) { setErr(e?.response?.data?.message || 'השליחה נכשלה — נסה שוב'); }
     finally { setPosting(false); }
   };
   const onSchedule = async (text: string, at: string) => {
-    const r = await suppliersApi.schedule(productId, at, channelId || undefined, text);
-    setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.();
+    try { const r = await suppliersApi.schedule(productId, at, channelId || undefined, text); setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.(); }
+    catch (e: any) { setErr(e?.response?.data?.message || 'התזמון נכשל — נסה שוב'); throw e; }
   };
   const onQueue = async (text: string) => {
     const r = await suppliersApi.queue(productId, channelId || undefined, text);
@@ -408,34 +447,64 @@ function PostComposer({ productId, preview, gallery, channels, defaultChannel, o
     return { queue_active: r.queue_active, interval_minutes: r.interval_minutes };
   };
   const onRegenerate = async () => {
-    setRegen(true);
-    try { const r = await suppliersApi.preview(productId); setPv(r); }
+    setRegen(true); setErr(null);
+    try { setPv(await fetchPreview()); }
+    catch (e: any) { setErr(e?.response?.data?.message || 'יצירת הפוסט נכשלה'); }
     finally { setRegen(false); }
   };
 
   return (
-    <div className="space-y-3.5">
-      {gallery.length > 1 && (
-        <div>
-          <p className="text-2xs text-white/40 mb-1.5 flex items-center gap-1"><Images size={11} /> {gallery.length} תמונות (יישלחו כאלבום נגלל)</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {gallery.map((g, i) => (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img key={i} src={g} alt="" className="h-20 w-20 object-cover rounded-lg border border-edge shrink-0" loading="lazy" />
+    <div className="flex flex-col lg:flex-row gap-4 items-start">
+      {/* Left: gallery + channel + template panel */}
+      <div className="w-full lg:w-64 shrink-0 space-y-3">
+        {pv && pv.gallery.length > 1 && (
+          <div className="bg-surface-secondary border border-edge rounded-xl p-3">
+            <p className="text-2xs text-white/40 mb-2 flex items-center gap-1"><Images size={11} /> {pv.gallery.length} תמונות (אלבום נגלל)</p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {pv.gallery.map((g, i) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img key={i} src={g} alt="" className="h-16 w-16 object-cover rounded-lg border border-edge shrink-0" loading="lazy" />
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="bg-surface-secondary border border-edge rounded-xl p-3">
+          <Field label="קבוצת פרסום" hint="ברירת המחדל = הקבוצה שקושרה לקטלוג">
+            <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white/80 outline-none focus:border-blue-500/50">
+              <option value="">— ברירת מחדל של הקטלוג / כללי —</option>
+              {channels.map((ch) => <option key={ch.id} value={ch.channel_id}>{ch.name}</option>)}
+            </select>
+          </Field>
+        </div>
+        <TemplatePanel selectedId={template.id} onSelect={setTemplate} />
+      </div>
+
+      {/* Right: language selector + Telegram preview */}
+      <div className="flex-1 min-w-0 space-y-4">
+        <div className="flex items-center gap-2">
+          <Globe size={13} className="text-white/30" />
+          <span className="text-xs text-white/40">שפת פוסט:</span>
+          <div className="flex bg-surface-secondary border border-edge-hover rounded-xl p-1 gap-0.5">
+            {POST_LANGS.map(({ value, label }) => (
+              <button key={value} onClick={() => setPostLang(value)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${postLang === value ? 'bg-white/10 text-white' : 'text-white/30 hover:text-white/60'}`}>
+                {label}
+              </button>
             ))}
           </div>
         </div>
-      )}
-      <Field label="קבוצת פרסום" hint="ברירת המחדל = הקבוצה שקושרה לקטלוג">
-        <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
-          className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white/80 outline-none focus:border-blue-500/50">
-          <option value="">— ברירת מחדל של הקטלוג / כללי —</option>
-          {channels.map((ch) => <option key={ch.id} value={ch.channel_id}>{ch.name}</option>)}
-        </select>
-      </Field>
-      {done && <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs rounded-xl px-4 py-2.5">{done}</div>}
-      <PostPreview preview={pv} onPost={onPost} onSchedule={onSchedule} onQueue={onQueue}
-        onRegenerate={onRegenerate} isPosting={posting} isRegenerating={regen} />
+
+        {done && <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-sm rounded-xl px-4 py-2.5">{done}</div>}
+        {err && <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{err}</div>}
+
+        {generating ? (
+          <div className="bg-surface-secondary border border-edge rounded-xl p-10 flex justify-center"><Loader2 size={20} className="animate-spin text-blue-400" /></div>
+        ) : pv ? (
+          <PostPreview preview={pv} onPost={onPost} onSchedule={onSchedule} onQueue={onQueue}
+            onRegenerate={onRegenerate} isPosting={posting} isRegenerating={regen} />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -451,7 +520,7 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
   const [flylinkUrl, setFlylinkUrl] = useState('');
   const [code, setCode] = useState('');
   const [linking, setLinking] = useState(false);
-  const [composer, setComposer] = useState<{ productId: string; preview: PostPreviewType; gallery: string[] } | null>(null);
+  const [productId, setProductId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -466,8 +535,7 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
     setLinking(true); setError('');
     try {
       const linked = await suppliersApi.link({ catalogId, yupooUrl: albumUrl, flylinkUrl, code: code || undefined });
-      const pv = await suppliersApi.preview(linked.id);
-      setComposer({ productId: linked.id, preview: pv, gallery: pv.gallery });
+      setProductId(linked.id); // composer self-generates the post text
       onLinked(); // refresh "My Products" in the background — modal stays open on the composer
     } catch (e: any) { setError(e?.response?.data?.message || 'החיבור נכשל'); }
     finally { setLinking(false); }
@@ -476,10 +544,10 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-2xl max-h-[92vh] overflow-y-auto" dir="rtl">
+      <div className={`relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-h-[92vh] overflow-y-auto ${productId ? 'max-w-4xl' : 'max-w-2xl'}`} dir="rtl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Images size={15} className="text-blue-400" /> {composer ? 'יצירת פוסט' : 'מוצר מהקטלוג'}
+            <Images size={15} className="text-blue-400" /> {productId ? 'יצירת פוסט' : 'מוצר מהקטלוג'}
           </h3>
           <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
         </div>
@@ -488,9 +556,8 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
           <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
         ) : error && !album ? (
           <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
-        ) : composer ? (
-          <PostComposer productId={composer.productId} preview={composer.preview} gallery={composer.gallery}
-            channels={channels} defaultChannel={defaultChannel} onSent={onLinked} />
+        ) : productId ? (
+          <PostComposer productId={productId} channels={channels} defaultChannel={defaultChannel} onSent={onLinked} />
         ) : album ? (
           <div className="space-y-4">
             {/* All product images */}
@@ -533,89 +600,349 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
 function SavedProductPostModal({ product, channels, defaultChannel, onClose, onSent }: {
   product: SupplierProduct; channels: Channel[]; defaultChannel?: string; onClose: () => void; onSent: () => void;
 }) {
-  const [data, setData] = useState<{ preview: PostPreviewType; gallery: string[] } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true); setError('');
-      try { const pv = await suppliersApi.preview(product.id); setData({ preview: pv, gallery: pv.gallery }); }
-      catch (e: any) { setError(e?.response?.data?.message || 'יצירת התצוגה נכשלה'); }
-      finally { setLoading(false); }
-    })();
-  }, [product.id]);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-2xl max-h-[92vh] overflow-y-auto" dir="rtl">
+      <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-4xl max-h-[92vh] overflow-y-auto" dir="rtl">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Wand2 size={15} className="text-blue-400" /> יצירת פוסט</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2 truncate">
+            <Wand2 size={15} className="text-blue-400 shrink-0" /> <span className="truncate">יצירת פוסט — {product.title}</span>
+          </h3>
+          <button onClick={onClose} className="text-white/40 hover:text-white/70 shrink-0"><X size={16} /></button>
         </div>
-        {loading ? (
-          <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
-        ) : error ? (
-          <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
-        ) : data ? (
-          <PostComposer productId={product.id} preview={data.preview} gallery={data.gallery}
-            channels={channels} defaultChannel={defaultChannel} onSent={onSent} />
-        ) : null}
+        <PostComposer productId={product.id} channels={channels} defaultChannel={defaultChannel} onSent={onSent} />
       </div>
     </div>
   );
 }
 
-function SupplierProductCard({ product, catalogName, onCompose, reload }: { product: SupplierProduct; catalogName: string; onCompose: () => void; reload: () => void }) {
-  const [busy, setBusy] = useState<'' | 'desc' | 'queue'>('');
-  const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null);
+// ─── FLYLINK products dashboard — mirrors the AliExpress /products table ─────────
+function SupplierDashboard({ products, catalogs, catName, onCompose, reload, onManualLink }: {
+  products: SupplierProduct[]; catalogs: SupplierCatalog[]; catName: (id: string) => string;
+  onCompose: (p: SupplierProduct) => void; reload: () => void; onManualLink: () => void;
+}) {
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [catalogFilter, setCatalogFilter] = useState('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [postFilter, setPostFilter] = useState<'all' | 'has' | 'none'>('all');
+  const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<SupplierProduct | null>(null);
+  const LIMIT = 20;
+  const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
 
-  const gen = async () => {
-    setBusy('desc'); setMsg(null);
-    try { await suppliersApi.generateDescription(product.id); setMsg({ t: '✓ תיאור נוצר', ok: true }); reload(); }
-    catch (e: any) { setMsg({ t: e?.response?.data?.message || 'שגיאה', ok: false }); }
-    finally { setBusy(''); }
+  const stats = {
+    total: products.length,
+    inStock: products.filter((p) => p.in_stock !== false).length,
+    hasPost: products.filter((p) => p.has_post).length,
+    catalogs: new Set(products.map((p) => p.supplier_catalog_id)).size,
   };
-  const queue = async () => {
-    setBusy('queue'); setMsg(null);
-    try { const r = await suppliersApi.queue(product.id); setMsg({ t: `✓ נכנס לתור (${r.channel === 'default' ? 'ברירת מחדל' : 'קבוצה'})`, ok: true }); }
-    catch (e: any) { setMsg({ t: e?.response?.data?.message || 'שגיאה', ok: false }); }
-    finally { setBusy(''); }
+
+  const filtered = products.filter((p) => {
+    if (catalogFilter !== 'all' && p.supplier_catalog_id !== catalogFilter) return false;
+    if (stockFilter === 'in' && p.in_stock === false) return false;
+    if (stockFilter === 'out' && p.in_stock !== false) return false;
+    if (postFilter === 'has' && !p.has_post) return false;
+    if (postFilter === 'none' && p.has_post) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      if (!((p.title || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q))) return false;
+    }
+    return true;
+  });
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / LIMIT);
+  const pageItems = filtered.slice((page - 1) * LIMIT, page * LIMIT);
+
+  useEffect(() => { setPage(1); }, [search, catalogFilter, stockFilter, postFilter]);
+
+  const handleSearchChange = (val: string) => {
+    setSearchInput(val);
+    clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => setSearch(val), 300);
+  };
+
+  const STOCK_TABS: { key: 'all' | 'in' | 'out'; label: string; count: number; color?: string }[] = [
+    { key: 'all', label: 'הכל', count: stats.total },
+    { key: 'in', label: 'במלאי', count: stats.inStock, color: 'emerald' },
+    { key: 'out', label: 'אזל', count: stats.total - stats.inStock, color: 'red' },
+  ];
+
+  return (
+    <div>
+      {/* Stats bar */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {[
+          { label: 'סה"כ מוצרים', value: stats.total, sub: `${stats.inStock} במלאי`, icon: Package },
+          { label: 'זמינים', value: stats.inStock, sub: stats.total ? `${Math.round((stats.inStock / stats.total) * 100)}% מהכלל` : '', icon: CheckCircle2 },
+          { label: 'עם פוסט', value: stats.hasPost, sub: 'פורסמו/בתור', icon: FileText },
+          { label: 'קטלוגים', value: stats.catalogs, sub: 'FLYLINK', icon: Layers },
+        ].map((card) => (
+          <div key={card.label} className="bg-surface-secondary border border-edge rounded-xl px-4 py-3.5">
+            <div className="flex items-center gap-2 mb-2">
+              <card.icon size={13} className="text-white/25" />
+              <span className="text-xs text-white/35">{card.label}</span>
+            </div>
+            <p className="text-[22px] font-bold text-white leading-none">{card.value}</p>
+            {card.sub && <p className="text-xs text-white/30 mt-1">{card.sub}</p>}
+          </div>
+        ))}
+      </div>
+
+      {/* Filters + table */}
+      <div className="bg-surface-secondary border border-edge rounded-xl">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-edge flex-wrap">
+          <div className="relative w-64">
+            <Search size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25" />
+            <input value={searchInput} onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="חפש לפי כותרת או קוד..."
+              className="w-full bg-surface-tertiary border border-edge rounded-xl pr-8 pl-3.5 py-2 text-xs text-white/70 placeholder-white/20 outline-none focus:border-blue-500/40" />
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <select value={catalogFilter} onChange={(e) => setCatalogFilter(e.target.value)}
+              className="bg-surface-tertiary border border-edge rounded-lg px-2.5 py-1.5 text-xs text-white/60 outline-none focus:border-blue-500/40 max-w-[160px]">
+              <option value="all">כל הקטלוגים</option>
+              {catalogs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {STOCK_TABS.map((tab) => {
+              const colorMap: Record<string, string> = { emerald: 'bg-emerald-500 text-white', red: 'bg-red-500 text-white' };
+              const active = stockFilter === tab.key;
+              return (
+                <button key={tab.key} onClick={() => setStockFilter(tab.key)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${active ? (tab.color ? colorMap[tab.color] : 'bg-[var(--bg-tertiary)] text-[var(--text)] border border-[var(--border-hover)]') : 'text-white/40 hover:text-white/70 hover:bg-white/[0.05]'}`}>
+                  {tab.label}<span className={`text-2xs ${active ? 'opacity-80' : 'opacity-50'}`}>{tab.count}</span>
+                </button>
+              );
+            })}
+            <div className="flex items-center gap-1 mr-1 border-r border-edge pr-2">
+              {(['all', 'has', 'none'] as const).map((f) => (
+                <button key={f} onClick={() => setPostFilter(f)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all ${postFilter === f ? 'bg-[var(--bg-tertiary)] text-[var(--text)] border border-[var(--border)]' : 'text-white/30 hover:text-white/55 border border-transparent'}`}>
+                  <FileText size={10} />{f === 'all' ? 'הכל' : f === 'has' ? 'יש פוסט' : 'אין פוסט'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {pageItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-edge flex items-center justify-center mb-4">
+              <ShoppingBag size={22} className="text-white/20" />
+            </div>
+            <p className="text-sm font-medium text-white/50">{products.length === 0 ? 'אין מוצרים מחוברים' : 'אין מוצרים תואמים לסינון'}</p>
+            <p className="text-xs text-white/25 mt-1 mb-4">חבר מוצרים מ&quot;עיין בקטלוג&quot; או ידנית</p>
+            {products.length === 0 && (
+              <button onClick={onManualLink} disabled={catalogs.length === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-body font-semibold rounded-xl transition-all">
+                <Link2 size={13} /> חבר מוצר ידני
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-edge">
+                  {['מוצר', 'מחיר', 'קטלוג', 'מלאי', 'סונכרן', 'פעולות'].map((col) => (
+                    <th key={col} className="px-4 py-2.5 text-2xs font-semibold uppercase tracking-wider text-white/25 text-right">{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((p) => (
+                  <SupplierRow key={p.id} product={p} catalogName={catName(p.supplier_catalog_id)}
+                    onCompose={() => onCompose(p)} onEdit={() => setEditing(p)} reload={reload} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-edge">
+            <p className="text-xs text-white/30">מציג {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} מתוך {total}</p>
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
+                className="px-3 py-1.5 rounded-lg text-xs text-white/40 hover:text-white/70 hover:bg-white/[0.05] disabled:opacity-30 transition-all">הקודם</button>
+              <span className="text-xs text-white/40 px-2">עמוד {page}/{totalPages}</span>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                className="px-3 py-1.5 rounded-lg text-xs text-white/40 hover:text-white/70 hover:bg-white/[0.05] disabled:opacity-30 transition-all">הבא</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {editing && <SupplierEditModal product={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+    </div>
+  );
+}
+
+function ActionBtn({ icon: Icon, label, onClick, color = 'default', loading = false, disabled = false }: {
+  icon: any; label: string; onClick: () => void; color?: 'default' | 'red' | 'green' | 'purple' | 'blue'; loading?: boolean; disabled?: boolean;
+}) {
+  const colors: Record<string, string> = {
+    default: 'text-white/35 hover:text-white/75 hover:bg-white/[0.07]',
+    red: 'text-red-400/60 hover:text-red-400 hover:bg-red-500/10',
+    green: 'text-emerald-400/60 hover:text-emerald-400 hover:bg-emerald-500/10',
+    purple: 'text-violet-400/60 hover:text-violet-400 hover:bg-violet-500/10',
+    blue: 'text-blue-400/60 hover:text-blue-400 hover:bg-blue-500/10',
+  };
+  return (
+    <button title={label} onClick={onClick} disabled={disabled || loading}
+      className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed ${colors[color]}`}>
+      {loading ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
+    </button>
+  );
+}
+
+function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
+  product: SupplierProduct; catalogName: string; onCompose: () => void; onEdit: () => void; reload: () => void;
+}) {
+  const [loadingQueue, setLoadingQueue] = useState(false);
+  const [loadingDesc, setLoadingDesc] = useState(false);
+  const [queued, setQueued] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+  const minDateTime = new Date(Date.now() + 2 * 60 * 1000).toISOString().slice(0, 16);
+  const s = priceSym(product.currency);
+
+  const handleDelete = async () => {
+    if (!confirm(`למחוק את "${(product.title || '').slice(0, 40)}"?`)) return;
+    await suppliersApi.deleteProduct(product.id); reload();
+  };
+  const handleCopy = async () => {
+    if (!product.flylink_url) { alert('אין קישור FLYLINK למוצר'); return; }
+    await navigator.clipboard.writeText(product.flylink_url);
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+  const handleQueue = async () => {
+    setLoadingQueue(true);
+    try { await suppliersApi.queue(product.id); setQueued(true); setTimeout(() => setQueued(false), 3000); reload(); }
+    catch (e: any) { alert(e?.response?.data?.message || 'שגיאה בהוספה לתור'); }
+    finally { setLoadingQueue(false); }
+  };
+  const handleDesc = async () => {
+    setLoadingDesc(true);
+    try { await suppliersApi.generateDescription(product.id); reload(); }
+    catch (e: any) { alert(e?.response?.data?.message || 'שגיאה ביצירת תיאור'); }
+    finally { setLoadingDesc(false); }
+  };
+  const handleSchedule = async () => {
+    if (!scheduledAt) return;
+    setScheduling(true);
+    try { await suppliersApi.schedule(product.id, new Date(scheduledAt).toISOString()); setShowSchedule(false); setScheduledAt(''); reload(); }
+    catch (e: any) { alert(e?.response?.data?.message || 'שגיאה בתזמון'); }
+    finally { setScheduling(false); }
   };
 
   return (
-    <div className="bg-surface-secondary border border-edge rounded-xl overflow-hidden group">
-      <div className="relative h-40 bg-white/[0.04]">
-        {product.image_url
-          /* eslint-disable-next-line @next/next/no-img-element */
-          ? <img src={yupooImg(product.image_url)} alt="" className="w-full h-full object-cover" loading="lazy" />
-          : <div className="w-full h-full flex items-center justify-center"><Package size={26} className="text-white/15" /></div>}
-        <span className="absolute top-2 right-2 bg-black/60 text-white text-2xs rounded-full px-2 py-0.5">{catalogName}</span>
-        {product.in_stock === false && <span className="absolute top-2 left-2 bg-red-600/90 text-white text-2xs rounded-full px-2 py-0.5">אזל</span>}
-        <button onClick={async () => { if (confirm('למחוק מוצר זה?')) { await suppliersApi.deleteProduct(product.id); reload(); } }}
-          className="absolute bottom-2 left-2 w-7 h-7 rounded-full bg-black/55 hover:bg-red-600 text-white/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>
-      </div>
-      <div className="p-3">
-        <p className="text-xs text-white/80 line-clamp-2 min-h-[2rem]" dir="ltr">{product.title}</p>
-        <div className="flex items-center justify-between mt-1.5">
-          <span className="text-sm font-bold text-white">{product.currency === 'USD' ? '$' : ''}{product.price}</span>
-          {product.sku && <span className="text-2xs text-white/30" dir="ltr">#{product.sku}</span>}
+    <tr className="border-b border-edge hover:bg-white/[0.02] transition-colors">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/[0.04] shrink-0">
+            {product.image_url
+              /* eslint-disable-next-line @next/next/no-img-element */
+              ? <img src={yupooImg(product.image_url)} alt="" className="w-full h-full object-cover" loading="lazy" />
+              : <div className="w-full h-full flex items-center justify-center"><Package size={16} className="text-white/20" /></div>}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-white/75 line-clamp-1 leading-tight mb-1" dir="ltr">{product.title}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              {product.sku && <span className="text-2xs text-white/25" dir="ltr">#{product.sku}</span>}
+              {product.has_post && <span className="px-1.5 py-0.5 bg-blue-500/15 border border-blue-500/25 text-[9px] text-blue-400 rounded-md font-medium">פוסט</span>}
+            </div>
+          </div>
         </div>
-        {msg && <p className={`text-2xs mt-2 ${msg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{msg.t}</p>}
-        <div className="flex items-center gap-1.5 mt-2.5">
-          <button onClick={onCompose} disabled={busy !== ''}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-medium rounded-lg">
-            <Wand2 size={12} /> צור פוסט
+      </td>
+      <td className="px-4 py-3 text-right"><p className="text-body font-semibold text-white">{s}{product.price}</p></td>
+      <td className="px-4 py-3 text-right"><span className="text-2xs text-blue-400/70">{catalogName}</span></td>
+      <td className="px-4 py-3">
+        {product.in_stock === false
+          ? <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-red-500/15 text-red-400 border-red-500/25">אזל</span>
+          : <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-emerald-500/15 text-emerald-400 border-emerald-500/25">במלאי</span>}
+      </td>
+      <td className="px-4 py-3 text-right"><p className="text-xs text-white/30">{fmtDate(product.synced_at)}</p></td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-0.5">
+          <ActionBtn icon={Trash2} label="מחק מוצר" onClick={handleDelete} color="red" />
+          <ActionBtn icon={copied ? CheckCheck : Link2} label={copied ? 'הועתק!' : 'העתק קישור FLYLINK'} onClick={handleCopy} color="blue" />
+          <ActionBtn icon={Sparkles} label="צור תיאור AI" onClick={handleDesc} color="purple" loading={loadingDesc} />
+          <ActionBtn icon={FileText} label="צור פוסט" onClick={onCompose} color="purple" />
+          <ActionBtn icon={Clock} label="תזמן פוסט" onClick={() => setShowSchedule(true)} color="purple" />
+          <ActionBtn icon={queued ? CheckCheck : ListOrdered} label={queued ? 'נוסף לתור!' : 'הוסף לתור'} onClick={handleQueue} color="blue" loading={loadingQueue} />
+          <ActionBtn icon={Pencil} label="ערוך מוצר" onClick={onEdit} color="blue" />
+        </div>
+
+        {showSchedule && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSchedule(false)}>
+            <div className="bg-surface-secondary border border-edge rounded-2xl p-5 w-[360px]" onClick={(e) => e.stopPropagation()} dir="rtl">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={14} className="text-blue-400" /> תזמון פרסום</h3>
+                <button onClick={() => setShowSchedule(false)} className="text-white/30 hover:text-white/60"><X size={14} /></button>
+              </div>
+              <p className="text-xs text-white/40 line-clamp-1 mb-3" dir="ltr">{product.title}</p>
+              <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-3">
+                <AlertCircle size={12} className="text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-2xs text-amber-400">ייווצר טקסט אוטומטי (Gemini). לשליטה מלאה — &quot;צור פוסט&quot; ותזמן משם.</p>
+              </div>
+              <label className="block text-2xs text-white/40 mb-1.5">תאריך ושעה לפרסום</label>
+              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} min={minDateTime}
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/50 mb-4" dir="ltr" />
+              <button onClick={handleSchedule} disabled={!scheduledAt || scheduling}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all">
+                {scheduling ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}{scheduling ? 'מתזמן...' : 'תזמן פרסום'}
+              </button>
+            </div>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function SupplierEditModal({ product, onClose, onSaved }: { product: SupplierProduct; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({ title: product.title || '', price: String(product.price ?? ''), flylink_url: product.flylink_url || '', description: product.description || '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      await suppliersApi.updateProduct(product.id, {
+        title: form.title, price: parseFloat(form.price) || 0, flylink_url: form.flylink_url, description: form.description,
+      } as any);
+      onSaved();
+    } catch (e: any) { setError(e?.response?.data?.message || 'שמירה נכשלה'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-lg" dir="rtl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white">עריכת מוצר</h3>
+          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+        </div>
+        <div className="space-y-3.5">
+          <Field label="כותרת"><Input value={form.title} onChange={(v) => setForm((f) => ({ ...f, title: v }))} dir="ltr" /></Field>
+          <Field label="מחיר"><Input value={form.price} onChange={(v) => setForm((f) => ({ ...f, price: v }))} dir="ltr" /></Field>
+          <Field label="קישור שותפים FLYLINK"><Input value={form.flylink_url} onChange={(v) => setForm((f) => ({ ...f, flylink_url: v }))} dir="ltr" /></Field>
+          <Field label="תיאור">
+            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3}
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 resize-none" dir="rtl" />
+          </Field>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={save} disabled={saving || !form.title.trim()}
+            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} שמור
           </button>
-          <button onClick={queue} disabled={busy !== ''} title="הוסף לתור מהיר (קבוצת ברירת מחדל)"
-            className="p-2 bg-white/5 hover:bg-white/10 disabled:opacity-60 border border-edge-hover text-white/70 rounded-lg">
-            {busy === 'queue' ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-          </button>
-          <button onClick={gen} disabled={busy !== ''} title="צור תיאור AI"
-            className="p-2 bg-violet-600/20 hover:bg-violet-600/30 disabled:opacity-60 border border-violet-500/30 text-violet-300 rounded-lg">
-            {busy === 'desc' ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-          </button>
+          <button onClick={onClose} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl">ביטול</button>
         </div>
       </div>
     </div>
