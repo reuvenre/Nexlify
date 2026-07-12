@@ -21,6 +21,16 @@ const BUILTIN_DEFAULT_TEMPLATE: PostTemplate = { id: 'builtin_default', name: '�
 
 const SYMS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
 const priceSym = (c: string) => SYMS[c] || '$';
+
+// The FLYLINK affiliate link is already saved on the product and comes back on the
+// preview — append it to the post text automatically so it never has to be re-pasted.
+function withPreviewLink(r: PostPreviewType & { gallery: string[]; vision_used?: boolean }) {
+  const link = r.product?.affiliate_url;
+  if (link && r.generated_text && !r.generated_text.includes(link)) {
+    return { ...r, generated_text: `${r.generated_text}\n\n🔗 ${link}` };
+  }
+  return r;
+}
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
 
 const MATCH_MODES: { value: SkuMatchMode; label: string; hint: string }[] = [
@@ -471,7 +481,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   }, [channelId]);
 
   const fetchPreview = useCallback(
-    () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined, vision }),
+    () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined, vision }).then(withPreviewLink),
     [productId, postLang, template, vision],
   );
 
