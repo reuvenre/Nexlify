@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
   Search, Loader2, Zap, ChevronDown, TrendingUp,
@@ -781,15 +780,10 @@ export default function QuickPostPage() {
           {source === 'catalog' && !isSearchMode ? (
             <>
               <p className="text-sm text-white/50 mb-1">הקטלוג שלך ריק</p>
-              <p className="text-xs text-white/30 mb-4">הרץ סריקת מוצרים כדי למלא את הקטלוג, או עבור לחיפוש חי ב-AliExpress</p>
-              <div className="flex items-center gap-2">
-                <Link href="/discovery" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-xl transition-all">
-                  לגילוי מוצרים
-                </Link>
-                <button onClick={() => handleSourceChange('live')} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/60 text-xs rounded-xl transition-all">
-                  חיפוש חי
-                </button>
-              </div>
+              <p className="text-xs text-white/30 mb-4">חפש מוצרים חי ב-AliExpress כדי למצוא ולפרסם</p>
+              <button onClick={() => handleSourceChange('live')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-xl transition-all">
+                חיפוש חי ב-AliExpress
+              </button>
             </>
           ) : (
             <p className="text-sm text-white/30">לא נמצאו מוצרים</p>
