@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import sharp, { OverlayOptions } from 'sharp';
+import type { OverlayOptions } from 'sharp';
+// sharp's runtime is CommonJS (module.exports = sharp) but its types use `export default`,
+// and this tsconfig has NO esModuleInterop — so `import sharp from 'sharp'` emits
+// `sharp_1.default`, which is undefined at runtime → "sharp_1.default is not a function".
+// require() the callable module directly and type it as the default export.
+const sharp = require('sharp') as typeof import('sharp').default;
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';

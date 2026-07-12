@@ -2,7 +2,9 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import axios from 'axios';
-import FormData from 'form-data';
+// CommonJS module (no .default) — import-require avoids the `.default is not a
+// constructor` trap under this tsconfig (no esModuleInterop). See collage.service.ts.
+import FormData = require('form-data');
 import { Post } from './post.entity';
 import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
