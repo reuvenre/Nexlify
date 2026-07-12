@@ -131,6 +131,22 @@ export class ChannelsService {
     );
   }
 
+  /**
+   * Resolve a saved channel by its Telegram channel_id → the bot token + normalized
+   * chat id to actually send with. Each channel can carry its OWN bot token, so a post
+   * routed here MUST use that bot (the default bot is usually not a member → "chat not
+   * found"). Returns null if the user has no matching channel (caller falls back to the
+   * default credentials). `token` is null when the channel has no own token (use default).
+   */
+  async resolveSendTarget(userId: string, channelId: string): Promise<{ token: string | null; chatId: string } | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    if (!c) return null;
+    return {
+      token: c.bot_token_enc ? decrypt(c.bot_token_enc) : null,
+      chatId: normalizeTelegramChatId(c.channel_id),
+    };
+  }
+
   private async findOwned(userId: string, id: string): Promise<Channel> {
     const channel = await this.repo.findOne({ where: { id, user_id: userId } });
     if (!channel) throw new NotFoundException('Channel not found');

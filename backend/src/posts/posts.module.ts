@@ -8,6 +8,7 @@ import { CredentialsModule } from '../credentials/credentials.module';
 import { RatesModule } from '../rates/rates.module';
 import { AiModule } from '../ai/ai.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
+import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { SubscriptionModule } from '../subscription/subscription.module';
     RatesModule,
     AiModule,
     SubscriptionModule,
+    ChannelsModule,
   ],
   providers: [PostsService],
   controllers: [PostsController],

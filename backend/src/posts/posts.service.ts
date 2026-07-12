@@ -9,6 +9,7 @@ import { CredentialsService, DecryptedCredentials } from '../credentials/credent
 import { RatesService } from '../rates/rates.service';
 import { AiService } from '../ai/ai.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { ChannelsService } from '../channels/channels.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
 
@@ -81,6 +82,7 @@ export class PostsService {
     private readonly rates: RatesService,
     private readonly ai: AiService,
     private readonly subscription: SubscriptionService,
+    private readonly channels: ChannelsService,
   ) {}
 
   /**
@@ -276,7 +278,16 @@ export class PostsService {
     const post = this.buildCustomPost(userId, data);
     post.status = 'pending';
     await this.repo.save(post);
+    // sendToTelegram swallows channel errors and marks the post 'failed' — surface that
+    // to the caller so the UI shows the real reason instead of a false "sent".
     await this.sendToTelegram(post, creds, data.channelOverride);
+    if ((post.status as string) === 'failed') {
+      let msg = post.error_message || 'השליחה נכשלה';
+      if (/chat not found/i.test(msg)) {
+        msg += ' — ודא שהבוט של הקבוצה הזו הוא אדמין בה, ושמזהה הקבוצה נכון (הגדרות ← קבוצות ← בדיקת חיבור)';
+      }
+      throw new BadRequestException(msg);
+    }
     return post;
   }
 
@@ -669,8 +680,22 @@ export class PostsService {
 
   /** Sends the post photo(s)+caption to a Telegram channel. Throws on failure. */
   private async sendToTelegramChannel(post: Post, creds: DecryptedCredentials, caption: string, channelOverride?: string) {
-    const token = creds?.telegram_bot_token;
-    const channel = normalizeTelegramChatId(channelOverride || creds?.telegram_channel_id);
+    let token = creds?.telegram_bot_token;
+    let channel = normalizeTelegramChatId(creds?.telegram_channel_id);
+
+    // Routed to a specific saved channel (e.g. a supplier catalog's group). Each saved
+    // channel can carry its OWN bot token, so we must send with THAT bot — the default
+    // bot is usually not a member of it → Telegram "chat not found". Fall back to the
+    // default token only when the channel has no token of its own.
+    if (channelOverride) {
+      const target = await this.channels.resolveSendTarget(post.user_id, channelOverride);
+      if (target) {
+        channel = target.chatId;
+        if (target.token) token = target.token;
+      } else {
+        channel = normalizeTelegramChatId(channelOverride);
+      }
+    }
     if (!token || !channel) throw new Error('Missing Telegram credentials');
 
     // Multiple images (product colors/variants) → one swipeable media group
