@@ -407,26 +407,36 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const galleryInited = useRef(false);
 
   const chLabel = (ch: string) => ch === 'default' ? 'ברירת מחדל' : 'קבוצה';
-  const MAX_ALBUM = 10;
 
-  // First 10 images selected by default; the gallery is stable across text regenerations.
+  // Collage mode composes many photos into grid "sheets" → up to 30 in one album.
+  const [collage, setCollage] = useState(false);
+  const [collageCells, setCollageCells] = useState(6); // images per sheet: 4 / 6 / 9
+  const maxImages = collage ? 30 : 10;
+
+  // First N images selected by default; the gallery is stable across text regenerations.
   const gallery = pv?.gallery || [];
   useEffect(() => {
     if (!galleryInited.current && gallery.length) {
       galleryInited.current = true;
-      setSelected(gallery.slice(0, MAX_ALBUM));
+      setSelected(gallery.slice(0, 10));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gallery.length]);
 
+  // Leaving collage mode → trim any selection above the 10-image album cap.
+  useEffect(() => {
+    if (!collage) setSelected((prev) => (prev.length > 10 ? prev.slice(0, 10) : prev));
+  }, [collage]);
+
   const toggleImage = (url: string) => {
     setSelected((prev) => {
       if (prev.includes(url)) return prev.filter((u) => u !== url);
-      if (prev.length >= MAX_ALBUM) return prev; // Telegram caps the album at 10
+      if (prev.length >= maxImages) return prev; // cap: 10 normal, 30 collage
       return [...prev, url];
     });
   };
   const selectedImages = () => (selected.length ? selected : undefined);
+  const cells = () => (collage ? collageCells : undefined);
 
   // Pre-select the user's saved default body template — same as AliExpress quick-post.
   useEffect(() => {
@@ -458,16 +468,16 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
 
   const onPost = async (text: string) => {
     setPosting(true); setDone(null); setErr(null);
-    try { const r = await suppliersApi.send(productId, channelId || undefined, text, selectedImages()); setDone(`✓ נשלח (${chLabel(r.channel)})`); onSent?.(); }
+    try { const r = await suppliersApi.send(productId, channelId || undefined, text, selectedImages(), cells()); setDone(`✓ נשלח (${chLabel(r.channel)})`); onSent?.(); }
     catch (e: any) { setErr(e?.response?.data?.message || 'השליחה נכשלה — נסה שוב'); }
     finally { setPosting(false); }
   };
   const onSchedule = async (text: string, at: string) => {
-    try { const r = await suppliersApi.schedule(productId, at, channelId || undefined, text, selectedImages()); setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.(); }
+    try { const r = await suppliersApi.schedule(productId, at, channelId || undefined, text, selectedImages(), cells()); setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.(); }
     catch (e: any) { setErr(e?.response?.data?.message || 'התזמון נכשל — נסה שוב'); throw e; }
   };
   const onQueue = async (text: string) => {
-    const r = await suppliersApi.queue(productId, channelId || undefined, text, selectedImages());
+    const r = await suppliersApi.queue(productId, channelId || undefined, text, selectedImages(), cells());
     onSent?.();
     return { queue_active: r.queue_active, interval_minutes: r.interval_minutes };
   };
@@ -485,14 +495,39 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
         {gallery.length > 1 && (
           <div className="bg-surface-secondary border border-edge rounded-xl p-3">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-2xs text-white/40 flex items-center gap-1"><Images size={11} /> בחר תמונות לאלבום</p>
-              <span className={`text-2xs ${selected.length >= MAX_ALBUM ? 'text-amber-400' : 'text-white/40'}`}>{selected.length}/{MAX_ALBUM}</span>
+              <p className="text-2xs text-white/40 flex items-center gap-1"><Images size={11} /> בחר תמונות</p>
+              <span className={`text-2xs ${selected.length >= maxImages ? 'text-amber-400' : 'text-white/40'}`}>{selected.length}/{maxImages}</span>
             </div>
+
+            {/* Collage mode — compose many photos into grid sheets so up to 30 fit in one album */}
+            <div className="mb-2 rounded-lg border border-edge-hover bg-white/[0.02] p-2">
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className="text-2xs text-white/60 flex items-center gap-1"><Grid3x3 size={11} /> קולאז&apos; (עד 30 תמונות בפוסט אחד)</span>
+                <input type="checkbox" checked={collage} onChange={(e) => setCollage(e.target.checked)} className="accent-blue-600" />
+              </label>
+              {collage && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-1">
+                    <span className="text-2xs text-white/40 ml-1">פריסה:</span>
+                    {[{ v: 4, l: '2×2' }, { v: 6, l: '2×3' }, { v: 9, l: '3×3' }].map((o) => (
+                      <button key={o.v} onClick={() => setCollageCells(o.v)}
+                        className={`px-2 py-0.5 rounded-md text-2xs font-medium transition-all ${collageCells === o.v ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40' : 'text-white/40 border border-transparent hover:bg-white/5'}`}>
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-2xs text-white/25 mt-1.5">
+                    {selected.length} תמונות → {Math.max(1, Math.ceil(selected.length / collageCells))} גיליונות באלבום אחד
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-0.5">
               {gallery.map((g, i) => {
                 const idx = selected.indexOf(g);
                 const on = idx !== -1;
-                const atMax = selected.length >= MAX_ALBUM;
+                const atMax = selected.length >= maxImages;
                 return (
                   <div key={i}
                     className={`group/th relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${on ? 'border-blue-500' : 'border-transparent'}`}>
@@ -516,7 +551,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
                 );
               })}
             </div>
-            <p className="text-2xs text-white/25 mt-1.5">לחץ תמונה להגדלה. טלגרם מגביל ל-10 · הסדר = סדר הבחירה.</p>
+            <p className="text-2xs text-white/25 mt-1.5">לחץ תמונה להגדלה · הסדר = סדר הבחירה{collage ? ' · קולאז\' עד 30' : ' · אלבום עד 10'}.</p>
           </div>
         )}
         <div className="bg-surface-secondary border border-edge rounded-xl p-3">
@@ -572,7 +607,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
           images={gallery}
           index={lightbox}
           selected={selected}
-          maxAlbum={MAX_ALBUM}
+          maxAlbum={maxImages}
           onIndex={setLightbox}
           onToggle={toggleImage}
           onClose={() => setLightbox(null)}
@@ -622,7 +657,7 @@ function ImageLightbox({ images, index, selected, maxAlbum, onIndex, onToggle, o
         <img src={url} alt="" className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg" />
         <button onClick={() => onToggle(url)} disabled={!on && atMax}
           className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${on ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
-          {on ? <><Check size={15} /> נבחרה (#{order + 1}) — הסר</> : atMax ? 'הגעת ל-10 תמונות' : <><Plus size={15} /> הוסף לאלבום</>}
+          {on ? <><Check size={15} /> נבחרה (#{order + 1}) — הסר</> : atMax ? `הגעת ל-${maxAlbum} תמונות` : <><Plus size={15} /> הוסף לאלבום</>}
         </button>
       </div>
     </div>

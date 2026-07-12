@@ -83,6 +83,10 @@ export class Post {
   @Column({ nullable: true, type: 'text' })
   gallery_json: string;
 
+  /** When set, gallery_json images are composed into collage sheets (this many per sheet) → one album. */
+  @Column({ nullable: true, type: 'int' })
+  collage_cells: number | null;
+
   @CreateDateColumn()
   created_at: Date;
 }

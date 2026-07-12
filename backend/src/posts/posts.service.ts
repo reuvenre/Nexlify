@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import axios from 'axios';
+import FormData from 'form-data';
 import { Post } from './post.entity';
 import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
@@ -10,6 +11,7 @@ import { RatesService } from '../rates/rates.service';
 import { AiService, GenerateImage } from '../ai/ai.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ChannelsService } from '../channels/channels.service';
+import { CollageService } from '../collage/collage.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
 
@@ -83,6 +85,7 @@ export class PostsService {
     private readonly ai: AiService,
     private readonly subscription: SubscriptionService,
     private readonly channels: ChannelsService,
+    private readonly collage: CollageService,
   ) {}
 
   /**
@@ -272,7 +275,11 @@ export class PostsService {
   private buildCustomPost(userId: string, data: {
     productId: string; title: string; image: string; images?: string[];
     affiliateUrl: string; text: string; priceIls?: number; channelOverride?: string;
+    collageCells?: number; // when set, images are composed into collage sheets (allows up to 30 images)
   }): Post {
+    // A normal album caps at 10 images; a collage post can carry up to 30 source images
+    // (composed into ≤10 sheets at send time).
+    const cap = data.collageCells ? 30 : 10;
     return this.repo.create({
       user_id: userId,
       product_id: data.productId,
@@ -284,7 +291,8 @@ export class PostsService {
       price_ils: data.priceIls || 0,
       generated_text: data.text,
       channel_override: data.channelOverride || null,
-      gallery_json: data.images && data.images.length > 1 ? JSON.stringify(data.images.slice(0, 10)) : null,
+      gallery_json: data.images && data.images.length > 1 ? JSON.stringify(data.images.slice(0, cap)) : null,
+      collage_cells: data.collageCells || null,
     });
   }
 
@@ -335,6 +343,7 @@ export class PostsService {
     textOverride?: string,
     channelOverride?: string,
     images?: string[],
+    collageCells?: number,
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
     const currencyPair = creds?.currency_pair || 'USD_ILS';
@@ -396,7 +405,9 @@ export class PostsService {
       channel_override: channelOverride || null,
       // Extra images (product colors/variants) beyond the main one → sent as a
       // Telegram media group (swipeable album) instead of spamming separate posts.
-      gallery_json: images && images.length > 1 ? JSON.stringify(images.slice(0, 10)) : null,
+      // Collage posts carry up to 30 source images (composed into ≤10 sheets at send).
+      gallery_json: images && images.length > 1 ? JSON.stringify(images.slice(0, collageCells ? 30 : 10)) : null,
+      collage_cells: collageCells || null,
     });
 
     return this.repo.save(post);
@@ -714,11 +725,23 @@ export class PostsService {
     }
     if (!token || !channel) throw new Error('Missing Telegram credentials');
 
+    let gallery: string[] = [];
+    try { gallery = post.gallery_json ? JSON.parse(post.gallery_json) : []; } catch { /* ignore */ }
+
+    // Collage mode: compose the (up to 30) source images into grid sheets and send them
+    // as one uploaded album — the only way to show >10 images in a single Telegram post.
+    if (post.collage_cells && gallery.length > 1) {
+      const sheets = await this.collage.compose(gallery, post.collage_cells);
+      if (sheets.length) {
+        await this.sendMediaGroupUpload(token, channel, sheets, caption, post);
+        return;
+      }
+      // If compositing produced nothing, fall through to a normal album below.
+    }
+
     // Multiple images (product colors/variants) → one swipeable media group
     // instead of separate posts. Telegram caps a group at 10 and puts the caption
     // on the first item only.
-    let gallery: string[] = [];
-    try { gallery = post.gallery_json ? JSON.parse(post.gallery_json) : []; } catch { /* ignore */ }
     if (gallery.length > 1) {
       await this.sendMediaGroup(token, channel, gallery.slice(0, 10), caption, post);
       return;
@@ -769,6 +792,41 @@ export class PostsService {
         const plainCaption = caption.replace(/<[^>]+>/g, '');
         const media = images.map((img, i) => ({ type: 'photo', media: img, ...(i === 0 ? { caption: plainCaption } : {}) }));
         const res = await axios.post(url, { chat_id: channel, media }, { timeout: 20000 });
+        post.telegram_message_id = res.data?.result?.[0]?.message_id;
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Send up to 10 IMAGE BUFFERS (e.g. generated collage sheets) as one album by
+   * UPLOADING them to Telegram (multipart, attach://) — no public hosting needed.
+   * Caption + parse_mode on the first item; plain-text retry on an HTML parse error.
+   */
+  private async sendMediaGroupUpload(token: string, channel: string, buffers: Buffer[], caption: string, post: Post) {
+    const url = `https://api.telegram.org/bot${token}/sendMediaGroup`;
+    const send = async (withHtml: boolean) => {
+      const cap = withHtml ? caption : caption.replace(/<[^>]+>/g, '');
+      const sheets = buffers.slice(0, 10);
+      const form = new FormData();
+      form.append('chat_id', channel);
+      const media = sheets.map((_b, i) => ({
+        type: 'photo',
+        media: `attach://sheet${i}`,
+        ...(i === 0 ? { caption: cap, ...(withHtml ? { parse_mode: 'HTML' } : {}) } : {}),
+      }));
+      form.append('media', JSON.stringify(media));
+      sheets.forEach((b, i) => form.append(`sheet${i}`, b, { filename: `sheet${i}.jpg`, contentType: 'image/jpeg' }));
+      return axios.post(url, form, { headers: form.getHeaders(), timeout: 40000, maxBodyLength: Infinity, maxContentLength: Infinity });
+    };
+    try {
+      const res = await send(true);
+      post.telegram_message_id = res.data?.result?.[0]?.message_id;
+    } catch (err: any) {
+      const desc: string = err?.response?.data?.description || '';
+      if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
+        const res = await send(false);
         post.telegram_message_id = res.data?.result?.[0]?.message_id;
         return;
       }

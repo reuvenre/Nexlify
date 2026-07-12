@@ -506,17 +506,17 @@ export const suppliersApi = {
   preview: (id: string, opts?: { language?: string; template?: string; vision?: boolean }) =>
     http.post<PostPreview & { gallery: string[]; vision_used: boolean }>(`/suppliers/products/${id}/preview`, opts || {}, { timeout: AI_TIMEOUT }).then(extract),
 
-  queue: (id: string, channelId?: string, text?: string, images?: string[]) =>
+  queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number) =>
     http.post<{ queued: boolean; post_id: string; channel: string; queue_active: boolean; interval_minutes: number }>(
-      `/suppliers/products/${id}/queue`, { channel_id: channelId, text, images }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/queue`, { channel_id: channelId, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 
-  send: (id: string, channelId?: string, text?: string, images?: string[]) =>
+  send: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number) =>
     http.post<{ sent: boolean; post_id: string; channel: string }>(
-      `/suppliers/products/${id}/send`, { channel_id: channelId, text, images }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/send`, { channel_id: channelId, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 
-  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[]) =>
+  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[], collageCells?: number) =>
     http.post<{ scheduled: boolean; post_id: string; channel: string; at: string }>(
-      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, text, images }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 };
 
 export default http;

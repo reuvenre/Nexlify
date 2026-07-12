@@ -9,6 +9,7 @@ import { RatesModule } from '../rates/rates.module';
 import { AiModule } from '../ai/ai.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { ChannelsModule } from '../channels/channels.module';
+import { CollageModule } from '../collage/collage.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ChannelsModule } from '../channels/channels.module';
     AiModule,
     SubscriptionModule,
     ChannelsModule,
+    CollageModule,
   ],
   providers: [PostsService],
   controllers: [PostsController],
