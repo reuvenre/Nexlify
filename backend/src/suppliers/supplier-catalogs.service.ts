@@ -11,6 +11,14 @@ const EDITABLE = [
   'target_channel_id', 'enabled',
 ] as const;
 
+/** Accept a full Yupoo URL or a bare slug → store just the slug. */
+function toStoreSlug(input?: string): string {
+  const s = (input || '').trim();
+  if (!s) return s;
+  const m = s.match(/^https?:\/\/([^./]+)\.x\.yupoo\.com/i);
+  return m ? m[1] : s.replace(/^https?:\/\//, '').split(/[./]/)[0];
+}
+
 @Injectable()
 export class SupplierCatalogsService {
   constructor(
@@ -34,7 +42,7 @@ export class SupplierCatalogsService {
       user_id: userId,
       name: dto.name.trim(),
       source_type: dto.source_type || 'yupoo',
-      source_store: dto.source_store?.trim() || null,
+      source_store: toStoreSlug(dto.source_store) || null,
       affiliate_network: dto.affiliate_network || 'flylink',
       sku_match_mode: (dto.sku_match_mode as SkuMatchMode) || 'numeric',
       sku_match_config: dto.sku_match_config || null,
@@ -50,6 +58,7 @@ export class SupplierCatalogsService {
     for (const key of EDITABLE) {
       if (dto[key] !== undefined) (cat as any)[key] = dto[key];
     }
+    if (dto.source_store !== undefined) cat.source_store = toStoreSlug(dto.source_store) || null;
     return this.repo.save(cat);
   }
 

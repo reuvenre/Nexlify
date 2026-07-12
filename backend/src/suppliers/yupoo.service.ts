@@ -43,12 +43,31 @@ export class YupooService {
     try { const u = new URL(url); return `${u.protocol}//${u.host}`; } catch { return url; }
   }
 
+  /**
+   * Accept EITHER a bare store slug ("seppuyukeji") OR a full URL
+   * ("https://seppuyukeji.x.yupoo.com") and return the canonical base URL.
+   * Users naturally paste the full URL — building `https://${input}.x.yupoo.com`
+   * on a full URL produced a malformed host and a 500.
+   */
+  private storeBase(input: string): string {
+    const s = (input || '').trim();
+    const m = s.match(/^https?:\/\/([^./]+)\.x\.yupoo\.com/i);
+    const slug = m ? m[1] : s.replace(/^https?:\/\//, '').split(/[./]/)[0];
+    return `https://${slug}.x.yupoo.com`;
+  }
+
   private async get(url: string, referer: string): Promise<string> {
-    const res = await axios.get(url, {
-      headers: { ...BROWSER_HEADERS, Referer: referer },
-      timeout: 12000, maxRedirects: 5, maxContentLength: 5 * 1024 * 1024,
-      validateStatus: () => true,
-    });
+    let res;
+    try {
+      res = await axios.get(url, {
+        headers: { ...BROWSER_HEADERS, Referer: referer },
+        timeout: 12000, maxRedirects: 5, maxContentLength: 5 * 1024 * 1024,
+        validateStatus: () => true,
+      });
+    } catch (err: any) {
+      // Network/DNS/timeout (e.g. a malformed host) — surface as a clear 400, not 500.
+      throw new BadRequestException(`לא ניתן להגיע ל-Yupoo — בדוק את כתובת/שם החנות (${err?.code || err?.message || 'network error'})`);
+    }
     if (res.status !== 200 || typeof res.data !== 'string') {
       throw new BadRequestException(`Yupoo לא נגיש (HTTP ${res.status}) — ייתכן חסימת אנטי-בוט`);
     }
@@ -87,7 +106,7 @@ export class YupooService {
 
   /** The brand categories of a store — for in-system browsing. */
   async fetchCategories(store: string): Promise<Array<{ id: string; name: string }>> {
-    const base = `https://${store}.x.yupoo.com`;
+    const base = this.storeBase(store);
     const html = await this.get(`${base}/albums`, base + '/');
     const $ = cheerio.load(html);
     const out: Array<{ id: string; name: string }> = [];
@@ -112,7 +131,7 @@ export class YupooService {
     store: string,
     opts: { page?: number; categoryId?: string } = {},
   ): Promise<{ items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>; hasMore: boolean }> {
-    const base = `https://${store}.x.yupoo.com`;
+    const base = this.storeBase(store);
     const page = Math.max(1, opts.page || 1);
     const path = opts.categoryId ? `/categories/${opts.categoryId}` : '/albums';
     const html = await this.get(`${base}${path}?page=${page}`, base + '/');
