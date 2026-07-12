@@ -494,8 +494,29 @@ export const suppliersApi = {
   deleteProduct: (id: string) => http.delete(`/suppliers/products/${id}`).then(extract),
   generateDescription: (id: string) =>
     http.post<{ description: string }>(`/suppliers/products/${id}/generate-description`, {}, { timeout: AI_TIMEOUT }).then(extract),
-  queue: (id: string, channelId?: string) =>
-    http.post<{ queued: boolean; post_id: string; channel: string }>(`/suppliers/products/${id}/queue`, { channel_id: channelId }, { timeout: AI_TIMEOUT }).then(extract),
+
+  /** Full Yupoo album (all color images) for the post-creation modal — no save. */
+  previewAlbum: (catalogId: string, url: string) =>
+    http.post<{
+      code: string; price: number; currency: string; description: string; title: string;
+      images: string[]; raw_images: string[]; album_url: string;
+    }>('/suppliers/album/preview', { catalogId, url }, { timeout: 30_000 }).then(extract),
+
+  /** AI-generate / regenerate the post text (quick-post preview) for a saved product. */
+  preview: (id: string, text?: string) =>
+    http.post<PostPreview & { gallery: string[] }>(`/suppliers/products/${id}/preview`, { text }, { timeout: AI_TIMEOUT }).then(extract),
+
+  queue: (id: string, channelId?: string, text?: string) =>
+    http.post<{ queued: boolean; post_id: string; channel: string; queue_active: boolean; interval_minutes: number }>(
+      `/suppliers/products/${id}/queue`, { channel_id: channelId, text }, { timeout: AI_TIMEOUT }).then(extract),
+
+  send: (id: string, channelId?: string, text?: string) =>
+    http.post<{ sent: boolean; post_id: string; channel: string }>(
+      `/suppliers/products/${id}/send`, { channel_id: channelId, text }, { timeout: AI_TIMEOUT }).then(extract),
+
+  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string) =>
+    http.post<{ scheduled: boolean; post_id: string; channel: string; at: string }>(
+      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, text }, { timeout: AI_TIMEOUT }).then(extract),
 };
 
 export default http;

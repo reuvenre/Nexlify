@@ -77,9 +77,51 @@ export class SuppliersController {
     return this.products.generateDescription(this.uid(req), id);
   }
 
+  /** Full Yupoo album (all color images) for the post-creation modal — no save. */
+  @Post('album/preview')
+  @HttpCode(200)
+  previewAlbum(@Req() req: Request, @Body() dto: { catalogId: string; url: string }) {
+    return this.products.previewAlbum(this.uid(req), dto.catalogId, dto.url);
+  }
+
+  /** AI-generate / regenerate the post text without saving (quick-post preview). */
+  @Post('products/:id/preview')
+  @HttpCode(200)
+  preview(@Req() req: Request, @Param('id') id: string, @Body('text') text?: string) {
+    return this.products.preview(this.uid(req), id, text);
+  }
+
   @Post('products/:id/queue')
   @HttpCode(201)
-  queue(@Req() req: Request, @Param('id') id: string, @Body('channel_id') channelId?: string) {
-    return this.products.queue(this.uid(req), id, channelId);
+  queue(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('channel_id') channelId?: string,
+    @Body('text') text?: string,
+  ) {
+    return this.products.queue(this.uid(req), id, text, channelId);
+  }
+
+  @Post('products/:id/send')
+  @HttpCode(200)
+  send(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('channel_id') channelId?: string,
+    @Body('text') text?: string,
+  ) {
+    return this.products.send(this.uid(req), id, text, channelId);
+  }
+
+  @Post('products/:id/schedule')
+  @HttpCode(201)
+  schedule(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('scheduled_at') scheduledAt: string,
+    @Body('channel_id') channelId?: string,
+    @Body('text') text?: string,
+  ) {
+    return this.products.schedule(this.uid(req), id, new Date(scheduledAt), text, channelId);
   }
 }

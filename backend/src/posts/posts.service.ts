@@ -245,6 +245,49 @@ export class PostsService {
     return post;
   }
 
+  // ── Generic custom publish (used by the suppliers module) ─────────────────
+  //
+  // A fully-formed post from a non-AliExpress source: caller supplies the final
+  // text, image(s), affiliate link and target channel. Reuses the shared queue /
+  // scheduler / Telegram pipeline (incl. the media-group album for multiple images).
+
+  private buildCustomPost(userId: string, data: {
+    productId: string; title: string; image: string; images?: string[];
+    affiliateUrl: string; text: string; priceIls?: number; channelOverride?: string;
+  }): Post {
+    return this.repo.create({
+      user_id: userId,
+      product_id: data.productId,
+      product_title: data.title,
+      product_image: data.image,
+      affiliate_url: data.affiliateUrl,
+      original_price_usd: 0,
+      sale_price_usd: 0,
+      price_ils: data.priceIls || 0,
+      generated_text: data.text,
+      channel_override: data.channelOverride || null,
+      gallery_json: data.images && data.images.length > 1 ? JSON.stringify(data.images.slice(0, 10)) : null,
+    });
+  }
+
+  /** Send a custom post immediately. */
+  async sendCustomNow(userId: string, data: Parameters<PostsService['buildCustomPost']>[1]): Promise<Post> {
+    const creds = await this.credentials.getRaw(userId);
+    const post = this.buildCustomPost(userId, data);
+    post.status = 'pending';
+    await this.repo.save(post);
+    await this.sendToTelegram(post, creds, data.channelOverride);
+    return post;
+  }
+
+  /** Schedule a custom post for a specific time. */
+  async scheduleCustom(userId: string, data: Parameters<PostsService['buildCustomPost']>[1], scheduledAt: Date): Promise<Post> {
+    const post = this.buildCustomPost(userId, data);
+    post.status = 'scheduled';
+    post.scheduled_at = scheduledAt;
+    return this.repo.save(post);
+  }
+
   // ── Queue post (add to auto-send queue) ──────────────────────────────────
 
   async createQueuedPost(

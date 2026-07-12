@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Store, Plus, Loader2, Trash2, Link2, Sparkles, Send, X,
-  Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, ChevronLeft,
+  Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, Images, Wand2,
 } from 'lucide-react';
 import { suppliersApi, channelsApi, yupooImg } from '@/lib/api-client';
-import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel } from '@/types';
+import { PostPreview } from '@/components/products/PostPreview';
+import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel, PostPreview as PostPreviewType } from '@/types';
 
 const MATCH_MODES: { value: SkuMatchMode; label: string; hint: string }[] = [
   { value: 'numeric', label: 'מספרי', hint: 'משווה רק את המספר (LUN1526 = LN1526)' },
@@ -220,6 +221,7 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
   const [products, setProducts] = useState<SupplierProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [linkInit, setLinkInit] = useState<{ catalogId?: string; yupooUrl?: string } | null>(null);
+  const [composing, setComposing] = useState<SupplierProduct | null>(null);
 
   const load = useCallback(async () => {
     setProducts(await suppliersApi.listProducts().catch(() => []));
@@ -228,6 +230,7 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
   useEffect(() => { load(); }, [load]);
 
   const catName = (id: string) => catalogs.find((c) => c.id === id)?.name || 'ספק';
+  const catChannel = (id: string) => catalogs.find((c) => c.id === id)?.target_channel_id || '';
 
   return (
     <div>
@@ -247,33 +250,40 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
           </button>
         )}
       </div>
-      {catalogs.length === 0 && <p className="text-xs text-amber-400 mb-4">צור קודם קטלוג ספק בטאב "קטלוגים"</p>}
+      {catalogs.length === 0 && <p className="text-xs text-amber-400 mb-4">צור קודם קטלוג ספק בטאב &quot;קטלוגים&quot;</p>}
 
       {mode === 'browse' ? (
-        <StoreBrowser catalogs={catalogs} onPick={(catalogId, yupooUrl) => setLinkInit({ catalogId, yupooUrl })} />
+        <StoreBrowser catalogs={catalogs} channels={channels} onLinked={() => { setMode('mine'); load(); }} />
       ) : loading ? (
         <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
       ) : products.length === 0 ? (
         <div className="bg-surface-secondary border border-dashed border-edge-hover rounded-2xl p-14 text-center">
           <Package size={32} className="text-white/15 mx-auto mb-3" />
-          <p className="text-sm text-white/40">אין מוצרים מחוברים — "עיין בקטלוג" או "חבר מוצר ידני"</p>
+          <p className="text-sm text-white/40">אין מוצרים מחוברים — &quot;עיין בקטלוג&quot; או &quot;חבר מוצר ידני&quot;</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {products.map((p) => (
-            <SupplierProductCard key={p.id} product={p} catalogName={catName(p.supplier_catalog_id)} channels={channels} reload={load} />
+            <SupplierProductCard key={p.id} product={p} catalogName={catName(p.supplier_catalog_id)}
+              onCompose={() => setComposing(p)} reload={load} />
           ))}
         </div>
       )}
 
       {linkInit && <LinkModal catalogs={catalogs} initial={linkInit} onClose={() => setLinkInit(null)} onDone={() => { setLinkInit(null); setMode('mine'); load(); }} />}
+      {composing && (
+        <SavedProductPostModal product={composing} channels={channels}
+          defaultChannel={catChannel(composing.supplier_catalog_id)}
+          onClose={() => setComposing(null)} onSent={load} />
+      )}
     </div>
   );
 }
 
 // ─── In-system Yupoo store browser ────────────────────────────────────────────
-function StoreBrowser({ catalogs, onPick }: { catalogs: SupplierCatalog[]; onPick: (catalogId: string, yupooUrl: string) => void }) {
+function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCatalog[]; channels: Channel[]; onLinked: () => void }) {
   const [catalogId, setCatalogId] = useState(catalogs[0]?.id || '');
+  const [opened, setOpened] = useState<string | null>(null); // album_url of the product modal
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [category, setCategory] = useState('');
   const [items, setItems] = useState<Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>>([]);
@@ -321,19 +331,23 @@ function StoreBrowser({ catalogs, onPick }: { catalogs: SupplierCatalog[]; onPic
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
             {items.map((it) => (
-              <button key={it.album_url} onClick={() => onPick(catalogId, it.album_url)}
+              <button key={it.album_url} onClick={() => setOpened(it.album_url)}
                 className="text-right bg-surface-secondary border border-edge rounded-xl overflow-hidden hover:border-blue-500/40 hover:-translate-y-0.5 transition-all group">
-                <div className="h-28 bg-white/[0.04]">
+                <div className="relative h-28 bg-white/[0.04]">
                   {it.thumb
                     /* eslint-disable-next-line @next/next/no-img-element */
                     ? <img src={yupooImg(it.thumb)} alt="" className="w-full h-full object-cover" loading="lazy" />
                     : <div className="w-full h-full flex items-center justify-center"><Package size={20} className="text-white/15" /></div>}
+                  <span className="absolute bottom-1 left-1 bg-black/55 text-white/90 text-2xs rounded-full px-1.5 py-0.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Images size={9} /> פתח
+                  </span>
                 </div>
                 <div className="p-2">
-                  <p className="text-2xs text-white/70 truncate" dir="ltr">{it.description || it.code}</p>
-                  <div className="flex items-center justify-between mt-0.5">
+                  <p className="text-2xs text-white/70 truncate min-h-[0.9rem]" dir="ltr" title={it.description}>{it.description || '—'}</p>
+                  <p className="text-2xs text-white/35 truncate" dir="ltr">#{it.code}</p>
+                  <div className="flex items-center justify-between mt-1">
                     <span className="text-xs font-bold text-white">${it.price}</span>
-                    <span className="text-2xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"><Link2 size={10} /> חבר</span>
+                    <span className="text-2xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"><Wand2 size={10} /> צור פוסט</span>
                   </div>
                 </div>
               </button>
@@ -351,11 +365,209 @@ function StoreBrowser({ catalogs, onPick }: { catalogs: SupplierCatalog[]; onPic
           )}
         </>
       )}
+
+      {opened && (
+        <BrowseProductModal
+          catalogId={catalogId}
+          albumUrl={opened}
+          channels={channels}
+          defaultChannel={catalogs.find((c) => c.id === catalogId)?.target_channel_id || ''}
+          onClose={() => setOpened(null)}
+          onLinked={() => { setOpened(null); onLinked(); }}
+        />
+      )}
     </div>
   );
 }
 
-function SupplierProductCard({ product, catalogName, channels, reload }: { product: SupplierProduct; catalogName: string; channels: Channel[]; reload: () => void }) {
+// ─── Post composer (reuses the AliExpress PostPreview, wired to supplier endpoints) ──
+function PostComposer({ productId, preview, gallery, channels, defaultChannel, onSent }: {
+  productId: string; preview: PostPreviewType; gallery: string[];
+  channels: Channel[]; defaultChannel?: string; onSent?: () => void;
+}) {
+  const [channelId, setChannelId] = useState(defaultChannel || '');
+  const [pv, setPv] = useState(preview);
+  const [regen, setRegen] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+
+  const chLabel = (ch: string) => ch === 'default' ? 'ברירת מחדל' : 'קבוצה';
+
+  const onPost = async (text: string) => {
+    setPosting(true); setDone(null);
+    try { const r = await suppliersApi.send(productId, channelId || undefined, text); setDone(`✓ נשלח (${chLabel(r.channel)})`); onSent?.(); }
+    finally { setPosting(false); }
+  };
+  const onSchedule = async (text: string, at: string) => {
+    const r = await suppliersApi.schedule(productId, at, channelId || undefined, text);
+    setDone(`✓ תוזמן (${chLabel(r.channel)})`); onSent?.();
+  };
+  const onQueue = async (text: string) => {
+    const r = await suppliersApi.queue(productId, channelId || undefined, text);
+    onSent?.();
+    return { queue_active: r.queue_active, interval_minutes: r.interval_minutes };
+  };
+  const onRegenerate = async () => {
+    setRegen(true);
+    try { const r = await suppliersApi.preview(productId); setPv(r); }
+    finally { setRegen(false); }
+  };
+
+  return (
+    <div className="space-y-3.5">
+      {gallery.length > 1 && (
+        <div>
+          <p className="text-2xs text-white/40 mb-1.5 flex items-center gap-1"><Images size={11} /> {gallery.length} תמונות (יישלחו כאלבום נגלל)</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {gallery.map((g, i) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img key={i} src={g} alt="" className="h-20 w-20 object-cover rounded-lg border border-edge shrink-0" loading="lazy" />
+            ))}
+          </div>
+        </div>
+      )}
+      <Field label="קבוצת פרסום" hint="ברירת המחדל = הקבוצה שקושרה לקטלוג">
+        <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
+          className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white/80 outline-none focus:border-blue-500/50">
+          <option value="">— ברירת מחדל של הקטלוג / כללי —</option>
+          {channels.map((ch) => <option key={ch.id} value={ch.channel_id}>{ch.name}</option>)}
+        </select>
+      </Field>
+      {done && <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs rounded-xl px-4 py-2.5">{done}</div>}
+      <PostPreview preview={pv} onPost={onPost} onSchedule={onSchedule} onQueue={onQueue}
+        onRegenerate={onRegenerate} isPosting={posting} isRegenerating={regen} />
+    </div>
+  );
+}
+
+// ─── Browse → open product (all images) → create post ──────────────────────────
+function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onClose, onLinked }: {
+  catalogId: string; albumUrl: string; channels: Channel[]; defaultChannel?: string;
+  onClose: () => void; onLinked: () => void;
+}) {
+  const [album, setAlbum] = useState<Awaited<ReturnType<typeof suppliersApi.previewAlbum>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [flylinkUrl, setFlylinkUrl] = useState('');
+  const [code, setCode] = useState('');
+  const [linking, setLinking] = useState(false);
+  const [composer, setComposer] = useState<{ productId: string; preview: PostPreviewType; gallery: string[] } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true); setError('');
+      try { setAlbum(await suppliersApi.previewAlbum(catalogId, albumUrl)); }
+      catch (e: any) { setError(e?.response?.data?.message || 'טעינת המוצר נכשלה'); }
+      finally { setLoading(false); }
+    })();
+  }, [catalogId, albumUrl]);
+
+  const startPost = async () => {
+    setLinking(true); setError('');
+    try {
+      const linked = await suppliersApi.link({ catalogId, yupooUrl: albumUrl, flylinkUrl, code: code || undefined });
+      const pv = await suppliersApi.preview(linked.id);
+      setComposer({ productId: linked.id, preview: pv, gallery: pv.gallery });
+      onLinked(); // refresh "My Products" in the background — modal stays open on the composer
+    } catch (e: any) { setError(e?.response?.data?.message || 'החיבור נכשל'); }
+    finally { setLinking(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-2xl max-h-[92vh] overflow-y-auto" dir="rtl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Images size={15} className="text-blue-400" /> {composer ? 'יצירת פוסט' : 'מוצר מהקטלוג'}
+          </h3>
+          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
+        ) : error && !album ? (
+          <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
+        ) : composer ? (
+          <PostComposer productId={composer.productId} preview={composer.preview} gallery={composer.gallery}
+            channels={channels} defaultChannel={defaultChannel} onSent={onLinked} />
+        ) : album ? (
+          <div className="space-y-4">
+            {/* All product images */}
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {album.images.map((img, i) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img key={i} src={img} alt="" className="w-full aspect-square object-cover rounded-lg border border-edge" loading="lazy" />
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <div>
+                <p className="text-white/85" dir="ltr">{album.description || album.title}</p>
+                <p className="text-2xs text-white/40 mt-0.5" dir="ltr">#{album.code} · {album.images.length} תמונות</p>
+              </div>
+              <span className="text-lg font-bold text-white">{album.currency === 'USD' ? '$' : ''}{album.price}</span>
+            </div>
+
+            {/* FLYLINK link — required to publish (each product has its own generated link) */}
+            <div className="border-t border-edge pt-4 space-y-3">
+              <Field label="קישור שותפים FLYLINK" hint="הקישור הייחודי שיצרת למוצר הזה ב-FLYLINK — נדרש כדי לפרסם">
+                <Input value={flylinkUrl} onChange={setFlylinkUrl} placeholder="https://…flylinking.com/…" dir="ltr" />
+              </Field>
+              <Field label="קוד מוצר FLYLINK (אופציונלי)" hint="לאימות מול Yupoo — קישור השותפים אטום ולרוב לא מכיל קוד">
+                <Input value={code} onChange={setCode} placeholder={album.code} dir="ltr" />
+              </Field>
+              {error && <div className="flex items-center gap-2 text-xs text-red-400"><AlertTriangle size={13} /> {error}</div>}
+              <button onClick={startPost} disabled={linking || !flylinkUrl.trim()}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl transition-all">
+                {linking ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />} צור פוסט
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ─── My-products: full post composer for an already-linked product ─────────────
+function SavedProductPostModal({ product, channels, defaultChannel, onClose, onSent }: {
+  product: SupplierProduct; channels: Channel[]; defaultChannel?: string; onClose: () => void; onSent: () => void;
+}) {
+  const [data, setData] = useState<{ preview: PostPreviewType; gallery: string[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true); setError('');
+      try { const pv = await suppliersApi.preview(product.id); setData({ preview: pv, gallery: pv.gallery }); }
+      catch (e: any) { setError(e?.response?.data?.message || 'יצירת התצוגה נכשלה'); }
+      finally { setLoading(false); }
+    })();
+  }, [product.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-2xl max-h-[92vh] overflow-y-auto" dir="rtl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Wand2 size={15} className="text-blue-400" /> יצירת פוסט</h3>
+          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+        </div>
+        {loading ? (
+          <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
+        ) : error ? (
+          <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
+        ) : data ? (
+          <PostComposer productId={product.id} preview={data.preview} gallery={data.gallery}
+            channels={channels} defaultChannel={defaultChannel} onSent={onSent} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SupplierProductCard({ product, catalogName, onCompose, reload }: { product: SupplierProduct; catalogName: string; onCompose: () => void; reload: () => void }) {
   const [busy, setBusy] = useState<'' | 'desc' | 'queue'>('');
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null);
 
@@ -365,9 +577,9 @@ function SupplierProductCard({ product, catalogName, channels, reload }: { produ
     catch (e: any) { setMsg({ t: e?.response?.data?.message || 'שגיאה', ok: false }); }
     finally { setBusy(''); }
   };
-  const queue = async (channelId?: string) => {
+  const queue = async () => {
     setBusy('queue'); setMsg(null);
-    try { const r = await suppliersApi.queue(product.id, channelId); setMsg({ t: `✓ נכנס לתור (${r.channel === 'default' ? 'ברירת מחדל' : 'קבוצה'})`, ok: true }); }
+    try { const r = await suppliersApi.queue(product.id); setMsg({ t: `✓ נכנס לתור (${r.channel === 'default' ? 'ברירת מחדל' : 'קבוצה'})`, ok: true }); }
     catch (e: any) { setMsg({ t: e?.response?.data?.message || 'שגיאה', ok: false }); }
     finally { setBusy(''); }
   };
@@ -392,9 +604,13 @@ function SupplierProductCard({ product, catalogName, channels, reload }: { produ
         </div>
         {msg && <p className={`text-2xs mt-2 ${msg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{msg.t}</p>}
         <div className="flex items-center gap-1.5 mt-2.5">
-          <button onClick={() => queue()} disabled={busy !== ''}
+          <button onClick={onCompose} disabled={busy !== ''}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-medium rounded-lg">
-            {busy === 'queue' ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} הוסף לתור
+            <Wand2 size={12} /> צור פוסט
+          </button>
+          <button onClick={queue} disabled={busy !== ''} title="הוסף לתור מהיר (קבוצת ברירת מחדל)"
+            className="p-2 bg-white/5 hover:bg-white/10 disabled:opacity-60 border border-edge-hover text-white/70 rounded-lg">
+            {busy === 'queue' ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
           </button>
           <button onClick={gen} disabled={busy !== ''} title="צור תיאור AI"
             className="p-2 bg-violet-600/20 hover:bg-violet-600/30 disabled:opacity-60 border border-violet-500/30 text-violet-300 rounded-lg">

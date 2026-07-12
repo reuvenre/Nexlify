@@ -150,48 +150,136 @@ export class SupplierProductsService {
     return { description };
   }
 
-  /**
-   * Publish: push the supplier product into the SHARED post queue, routed to the
-   * chosen group (or the catalog's default). Reuses the entire existing pipeline.
-   */
-  async queue(userId: string, id: string, channelId?: string) {
-    const p = await this.get(userId, id);
-    if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
-    if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
-
-    const catalog = await this.repo.manager.findOne(SupplierCatalog, { where: { id: p.supplier_catalog_id } });
-    const targetChannel = channelId?.trim() || catalog?.target_channel_id || undefined;
-
-    // All product photos (colors/variants) → sent as one swipeable Telegram album.
+  /** All product photos (colors/variants), proxied → one swipeable Telegram album. */
+  private proxiedGallery(p: SupplierProduct): string[] {
     let gallery: string[] = [];
     try { gallery = p.gallery_json ? JSON.parse(p.gallery_json) : []; } catch { /* ignore */ }
     if (p.image_url && !gallery.includes(p.image_url)) gallery.unshift(p.image_url);
     // Yupoo hotlink-protects images → Telegram can't fetch them directly. Route each
     // through our public proxy (adds the required Referer) so the photo actually sends.
-    gallery = gallery.map((u) => this.proxyImage(u));
+    return gallery.map((u) => this.proxyImage(u));
+  }
+
+  /** Resolve the publish target: explicit channel → catalog default → user default. */
+  private async targetChannel(p: SupplierProduct, channelId?: string): Promise<string | undefined> {
+    if (channelId?.trim()) return channelId.trim();
+    const catalog = await this.repo.manager.findOne(SupplierCatalog, { where: { id: p.supplier_catalog_id } });
+    return catalog?.target_channel_id || undefined;
+  }
+
+  /** Map a supplier product to the AliProduct-ish shape the post pipeline expects. */
+  private toPostProduct(p: SupplierProduct, image: string) {
+    return {
+      product_id: p.sku || p.id,
+      title: p.title,
+      image_url: image,
+      affiliate_url: p.flylink_url,
+      sale_price: p.price,
+      original_price: p.price,
+      currency: p.currency,
+      discount_percent: 0,
+      orders_count: 0,
+      rating: 0,
+      price_ils: p.price, // already the catalog currency; no USD→ILS conversion
+    };
+  }
+
+  /** AI-generate (or re-generate) the post text WITHOUT saving a post. */
+  async preview(userId: string, id: string, text?: string) {
+    const p = await this.get(userId, id);
+    const gallery = this.proxiedGallery(p);
+    const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    if (!text) await this.subscription.consumeOrThrow(userId, this.subscription.costs.ai_generate, 'ai_generate_supplier');
+    const result = await this.posts.preview(userId, p.sku || p.id, 'he', this.toPostProduct(p, image));
+    return { ...result, gallery };
+  }
+
+  /** Send now. */
+  async send(userId: string, id: string, text?: string, channelId?: string) {
+    const p = await this.get(userId, id);
+    if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
+    if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
+
+    const gallery = this.proxiedGallery(p);
+    const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
+    const channel = await this.targetChannel(p, channelId);
+
+    const post = await this.posts.sendCustomNow(userId, {
+      productId: p.sku || p.id, title: p.title, image, images: gallery,
+      affiliateUrl: p.flylink_url, text: finalText, priceIls: p.price, channelOverride: channel,
+    });
+    p.has_post = true;
+    await this.repo.save(p);
+    return { sent: true, post_id: post.id, channel: channel || 'default' };
+  }
+
+  /** Schedule for a specific time. */
+  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string) {
+    const p = await this.get(userId, id);
+    if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
+    if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
+
+    const gallery = this.proxiedGallery(p);
+    const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
+    const channel = await this.targetChannel(p, channelId);
+
+    const post = await this.posts.scheduleCustom(userId, {
+      productId: p.sku || p.id, title: p.title, image, images: gallery,
+      affiliateUrl: p.flylink_url, text: finalText, priceIls: p.price, channelOverride: channel,
+    }, scheduledAt);
+    p.has_post = true;
+    await this.repo.save(p);
+    return { scheduled: true, post_id: post.id, at: scheduledAt, channel: channel || 'default' };
+  }
+
+  /**
+   * Publish: push the supplier product into the SHARED post queue, routed to the
+   * chosen group (or the catalog's default). Reuses the entire existing pipeline.
+   */
+  async queue(userId: string, id: string, text?: string, channelId?: string) {
+    const p = await this.get(userId, id);
+    if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
+    if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
+
+    const gallery = this.proxiedGallery(p);
+    const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    const channel = await this.targetChannel(p, channelId);
 
     const post = await this.posts.createQueuedPost(
       userId,
-      {
-        product_id: p.sku || p.id,
-        title: p.title,
-        image_url: this.proxyImage(p.image_url) || gallery[0] || '',
-        affiliate_url: p.flylink_url,
-        sale_price: p.price,
-        original_price: p.price,
-        currency: p.currency,
-        discount_percent: 0,
-        orders_count: 0,
-        rating: 0,
-      },
+      this.toPostProduct(p, image),
       undefined,
-      p.description || undefined,
-      targetChannel,
+      text?.trim() || p.description || undefined,
+      channel,
       gallery,
     );
     p.has_post = true;
     await this.repo.save(p);
-    return { queued: true, post_id: post.id, channel: targetChannel || 'default' };
+    const creds = await this.credentials.getRaw(userId);
+    return {
+      queued: true, post_id: post.id, channel: channel || 'default',
+      queue_active: creds?.schedule_enabled === true,
+      interval_minutes: creds?.schedule_interval_minutes ?? 60,
+    };
+  }
+
+  /** Fetch a Yupoo album's FULL content (all color images) for the post modal — no save. */
+  async previewAlbum(userId: string, catalogId: string, url: string) {
+    await this.catalogs.get(userId, catalogId); // authorize catalog ownership
+    if (!url?.trim()) throw new BadRequestException('חסר קישור Yupoo');
+    const item = await this.yupoo.fetchAlbum(url.trim());
+    return {
+      code: item.code,
+      price: item.price,
+      currency: item.currency,
+      description: item.description,
+      title: item.title,
+      images: item.images.map((u) => this.proxyImage(u)),
+      raw_images: item.images,
+      album_url: item.album_url,
+    };
   }
 
   /** Re-fetch Yupoo for price + check FLYLINK link liveness → in_stock. (Used by cron.) */
