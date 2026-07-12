@@ -340,10 +340,10 @@ function LinkModal({ catalogs, onClose, onDone }: { catalogs: SupplierCatalog[];
           <Field label="קישור אלבום Yupoo" hint="מקור התוכן האמיתי (תמונה/מחיר/קוד)">
             <Input value={form.yupooUrl} onChange={(v) => setForm((f) => ({ ...f, yupooUrl: v }))} placeholder="https://…x.yupoo.com/albums/…" dir="ltr" />
           </Field>
-          <Field label="קישור שותפים FLYLINK" hint="הקישור שמשלם עמלה (מודבק מה-dashboard)">
+          <Field label="קישור שותפים FLYLINK" hint="הקישור הייחודי שיצרת למוצר הזה ב-FLYLINK (כל מוצר וקישור משלו)">
             <Input value={form.flylinkUrl} onChange={(v) => setForm((f) => ({ ...f, flylinkUrl: v }))} placeholder="https://…flylinking.com/…" dir="ltr" />
           </Field>
-          <Field label="קוד מוצר FLYLINK (אופציונלי)" hint="לאימות — אם לא בקישור, הזן ידנית">
+          <Field label="קוד מוצר FLYLINK (מומלץ)" hint="לאימות שהקוד תואם ל-Yupoo — קישור השותפים אטום ולרוב לא מכיל קוד">
             <Input value={form.code} onChange={(v) => setForm((f) => ({ ...f, code: v }))} placeholder="LN1526" dir="ltr" />
           </Field>
           {error && <div className="flex items-center gap-2 text-xs text-red-400"><AlertTriangle size={13} /> {error}</div>}

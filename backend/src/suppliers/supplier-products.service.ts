@@ -37,10 +37,14 @@ export class SupplierProductsService {
     return p;
   }
 
-  /** Best-effort extraction of a product code from a pasted FLYLINK URL. */
+  /**
+   * Soft, best-effort code guess from a pasted FLYLINK URL. FLYLINK affiliate links
+   * are per-product GENERATED tracking links — usually opaque and WITHOUT a readable
+   * product code — so this is only a hint, never used to hard-block an import.
+   */
   private codeFromUrl(url?: string): string {
     if (!url) return '';
-    const m = decodeURIComponent(url).match(/([A-Za-z]{1,5}\d{2,})/);
+    const m = decodeURIComponent(url).match(/([A-Za-z]{2,5}\d{3,})/);
     return m?.[1] || '';
   }
 
@@ -59,17 +63,24 @@ export class SupplierProductsService {
     const cfg = catalog.sku_match_config || {};
     const yupooCanon = normalizeSku(item.code, mode, cfg);
 
-    // Determine the FLYLINK code: explicit field, else parsed from the link.
-    const flyRaw = dto.code?.trim() || this.codeFromUrl(dto.flylinkUrl);
+    // Each FLYLINK product has its OWN affiliate link, generated on FLYLINK's site —
+    // an opaque per-product tracking link, so we cannot reliably read the code from it.
+    // Verification therefore uses the code the user supplies (authoritative → hard-fail
+    // on mismatch); if none, a soft URL guess may confirm but NEVER blocks a legit link.
     let sku_verified = false;
-    if (flyRaw) {
-      const flyCanon = normalizeSku(flyRaw, mode, cfg);
+    const userCode = dto.code?.trim();
+    if (userCode) {
+      const flyCanon = normalizeSku(userCode, mode, cfg);
       if (flyCanon !== yupooCanon) {
         throw new BadRequestException(
-          `הקודים לא תואמים: Yupoo=${item.code} (${yupooCanon}) מול FLYLINK=${flyRaw} (${flyCanon})`,
+          `הקודים לא תואמים: Yupoo=${item.code} (${yupooCanon}) מול FLYLINK=${userCode} (${flyCanon})`,
         );
       }
       sku_verified = true;
+    } else {
+      const guess = this.codeFromUrl(dto.flylinkUrl);
+      if (guess && normalizeSku(guess, mode, cfg) === yupooCanon) sku_verified = true;
+      // No hard block — the affiliate link is trusted as pasted (per-product generated).
     }
 
     // Dedup within the user by canonical SKU.
