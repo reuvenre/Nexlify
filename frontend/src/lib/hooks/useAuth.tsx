@@ -3,13 +3,15 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi, setAccessToken, setRefreshToken } from '@/lib/api-client';
-import type { User } from '@/types';
+import type { User, AuthResponse } from '@/types';
 
 interface AuthState {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** Returns { mfaToken } when the account has 2FA — the caller must then call completeMfa. */
+  login: (email: string, password: string) => Promise<{ mfaToken?: string }>;
+  completeMfa: (mfaToken: string, code: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -40,12 +42,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
-  const login = async (email: string, password: string) => {
-    const { access_token, refresh_token, user } = await authApi.login(email, password);
-    setAccessToken(access_token);
-    if (refresh_token) setRefreshToken(refresh_token);
-    setUser(user);
+  const applySession = (data: AuthResponse) => {
+    setAccessToken(data.access_token);
+    if (data.refresh_token) setRefreshToken(data.refresh_token);
+    setUser(data.user);
     router.push('/dashboard');
+  };
+
+  const login = async (email: string, password: string): Promise<{ mfaToken?: string }> => {
+    const res = await authApi.login(email, password);
+    // 2FA-enabled accounts get a challenge instead of a session.
+    if (res.mfa_required && res.mfa_token) return { mfaToken: res.mfa_token };
+    applySession(res as AuthResponse);
+    return {};
+  };
+
+  const completeMfa = async (mfaToken: string, code: string) => {
+    const res = await authApi.loginMfa(mfaToken, code);
+    applySession(res);
   };
 
   const register = async (email: string, password: string) => {
@@ -70,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       isAuthenticated: !!user,
       login,
+      completeMfa,
       register,
       logout,
     }}>

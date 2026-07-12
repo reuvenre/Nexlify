@@ -7,7 +7,14 @@ export interface User {
   footer_text?: string;
   subscription_plan?: PlanId;
   credits_remaining?: number;
+  totp_enabled?: boolean;
   created_at: string;
+}
+
+/** Login response: either a full session, or a 2FA challenge to complete. */
+export interface LoginResult extends Partial<AuthResponse> {
+  mfa_required?: boolean;
+  mfa_token?: string;
 }
 
 export interface AdminUser {

@@ -7,6 +7,9 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { User } from '../users/user.entity';
+import { encrypt, decrypt } from '../common/crypto';
+import { generateTotpSecret, verifyTotp, totpUri } from '../common/totp';
+import * as QRCode from 'qrcode';
 
 const REFRESH_COOKIE = 'refresh_token';
 const REFRESH_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
@@ -74,7 +77,70 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Invalid credentials');
     const valid = await this.users.validatePassword(user, password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
+
+    // 2FA gate: don't issue session tokens yet — hand back a short-lived
+    // challenge token the client exchanges together with a TOTP code.
+    if (user.totp_enabled) {
+      const mfa_token = this.jwt.sign(
+        { sub: user.id, mfa: true },
+        { secret: this.config.get('JWT_SECRET'), expiresIn: '5m' },
+      );
+      return { mfa_required: true, mfa_token };
+    }
     return this.issueTokens(user, res);
+  }
+
+  // ── Two-factor auth (TOTP) ─────────────────────────────────────────────────
+
+  /** Second login step: verify the TOTP code against the short-lived mfa_token. */
+  async loginMfa(mfaToken: string, code: string, res: any) {
+    let payload: any;
+    try {
+      payload = this.jwt.verify(mfaToken, { secret: this.config.get('JWT_SECRET') });
+    } catch {
+      throw new UnauthorizedException('פג תוקף — התחבר שוב');
+    }
+    if (!payload?.mfa || !payload?.sub) throw new UnauthorizedException('Invalid challenge');
+
+    const user = await this.users.findById(payload.sub);
+    if (!user?.totp_enabled || !user.totp_secret_enc) throw new UnauthorizedException('2FA not active');
+    const secret = decrypt(user.totp_secret_enc);
+    if (!verifyTotp(secret, code)) throw new UnauthorizedException('קוד שגוי');
+
+    return this.issueTokens(user, res);
+  }
+
+  /** Begin enrollment: create a secret (not yet enabled) and return a QR + manual key. */
+  async setup2fa(userId: string): Promise<{ qr: string; secret: string; otpauth: string }> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new UnauthorizedException();
+    if (user.totp_enabled) throw new BadRequestException('אימות דו-שלבי כבר פעיל');
+
+    const secret = generateTotpSecret();
+    await this.users.setTotp(userId, encrypt(secret), false); // store pending, not enabled
+    const otpauth = totpUri(secret, user.email);
+    const qr = await QRCode.toDataURL(otpauth);
+    return { qr, secret, otpauth };
+  }
+
+  /** Confirm enrollment: verify a code against the pending secret and activate. */
+  async enable2fa(userId: string, code: string): Promise<{ enabled: true }> {
+    const user = await this.users.findById(userId);
+    if (!user?.totp_secret_enc) throw new BadRequestException('התחל הגדרה קודם');
+    const secret = decrypt(user.totp_secret_enc);
+    if (!verifyTotp(secret, code)) throw new BadRequestException('קוד שגוי — נסה שוב');
+    await this.users.setTotp(userId, user.totp_secret_enc, true);
+    return { enabled: true };
+  }
+
+  /** Disable 2FA — requires a valid current code (or password) to prevent hijack. */
+  async disable2fa(userId: string, code: string): Promise<{ enabled: false }> {
+    const user = await this.users.findById(userId);
+    if (!user?.totp_enabled || !user.totp_secret_enc) return { enabled: false };
+    const secret = decrypt(user.totp_secret_enc);
+    if (!verifyTotp(secret, code)) throw new BadRequestException('קוד שגוי');
+    await this.users.setTotp(userId, null, false);
+    return { enabled: false };
   }
 
   async logout(userId: string, res: any) {

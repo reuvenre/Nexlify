@@ -32,11 +32,51 @@ export class AuthController {
     return this.auth.login(dto.email, dto.password, res);
   }
 
+  /** Second login step for 2FA-enabled accounts: exchange mfa_token + code for a session. */
+  @Post('login/2fa')
+  @HttpCode(200)
+  loginMfa(
+    @Body('mfa_token') mfaToken: string,
+    @Body('code') code: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!mfaToken || !code) throw new BadRequestException('חסר קוד אימות');
+    return this.auth.loginMfa(mfaToken, code, res);
+  }
+
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(200)
   logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     return this.auth.logout((req.user as any).id, res);
+  }
+
+  // ── Two-factor auth (TOTP) ────────────────────────────────────────────────
+
+  /** Start enrollment — returns a QR data-URL + manual key. */
+  @Post('2fa/setup')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  setup2fa(@Req() req: Request) {
+    return this.auth.setup2fa((req.user as any).id);
+  }
+
+  /** Confirm the first code → activate 2FA. */
+  @Post('2fa/enable')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  enable2fa(@Req() req: Request, @Body('code') code: string) {
+    if (!code) throw new BadRequestException('חסר קוד');
+    return this.auth.enable2fa((req.user as any).id, code);
+  }
+
+  /** Turn 2FA off — requires a valid current code. */
+  @Post('2fa/disable')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  disable2fa(@Req() req: Request, @Body('code') code: string) {
+    if (!code) throw new BadRequestException('חסר קוד');
+    return this.auth.disable2fa((req.user as any).id, code);
   }
 
   @Get('me')

@@ -33,6 +33,15 @@ export class User {
   @Column({ nullable: true, type: 'timestamp' })
   reset_token_expires: Date;
 
+  // ── Two-factor auth (TOTP) ────────────────────────────────────────────────
+  /** AES-encrypted base32 TOTP secret. Present once setup starts; active only when enabled. */
+  @Column({ nullable: true })
+  totp_secret_enc: string;
+
+  /** True once the user has confirmed a code — login then requires a 2FA step. */
+  @Column({ default: false })
+  totp_enabled: boolean;
+
   // ── Subscription (demo-mode billing — no payment gateway yet) ──────────────
   // Plan numbers (credits/limits/prices) live in subscription/plans.const.ts;
   // only the user's state is stored here.

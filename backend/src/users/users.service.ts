@@ -136,6 +136,13 @@ export class UsersService implements OnModuleInit {
     });
   }
 
+  // ── Two-factor auth ─────────────────────────────────────────────────────────
+
+  /** Store (or clear) the encrypted TOTP secret and enabled flag. */
+  async setTotp(userId: string, secretEnc: string | null, enabled: boolean) {
+    await this.repo.update(userId, { totp_secret_enc: secretEnc, totp_enabled: enabled });
+  }
+
   toPublic(user: User) {
     return {
       id: user.id,
@@ -144,6 +151,7 @@ export class UsersService implements OnModuleInit {
       footer_text: user.footer_text,
       subscription_plan: user.subscription_plan || 'starter',
       credits_remaining: user.credits_remaining ?? 0,
+      totp_enabled: user.totp_enabled === true,
       created_at: user.created_at,
     };
   }

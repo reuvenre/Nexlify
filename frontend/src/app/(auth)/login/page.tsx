@@ -13,18 +13,23 @@ const FEATURES = [
 ];
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, completeMfa } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // 2FA challenge state
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [code, setCode] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
     try {
-      await login(email, password);
+      const { mfaToken } = await login(email, password);
+      if (mfaToken) setMfaToken(mfaToken); // account has 2FA → ask for the code
     } catch (err: unknown) {
       const e = err as { response?: { status?: number } };
       if (!e.response) {
@@ -32,6 +37,23 @@ export default function LoginPage() {
       } else {
         setError('אימייל או סיסמה שגויים');
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaToken) return;
+    setError('');
+    setIsLoading(true);
+    try {
+      await completeMfa(mfaToken, code.trim());
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number } };
+      setError(!e.response ? 'שגיאת חיבור — ודא שהשרת פועל'
+        : e.response.status === 401 ? 'קוד שגוי או שפג תוקפו — נסה שוב'
+        : 'האימות נכשל');
     } finally {
       setIsLoading(false);
     }
@@ -64,6 +86,52 @@ export default function LoginPage() {
         <div className="flex-1 flex items-center justify-center px-8 py-12">
           <div className="w-full max-w-[380px]">
 
+            {mfaToken ? (
+              /* ── 2FA code step ─────────────────────────────────────────── */
+              <div>
+                <div className="mb-7">
+                  <h1 className="text-[26px] font-bold text-gray-900 leading-tight">אימות דו-שלבי</h1>
+                  <p className="text-sm text-gray-500 mt-1.5">הזן את הקוד בן 6 הספרות מאפליקציית האימות שלך</p>
+                </div>
+                <form onSubmit={handleMfaSubmit} className="space-y-4">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    maxLength={6}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="000000"
+                    dir="ltr"
+                    className="w-full border border-gray-200 rounded-xl px-3.5 py-3 text-center text-2xl tracking-[0.5em] font-semibold text-gray-900 placeholder-gray-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-all bg-white"
+                    style={{ WebkitTextFillColor: '#111827', color: '#111827' }}
+                  />
+                  {error && (
+                    <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3.5 py-3">
+                      <AlertCircle size={14} className="text-red-500 shrink-0" />
+                      <p className="text-body text-red-600">{error}</p>
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isLoading || code.length !== 6}
+                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-55 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm shadow-blue-600/20"
+                  >
+                    {isLoading && <Loader2 size={15} className="animate-spin" />}
+                    {isLoading ? 'מאמת...' : 'אמת והתחבר'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMfaToken(null); setCode(''); setError(''); }}
+                    className="w-full text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    חזרה להתחברות
+                  </button>
+                </form>
+              </div>
+            ) : (
+            <>
             {/* Heading */}
             <div className="mb-7">
               <h1 className="text-[26px] font-bold text-gray-900 leading-tight">ברוכים הבאים</h1>
@@ -156,6 +224,8 @@ export default function LoginPage() {
                 הירשם בחינם
               </Link>
             </p>
+            </>
+            )}
           </div>
         </div>
       </div>

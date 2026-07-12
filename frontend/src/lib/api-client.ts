@@ -88,7 +88,7 @@ let queue: Array<{ resolve: (t: string) => void; reject: (e: unknown) => void }>
 // A 401 from these endpoints is a real credential/auth outcome that the caller must
 // handle directly (e.g. wrong password on login) — never route it through the silent
 // refresh + redirect flow, which would swallow the error and could cause redirect loops.
-const NO_REFRESH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password'];
+const NO_REFRESH_PATHS = ['/auth/login', '/auth/login/2fa', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password'];
 
 // Public routes where an auth failure must NOT force a hard redirect to /login — doing
 // so from a page that itself bootstraps auth creates an infinite reload loop.
@@ -167,8 +167,18 @@ const extract = <T>(res: { data: T }) => res.data;
 // ─── Auth API ────────────────────────────────────────────────────────────────
 
 export const authApi = {
+  // May return a full session OR a { mfa_required, mfa_token } challenge.
   login: (email: string, password: string) =>
-    http.post<AuthResponse>('/auth/login', { email, password }).then(extract),
+    http.post<import('@/types').LoginResult>('/auth/login', { email, password }).then(extract),
+
+  // Second step for 2FA accounts.
+  loginMfa: (mfa_token: string, code: string) =>
+    http.post<AuthResponse>('/auth/login/2fa', { mfa_token, code }).then(extract),
+
+  // 2FA management (authenticated).
+  setup2fa: () => http.post<{ qr: string; secret: string; otpauth: string }>('/auth/2fa/setup').then(extract),
+  enable2fa: (code: string) => http.post<{ enabled: true }>('/auth/2fa/enable', { code }).then(extract),
+  disable2fa: (code: string) => http.post<{ enabled: false }>('/auth/2fa/disable', { code }).then(extract),
 
   register: (email: string, password: string) =>
     http.post<AuthResponse>('/auth/register', { email, password }).then(extract),
