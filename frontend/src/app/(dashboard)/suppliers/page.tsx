@@ -409,7 +409,10 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [channelId, setChannelId] = useState(defaultChannel || '');
   const [postLang, setPostLang] = useState('he');
   const [template, setTemplate] = useState<PostTemplate>(BUILTIN_DEFAULT_TEMPLATE);
-  const [vision, setVision] = useState(true); // let the AI write from the actual product photo
+  const [vision, setVision] = useState(true); // let the AI write from the actual product photos
+  const [hint, setHint] = useState(''); // optional product-type override when vision misreads
+  const hintRef = useRef('');
+  useEffect(() => { hintRef.current = hint; }, [hint]);
   const [pv, setPv] = useState<(PostPreviewType & { gallery: string[]; vision_used?: boolean }) | null>(null);
   const [selected, setSelected] = useState<string[]>([]); // ordered manual image selection for the album
   const [lightbox, setLightbox] = useState<number | null>(null); // index into gallery for the enlarged viewer
@@ -488,8 +491,10 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId]);
 
+  // hint is read from a ref so typing it does NOT auto-regenerate (each generate costs a
+  // credit) — it applies on the next explicit regenerate / language change.
   const fetchPreview = useCallback(
-    () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined, vision }).then(withPreviewLink),
+    () => suppliersApi.preview(productId, { language: postLang, template: template.content || undefined, vision, hint: hintRef.current.trim() || undefined }).then(withPreviewLink),
     [productId, postLang, template, vision],
   );
 
@@ -626,9 +631,23 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
             </div>
           </div>
           <button onClick={() => setVision((v) => !v)}
-            title="הבינה תכתוב לפי מה שהיא מזהה בתמונת המוצר (מומלץ כשאין תיאור בקטלוג)"
+            title="הבינה תכתוב לפי מה שהיא מזהה בתמונות המוצר (מומלץ כשאין תיאור בקטלוג)"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${vision ? 'bg-violet-600/20 border-violet-500/40 text-violet-300' : 'bg-white/5 border-edge-hover text-white/40 hover:text-white/70'}`}>
             <Images size={12} /> כתוב לפי התמונה {vision ? '✓' : ''}
+          </button>
+        </div>
+
+        {/* Product-type override — the reliable fix when vision misreads the photo. */}
+        <div className="flex items-center gap-2 bg-surface-secondary border border-edge-hover rounded-xl px-3 py-2">
+          <Wand2 size={13} className="text-white/30 shrink-0" />
+          <input value={hint} onChange={(e) => setHint(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onRegenerate(); }}
+            placeholder="מה המוצר? (למשל: כפכפי עור חום) — מלא רק אם הבינה טועה"
+            className="flex-1 bg-transparent text-sm text-white placeholder-white/25 outline-none" dir="rtl" />
+          <button onClick={onRegenerate} disabled={regen || generating || !hint.trim()}
+            title="צור מחדש עם התיאור שהזנת"
+            className="shrink-0 flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition-all">
+            {regen ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} החל
           </button>
         </div>
 

@@ -153,7 +153,7 @@ export class PostsService {
 
   // ── Preview ───────────────────────────────────────────────────────────────
 
-  async preview(userId: string, productId: string, language = 'he', customProduct?: any, template?: string, images?: GenerateImage[]) {
+  async preview(userId: string, productId: string, language = 'he', customProduct?: any, template?: string, images?: GenerateImage[], hint?: string) {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
     const product = customProduct || await this.searchProduct(productId, creds);
@@ -168,6 +168,7 @@ export class PostsService {
       template || undefined,
       priceAlreadyConverted ? product.sale_price : undefined,
       images,
+      hint,
     );
 
     return {
@@ -991,7 +992,7 @@ export class PostsService {
 
   // ── OpenAI text generation ────────────────────────────────────────────────
 
-  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[]): Promise<string> {
+  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string): Promise<string> {
     // Use direct local price if already converted, otherwise multiply by rate
     const priceLocal = priceLocalOverride !== undefined
       ? priceLocalOverride.toFixed(0)
@@ -1032,13 +1033,22 @@ export class PostsService {
       ? this.templateSystemPrompt(language, template!.trim())
       : this.defaultSystemPrompt(language);
 
+    // A product-type hint (from the user) is the AUTHORITATIVE ground truth — it fixes the
+    // case where vision misreads an ambiguous first photo (e.g. flip-flops → "lighting").
+    const h = hint?.trim();
+    if (h) {
+      systemPrompt += `\n\nסוג/שם המוצר (מקור אמת מוחלט): "${h}". כתוב/כתבי אך ורק על המוצר הזה. אם התמונות נראות כמו משהו אחר — התעלם/י והתבסס/י על סוג המוצר שצוין. אסור בשום אופן לכתוב על קטגוריה אחרת.`;
+    }
+
     // Vision is for FREE-FORM generation (no template) — it grounds the copy in what's
     // actually in the photo. With a template, the template's wording is authoritative and
-    // must stay verbatim, so injecting image details would corrupt fixed lines (e.g. it
-    // rewrote "לפי הקוד בתמונות" → "לפי הקוד BBR"). So use vision ONLY when there's no template.
+    // must stay verbatim, so injecting image details would corrupt fixed lines. Use vision
+    // ONLY when there's no template.
     const visionImages = hasTemplate ? undefined : images;
     if (visionImages?.length) {
-      systemPrompt += '\n\nמצורפת תמונת המוצר. תאר את המוצר אך ורק לפי מה שנראה בתמונה בפועל (סוג הפריט, צבע, חומר, פרטים בולטים) ולפי העובדות שסופקו. אל תמציא מאפיינים, מותג או שימושים שאינם נראים בתמונה או מופיעים בעובדות. אם פרט לא ידוע — פשוט אל תזכיר אותו.';
+      systemPrompt += h
+        ? '\n\nמצורפות תמונות המוצר — השתמש/י בהן רק כדי לדייק פרטים ויזואליים (צבע, חומר, סגנון) של המוצר שצוין למעלה. אל תשנה/י את סוג המוצר.'
+        : '\n\nמצורפות תמונות המוצר. שלב 1: זהה/י מהו המוצר לפי מה שנראה בתמונות (רוב התמונות מציגות את אותו פריט — התעלם/י מתמונות שער/מידות/לוגו). שלב 2: כתוב/כתבי על המוצר שזיהית. אל תמציא/י קטגוריה שאינה נראית בבירור; אם באמת לא ברור מהו המוצר — תאר/י אותו כללית (צבע/סגנון/שימוש) בלי לנחש קטגוריה ספציפית שעלולה להיות שגויה.';
     }
 
     const userPrompt = hasTemplate

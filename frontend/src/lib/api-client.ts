@@ -509,8 +509,8 @@ export const suppliersApi = {
       description: string; title: string; images: string[]; raw_images: string[]; album_url: string;
     }>('/suppliers/album/preview', { catalogId, url }, { timeout: 30_000 }).then(extract),
 
-  /** AI-generate / regenerate the post text (quick-post preview) for a saved product — same Gemini + template flow as AliExpress. `vision` lets the AI write from the product photo. */
-  preview: (id: string, opts?: { language?: string; template?: string; vision?: boolean }) =>
+  /** AI-generate / regenerate the post text (quick-post preview) for a saved product — same Gemini + template flow as AliExpress. `vision` lets the AI write from the product photos; `hint` is an authoritative product-type override. */
+  preview: (id: string, opts?: { language?: string; template?: string; vision?: boolean; hint?: string }) =>
     http.post<PostPreview & { gallery: string[]; vision_used: boolean }>(`/suppliers/products/${id}/preview`, opts || {}, { timeout: AI_TIMEOUT }).then(extract),
 
   queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number) =>

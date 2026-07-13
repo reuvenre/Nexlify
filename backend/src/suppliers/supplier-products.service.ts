@@ -215,27 +215,49 @@ export class SupplierProductsService {
    * Credit for ai_generate is consumed inside generateText, exactly like AliExpress
    * (no extra supplier-level charge).
    */
-  async preview(userId: string, id: string, opts?: { language?: string; template?: string; vision?: boolean }) {
+  async preview(userId: string, id: string, opts?: { language?: string; template?: string; vision?: boolean; hint?: string }) {
     const p = await this.get(userId, id);
     const gallery = this.proxiedGallery(p);
     const image = this.proxyImage(p.image_url) || gallery[0] || '';
 
-    // Vision: fetch the real product photo so the AI writes from what it SEES — crucial
-    // for Yupoo albums with no textual description (text-only AI would invent details).
-    // Skipped when a template is active: the template's wording is authoritative and
-    // vision would corrupt its fixed lines (generateText ignores images in template mode).
+    // Vision: fetch SEVERAL of the real product photos so the AI can identify the item
+    // reliably — a single first image is often a cover/size-chart/logo and makes the model
+    // write about the wrong thing (flip-flops → "lighting"). Skipped when a template is
+    // active (template wording is authoritative). A user hint overrides the model entirely.
     let images: GenerateImage[] | undefined;
     let visionUsed = false;
-    if (opts?.vision && !opts?.template?.trim() && p.image_url) {
-      const img = await this.fetchImageBase64(p.image_url);
-      if (img) { images = [img]; visionUsed = true; }
+    if (opts?.vision && !opts?.template?.trim()) {
+      images = await this.fetchImagesBase64(this.rawGallery(p), 3);
+      visionUsed = images.length > 0;
     }
 
     const { price, currency } = await this.pricing(userId, p.price);
+    const product = this.toPostProduct(p, image, price, currency);
+    // A hint is the meaningful product name — use it in the facts so the copy is on-topic.
+    if (opts?.hint?.trim()) product.title = opts.hint.trim();
+
     const result = await this.posts.preview(
-      userId, p.sku || p.id, opts?.language || 'he', this.toPostProduct(p, image, price, currency), opts?.template, images,
+      userId, p.sku || p.id, opts?.language || 'he', product, opts?.template, images, opts?.hint,
     );
     return { ...result, gallery, vision_used: visionUsed };
+  }
+
+  /** Raw (un-proxied) product image URLs — main image first, then the gallery. */
+  private rawGallery(p: SupplierProduct): string[] {
+    let g: string[] = [];
+    try { g = p.gallery_json ? JSON.parse(p.gallery_json) : []; } catch { /* ignore */ }
+    if (p.image_url && !g.includes(p.image_url)) g.unshift(p.image_url);
+    return g;
+  }
+
+  /** Fetch up to `max` images → base64 for vision (sequential, tolerant of failures). */
+  private async fetchImagesBase64(urls: string[], max = 3): Promise<GenerateImage[]> {
+    const out: GenerateImage[] = [];
+    for (const u of urls.slice(0, max)) {
+      const img = await this.fetchImageBase64(u);
+      if (img) out.push(img);
+    }
+    return out;
   }
 
   /** Fetch a Yupoo image → base64 for vision (Yupoo hotlink-protects → needs the Referer). */
