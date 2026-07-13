@@ -342,7 +342,7 @@ export const postsApi = {
   quickPost: (data: { product_id: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string }) =>
     http.post<Post>('/posts/quick', data, { timeout: AI_TIMEOUT }).then(extract),
 
-  list: (params?: { page?: number; limit?: number; status?: string; campaign_id?: string }) =>
+  list: (params?: { page?: number; limit?: number; status?: string; campaign_id?: string; source?: 'aliexpress' | 'flylink' }) =>
     http.get<PaginatedResponse<Post>>('/posts', { params }).then(extract),
 
   retry: (id: string) => http.post<Post>(`/posts/${id}/retry`).then(extract),

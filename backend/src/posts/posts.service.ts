@@ -134,7 +134,7 @@ export class PostsService {
 
   // ── List ──────────────────────────────────────────────────────────────────
 
-  async list(userId: string, page = 1, limit = 20, status?: string, campaignId?: string) {
+  async list(userId: string, page = 1, limit = 20, status?: string, campaignId?: string, source?: string) {
     const qb = this.repo.createQueryBuilder('p')
       .leftJoin('p.campaign', 'c')
       .addSelect(['c.name'])
@@ -145,6 +145,10 @@ export class PostsService {
 
     if (status) qb.andWhere('p.status = :status', { status });
     if (campaignId) qb.andWhere('p.campaign_id = :campaignId', { campaignId });
+    // Product source is inferred from the affiliate link: FLYLINK posts link to
+    // flylinking.com, everything else is AliExpress.
+    if (source === 'flylink') qb.andWhere("p.affiliate_url ILIKE '%flylink%'");
+    else if (source === 'aliexpress') qb.andWhere("(p.affiliate_url IS NULL OR p.affiliate_url NOT ILIKE '%flylink%')");
 
     const [raw, total] = await qb.getManyAndCount();
     const data = raw.map((p) => ({ ...p, campaign_name: p.campaign?.name ?? null }));

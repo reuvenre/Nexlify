@@ -19,8 +19,9 @@ export class PostsController {
     @Query('limit') limit = 20,
     @Query('status') status?: string,
     @Query('campaign_id') campaignId?: string,
+    @Query('source') source?: string,
   ) {
-    return this.svc.list(this.uid(req), +page, +limit, status, campaignId);
+    return this.svc.list(this.uid(req), +page, +limit, status, campaignId, source);
   }
 
   @Post('preview')

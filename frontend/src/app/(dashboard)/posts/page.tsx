@@ -463,6 +463,7 @@ export default function PostsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [status, setStatus] = useState('');
+  const [source, setSource] = useState<'' | 'aliexpress' | 'flylink'>('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -473,14 +474,14 @@ export default function PostsPage() {
     if (!opts?.silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const res = await postsApi.list({ page, limit, status: status || undefined });
+      const res = await postsApi.list({ page, limit, status: status || undefined, source: source || undefined });
       setPosts(res.data);
       setTotal(res.total);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [page, limit, status, isQueueTab]);
+  }, [page, limit, status, source, isQueueTab]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -527,24 +528,46 @@ export default function PostsPage() {
         </div>
       </div>
 
-      {/* Status tabs */}
-      <div className="flex items-center gap-1 bg-surface-secondary border border-edge rounded-xl p-1 mb-6 w-fit">
-        {STATUS_TABS.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => { setStatus(t.value); setPage(1); }}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all
-              ${status === t.value
-                ? t.value === 'queued'
-                  ? 'bg-amber-500/15 text-amber-400'
-                  : 'bg-blue-600/20 text-blue-400'
-                : 'text-white/40 hover:text-white/70 hover:bg-white/5'
-              }`}
-          >
-            {t.value === 'queued' && <ListOrdered size={12} />}
-            {t.label}
-          </button>
-        ))}
+      {/* Filters: status + product source */}
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-1 bg-surface-secondary border border-edge rounded-xl p-1 w-fit">
+          {STATUS_TABS.map((t) => (
+            <button
+              key={t.value}
+              onClick={() => { setStatus(t.value); setPage(1); }}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all
+                ${status === t.value
+                  ? t.value === 'queued'
+                    ? 'bg-amber-500/15 text-amber-400'
+                    : 'bg-blue-600/20 text-blue-400'
+                  : 'text-white/40 hover:text-white/70 hover:bg-white/5'
+                }`}
+            >
+              {t.value === 'queued' && <ListOrdered size={12} />}
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Product source */}
+        {!isQueueTab && (
+          <div className="flex items-center gap-1 bg-surface-secondary border border-edge rounded-xl p-1 w-fit">
+            {([
+              { v: '' as const, l: 'כל המקורות' },
+              { v: 'aliexpress' as const, l: 'AliExpress', cls: 'bg-orange-500/15 text-orange-300' },
+              { v: 'flylink' as const, l: 'FLYLINK', cls: 'bg-violet-500/15 text-violet-300' },
+            ]).map((s) => (
+              <button
+                key={s.v}
+                onClick={() => { setSource(s.v); setPage(1); }}
+                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-all
+                  ${source === s.v ? (s.cls || 'bg-blue-600/20 text-blue-400') : 'text-white/40 hover:text-white/70 hover:bg-white/5'}`}
+              >
+                {s.l}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Queue panel */}
