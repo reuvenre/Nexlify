@@ -94,6 +94,15 @@ export class CredentialSetDto {
   @IsString()
   apify_api_token?: string;
 
+  // ── Scaffolded integrations (stored; activation pending external accounts) ──
+  @IsOptional() @IsString() whatsapp_phone_number_id?: string;
+  @IsOptional() @IsString() whatsapp_access_token?: string;
+  @IsOptional() @IsString() amazon_access_key?: string;
+  @IsOptional() @IsString() amazon_secret_key?: string;
+  @IsOptional() @IsString() amazon_partner_tag?: string;
+  @IsOptional() @IsString() pinterest_access_token?: string;
+  @IsOptional() @IsString() pinterest_board_id?: string;
+
   // ── Auto-boost ──
   @IsOptional()
   @IsBoolean()

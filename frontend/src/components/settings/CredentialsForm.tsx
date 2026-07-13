@@ -23,6 +23,9 @@ export function CredentialsForm() {
     gemini_model: 'gemini-2.5-flash',
     ai_monthly_token_budget: null,
     apify_api_token: '',
+    amazon_access_key: '',
+    amazon_secret_key: '',
+    amazon_partner_tag: '',
     currency_pair: 'USD_ILS',
   });
   const [show, setShow] = useState<Record<string, boolean>>({});
@@ -44,6 +47,9 @@ export function CredentialsForm() {
           anthropic_model: c.anthropic_model || 'claude-sonnet-4-6',
           gemini_model: c.gemini_model || 'gemini-2.5-flash',
           ai_monthly_token_budget: c.ai_monthly_token_budget ?? null,
+          amazon_access_key: c.amazon_access_key || '',
+          amazon_partner_tag: c.amazon_partner_tag || '',
+          amazon_secret_key: '', // secret — re-enter to update
           currency_pair: c.currency_pair || 'USD_ILS',
           // Secrets: leave empty — backend keeps existing value when empty is submitted
           aliexpress_app_secret: '',
@@ -264,31 +270,22 @@ export function CredentialsForm() {
         </div>
       </section>
 
-      {/* Amazon */}
+      {/* Amazon Associates — credentials stored; import/commission activates once you
+          have an approved Associates account + PA-API access. */}
       <section className="bg-surface-secondary border border-edge rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
             <span className="text-lg">📦</span> Amazon Associates
           </h3>
-          <span className="text-2xs bg-amber-500/15 text-amber-400 border border-amber-500/25 rounded-full px-2.5 py-0.5 font-medium">בקרוב</span>
+          <span className="text-2xs bg-blue-500/15 text-blue-300 border border-blue-500/25 rounded-full px-2.5 py-0.5 font-medium">דרוש אישור Amazon</span>
         </div>
-        <p className="text-xs text-white/35 mb-4">שילוב עם Amazon Affiliate Program לייבוא מוצרים ומעקב עמלות.</p>
-        <div className="grid grid-cols-1 gap-4 opacity-50 pointer-events-none">
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5">Access Key</label>
-            <input disabled placeholder="AKIAIOSFODNN7EXAMPLE" dir="ltr"
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5">Secret Key</label>
-            <input disabled placeholder="wJalrXUtnFEMI/K7MDENG..." dir="ltr"
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5">Partner Tag</label>
-            <input disabled placeholder="mytag-20" dir="ltr"
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none" />
-          </div>
+        <p className="text-xs text-white/35 mb-4">
+          שמור כאן את מפתחות ה-PA-API שלך. הייבוא והמעקב יופעלו לאחר שיהיה לך חשבון Amazon Associates מאושר עם גישת PA-API.
+        </p>
+        <div className="grid grid-cols-1 gap-4">
+          <Field label="Access Key" field="amazon_access_key" placeholder="AKIAIOSFODNN7EXAMPLE" />
+          <Field label="Secret Key" field="amazon_secret_key" secret placeholder="wJalrXUtnFEMI/K7MDENG..." />
+          <Field label="Partner Tag" field="amazon_partner_tag" placeholder="mytag-20" />
         </div>
       </section>
 

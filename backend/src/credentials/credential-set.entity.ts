@@ -96,6 +96,33 @@ export class CredentialSet {
   @Column({ nullable: true })
   apify_api_token_enc: string;
 
+  /* ── Scaffolded integrations (credentials stored; activation pending the
+   *    user's external account / API approval — no publish path wired yet) ── */
+
+  // WhatsApp Business (Cloud API)
+  @Column({ nullable: true })
+  whatsapp_phone_number_id: string;
+
+  @Column({ nullable: true })
+  whatsapp_access_token_enc: string;
+
+  // Amazon Associates (PA-API)
+  @Column({ nullable: true })
+  amazon_access_key: string;
+
+  @Column({ nullable: true })
+  amazon_secret_key_enc: string;
+
+  @Column({ nullable: true })
+  amazon_partner_tag: string;
+
+  // Pinterest
+  @Column({ nullable: true })
+  pinterest_access_token_enc: string;
+
+  @Column({ nullable: true })
+  pinterest_board_id: string;
+
   /* ── Auto-boost (Meta Ads, ROAS-driven) ────────────────────────────────── */
 
   @Column({ default: false })

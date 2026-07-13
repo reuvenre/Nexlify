@@ -152,6 +152,15 @@ export class CredentialsService {
       cred.apify_api_token_enc = encrypt(dto.apify_api_token.trim());
     }
 
+    // Scaffolded integrations — non-secret ids (direct) + secret tokens (encrypted).
+    if (dto.whatsapp_phone_number_id?.trim()) cred.whatsapp_phone_number_id = dto.whatsapp_phone_number_id.trim();
+    if (dto.whatsapp_access_token?.trim())    cred.whatsapp_access_token_enc = encrypt(dto.whatsapp_access_token.trim());
+    if (dto.amazon_access_key?.trim())        cred.amazon_access_key = dto.amazon_access_key.trim();
+    if (dto.amazon_secret_key?.trim())        cred.amazon_secret_key_enc = encrypt(dto.amazon_secret_key.trim());
+    if (dto.amazon_partner_tag?.trim())       cred.amazon_partner_tag = dto.amazon_partner_tag.trim();
+    if (dto.pinterest_access_token?.trim())   cred.pinterest_access_token_enc = encrypt(dto.pinterest_access_token.trim());
+    if (dto.pinterest_board_id?.trim())       cred.pinterest_board_id = dto.pinterest_board_id.trim();
+
     await this.repo.save(cred);
     return this.toPublic(cred);
   }
@@ -399,6 +408,14 @@ export class CredentialsService {
       image_enhance_enabled: cred.image_enhance_enabled ?? false,
       // Discovery
       apify_api_token: cred.apify_api_token_enc ? mask(decrypt(cred.apify_api_token_enc)) : '',
+      // Scaffolded integrations (ids direct, secrets masked)
+      whatsapp_phone_number_id: cred.whatsapp_phone_number_id || '',
+      whatsapp_access_token: cred.whatsapp_access_token_enc ? mask(decrypt(cred.whatsapp_access_token_enc)) : '',
+      amazon_access_key: cred.amazon_access_key || '',
+      amazon_secret_key: cred.amazon_secret_key_enc ? mask(decrypt(cred.amazon_secret_key_enc)) : '',
+      amazon_partner_tag: cred.amazon_partner_tag || '',
+      pinterest_access_token: cred.pinterest_access_token_enc ? mask(decrypt(cred.pinterest_access_token_enc)) : '',
+      pinterest_board_id: cred.pinterest_board_id || '',
       // Auto-boost
       boost_enabled: cred.boost_enabled ?? false,
       boost_roas_threshold: cred.boost_roas_threshold ?? 2.0,

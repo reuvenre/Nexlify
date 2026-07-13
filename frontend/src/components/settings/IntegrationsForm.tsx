@@ -35,6 +35,12 @@ export function IntegrationsForm() {
   // Auto image enhancement (local sharp pass, applied on the Telegram album)
   const [imageEnhance, setImageEnhance] = useState(false);
 
+  // Scaffolded integrations (credentials stored; activation pending external accounts)
+  const [waPhoneId, setWaPhoneId] = useState('');
+  const [waToken, setWaToken] = useState('');
+  const [pinBoardId, setPinBoardId] = useState('');
+  const [pinToken, setPinToken] = useState('');
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loadingChannels, setLoadingChannels] = useState(true);
 
@@ -49,6 +55,8 @@ export function IntegrationsForm() {
         setPubFacebook(c.publish_facebook ?? false);
         setPubInstagram(c.publish_instagram ?? false);
         setImageEnhance(c.image_enhance_enabled ?? false);
+        setWaPhoneId(c.whatsapp_phone_number_id || '');
+        setPinBoardId(c.pinterest_board_id || '');
       })
       .catch(() => {});
 
@@ -76,7 +84,12 @@ export function IntegrationsForm() {
         publish_facebook: pubFacebook,
         publish_instagram: pubInstagram,
         image_enhance_enabled: imageEnhance,
+        whatsapp_phone_number_id: waPhoneId,
+        whatsapp_access_token: waToken,
+        pinterest_board_id: pinBoardId,
+        pinterest_access_token: pinToken,
       });
+      setWaToken(''); setPinToken('');
       setSaved(true);
       setBotToken('');
       setFbToken('');
@@ -170,18 +183,55 @@ export function IntegrationsForm() {
         </div>
       </section>
 
-      {/* WhatsApp */}
+      {/* WhatsApp Business — credentials stored; activation pending a WhatsApp Business
+          Account + Meta-approved message templates. */}
       <section className="bg-surface-secondary border border-edge rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
             <span className="text-lg">💬</span> WhatsApp Business
           </h3>
-          <span className="text-2xs bg-amber-500/15 text-amber-400 border border-amber-500/25 rounded-full px-2.5 py-0.5 font-medium">בקרוב</span>
+          <span className="text-2xs bg-blue-500/15 text-blue-300 border border-blue-500/25 rounded-full px-2.5 py-0.5 font-medium">דרוש חשבון WhatsApp Business</span>
         </div>
-        <p className="text-xs text-white/35">שילוב עם WhatsApp Business API לשליחת פוסטים לקבוצות ואנשי קשר.</p>
-        <button disabled className="mt-3 flex items-center gap-2 px-4 py-2 bg-white/5 text-white/30 text-xs rounded-xl cursor-not-allowed opacity-50">
-          <Plus size={12} /> חבר WhatsApp
-        </button>
+        <p className="text-xs text-white/35 mb-4">
+          שמור כאן את פרטי WhatsApp Cloud API. הפרסום יופעל לאחר שיהיה לך WhatsApp Business Account עם תבניות הודעה מאושרות ע&quot;י Meta.
+        </p>
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">Phone Number ID</label>
+            <input value={waPhoneId} onChange={(e) => setWaPhoneId(e.target.value)} placeholder="1050000000000000" dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">Access Token</label>
+            <input value={waToken} onChange={(e) => setWaToken(e.target.value)} type="password" placeholder="EAAG..." dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+        </div>
+      </section>
+
+      {/* Pinterest — credentials stored; activation pending a Pinterest app + API access. */}
+      <section className="bg-surface-secondary border border-edge rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <span className="text-lg">📌</span> Pinterest
+          </h3>
+          <span className="text-2xs bg-blue-500/15 text-blue-300 border border-blue-500/25 rounded-full px-2.5 py-0.5 font-medium">דרוש אפליקציית Pinterest</span>
+        </div>
+        <p className="text-xs text-white/35 mb-4">
+          שמור כאן את פרטי Pinterest API. יצירת פינים אוטומטית תופעל לאחר אישור אפליקציית ה-API שלך אצל Pinterest.
+        </p>
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">Board ID</label>
+            <input value={pinBoardId} onChange={(e) => setPinBoardId(e.target.value)} placeholder="1234567890" dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">Access Token</label>
+            <input value={pinToken} onChange={(e) => setPinToken(e.target.value)} type="password" placeholder="pina_..." dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+        </div>
       </section>
 
       {/* Facebook / Meta — live */}

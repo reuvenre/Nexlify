@@ -117,6 +117,14 @@ export interface CredentialSet {
   image_enhance_enabled: boolean;
   // Discovery
   apify_api_token: string;        // masked
+  // Scaffolded integrations (activation pending external accounts)
+  whatsapp_phone_number_id: string;
+  whatsapp_access_token: string;  // masked
+  amazon_access_key: string;
+  amazon_secret_key: string;      // masked
+  amazon_partner_tag: string;
+  pinterest_access_token: string; // masked
+  pinterest_board_id: string;
   // Auto-boost
   boost_enabled: boolean;
   boost_roas_threshold: number;
@@ -167,6 +175,14 @@ export interface CredentialSetInput {
   image_enhance_enabled?: boolean;
   // Discovery
   apify_api_token?: string;
+  // Scaffolded integrations
+  whatsapp_phone_number_id?: string;
+  whatsapp_access_token?: string;
+  amazon_access_key?: string;
+  amazon_secret_key?: string;
+  amazon_partner_tag?: string;
+  pinterest_access_token?: string;
+  pinterest_board_id?: string;
   // Auto-boost
   boost_enabled?: boolean;
   boost_roas_threshold?: number;
