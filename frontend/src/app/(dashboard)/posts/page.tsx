@@ -293,6 +293,12 @@ function QueuePanel() {
 
 // ─── Post Row ─────────────────────────────────────────────────────────────────
 
+// Infer the post's product source from its affiliate link (FLYLINK posts link to
+// flylinking.com; everything else is an AliExpress product).
+function postSource(post: Post): 'flylink' | 'aliexpress' {
+  return /flylink/i.test(post.affiliate_url || '') ? 'flylink' : 'aliexpress';
+}
+
 function PostRow({ post, onRetry, onDelete, onEdit }: {
   post: Post;
   onRetry: (id: string) => Promise<void>;
@@ -327,9 +333,14 @@ function PostRow({ post, onRetry, onDelete, onEdit }: {
           )}
           <div className="min-w-0">
             <p className="text-sm text-white truncate max-w-xs">{post.product_title}</p>
-            {post.campaign_name && (
-              <p className="text-xs text-white/30">{post.campaign_name}</p>
-            )}
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {postSource(post) === 'flylink' ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25 font-medium">FLYLINK</span>
+              ) : (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 border border-orange-500/25 font-medium">AliExpress</span>
+              )}
+              {post.campaign_name && <span className="text-xs text-white/30 truncate">{post.campaign_name}</span>}
+            </div>
           </div>
         </div>
       </td>
