@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
-  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save,
+  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal,
 } from 'lucide-react';
 import Link from 'next/link';
 import { postsApi, credentialsApi } from '@/lib/api-client';
@@ -306,20 +306,32 @@ function postSource(post: Post): 'flylink' | 'aliexpress' {
   return /flylink/i.test(post.affiliate_url || '') ? 'flylink' : 'aliexpress';
 }
 
-function PostRow({ post, onRetry, onDelete, onEdit }: {
+function PostRow({ post, onRetry, onRetryFailed, onDelete, onEdit, onRepublish }: {
   post: Post;
   onRetry: (id: string) => Promise<void>;
+  onRetryFailed: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onEdit: (post: Post) => void;
+  onRepublish: (post: Post) => void;
 }) {
   const [retrying, setRetrying] = useState(false);
+  const [retryingFailed, setRetryingFailed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const cfg = STATUS_CONFIG[post.status] || STATUS_CONFIG.pending;
+  // A 'sent' post that still carries an error published to SOME channels but failed on
+  // another → offer a retry that hits ONLY the platform(s) that didn't go out.
+  const isPartial = post.status === 'sent' && !!post.error_message;
 
   const handleRetry = async () => {
     setRetrying(true);
     await onRetry(post.id).catch(() => {});
     setRetrying(false);
+  };
+
+  const handleRetryFailed = async () => {
+    setRetryingFailed(true);
+    await onRetryFailed(post.id).catch(() => {});
+    setRetryingFailed(false);
   };
 
   const handleDelete = async () => {
@@ -384,11 +396,21 @@ function PostRow({ post, onRetry, onDelete, onEdit }: {
       <td className="py-3 px-4">
         <div className="flex items-center gap-1">
           {post.status === 'failed' && (
-            <button onClick={handleRetry} disabled={retrying} title="נסה שוב"
+            <button onClick={handleRetry} disabled={retrying} title="נסה שוב (כל הערוצים)"
               className="w-7 h-7 rounded-lg flex items-center justify-center text-blue-400/70 hover:text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 transition-all">
               {retrying ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
             </button>
           )}
+          {isPartial && (
+            <button onClick={handleRetryFailed} disabled={retryingFailed} title="שלח שוב רק לפלטפורמה שנכשלה"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-amber-400/80 hover:text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 transition-all">
+              {retryingFailed ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
+            </button>
+          )}
+          <button onClick={() => onRepublish(post)} title="פרסם מחדש — לתור או בתזמון"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-violet-400/70 hover:text-violet-400 hover:bg-violet-500/10 transition-all">
+            <RefreshCw size={13} />
+          </button>
           <button onClick={() => onEdit(post)} title="ערוך פוסט"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition-all">
             <Pencil size={13} />
@@ -419,6 +441,10 @@ function EditPostModal({ post, onClose, onSaved }: {
 }) {
   const isScheduled = post.status === 'scheduled';
   const [text, setText] = useState(post.generated_text || '');
+  const [title, setTitle] = useState(post.product_title || '');
+  const [price, setPrice] = useState<string>(post.price_ils != null ? String(post.price_ils) : '');
+  const [image, setImage] = useState(post.product_image || '');
+  const [link, setLink] = useState(post.affiliate_url || '');
   const [scheduledAt, setScheduledAt] = useState(() => toLocalInput(post.scheduled_at));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -428,35 +454,63 @@ function EditPostModal({ post, onClose, onSaved }: {
     try {
       await postsApi.update(post.id, {
         text,
+        product_title: title,
+        price_ils: price.trim() !== '' ? Number(price) : undefined,
+        product_image: image,
+        affiliate_url: link,
         scheduled_at: isScheduled && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
       });
       onSaved();
     } catch (e: any) { setError(e?.response?.data?.message || 'שמירה נכשלה'); setSaving(false); }
   };
 
+  const inputCls = 'w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-blue-500/50';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-lg p-6" dir="rtl" onClick={(e) => e.stopPropagation()}>
+      <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-lg p-6 max-h-[92vh] overflow-y-auto" dir="rtl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-white truncate">עריכת פוסט</h3>
           <button onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
         </div>
-        <p className="text-xs text-white/40 truncate mb-3" dir="ltr">{post.product_title}</p>
+
+        <div className="flex items-center gap-3 mb-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {image ? <img src={image} alt="" className="w-14 h-14 rounded-lg object-cover bg-white/5 shrink-0" /> : <div className="w-14 h-14 rounded-lg bg-white/5 shrink-0" />}
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs text-white/50 mb-1">שם המוצר</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} dir="ltr" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label className="block text-xs text-white/50 mb-1">מחיר (₪)</label>
+            <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} dir="ltr" />
+          </div>
+          <div>
+            <label className="block text-xs text-white/50 mb-1">קישור שותפים</label>
+            <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…" className={inputCls} dir="ltr" />
+          </div>
+        </div>
+
+        <label className="block text-xs text-white/50 mb-1.5">כתובת תמונה ראשית</label>
+        <input value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" className={`${inputCls} mb-3`} dir="ltr" />
 
         <label className="block text-xs text-white/50 mb-1.5">טקסט הפוסט</label>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={9}
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8}
           className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white leading-relaxed outline-none focus:border-blue-500/50 resize-none font-mono" dir="rtl" />
 
         {isScheduled && (
           <div className="mt-3">
             <label className="block text-xs text-white/50 mb-1.5">מועד פרסום</label>
             <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-blue-500/50" dir="ltr" />
+              className={inputCls} dir="ltr" />
           </div>
         )}
         {post.status === 'sent' && (
-          <p className="text-2xs text-amber-400/80 mt-2">הפוסט כבר נשלח — עריכת הטקסט לא תשנה את ההודעה שכבר פורסמה בטלגרם.</p>
+          <p className="text-2xs text-amber-400/80 mt-2">הפוסט כבר נשלח — העריכה לא תשנה את ההודעה שכבר פורסמה, אבל תחול על &quot;פרסום מחדש&quot;.</p>
         )}
         {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
 
@@ -467,6 +521,65 @@ function EditPostModal({ post, onClose, onSaved }: {
           </button>
           <button onClick={onClose} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl">ביטול</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Republish modal (re-queue or schedule; never immediate) ───────────────────
+function RepublishModal({ post, onClose, onDone }: {
+  post: Post; onClose: () => void; onDone: () => void;
+}) {
+  const [mode, setMode] = useState<'queue' | 'schedule'>('queue');
+  const [scheduledAt, setScheduledAt] = useState(() => toLocalInput());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true); setError('');
+    try {
+      await postsApi.requeue(post.id, mode === 'schedule' && scheduledAt ? new Date(scheduledAt).toISOString() : undefined);
+      setDone(mode === 'queue' ? 'נוסף לתור — יישלח בתור הבא' : 'תוזמן בהצלחה');
+      setTimeout(onDone, 1100);
+    } catch (e: any) { setError(e?.response?.data?.message || 'הפעולה נכשלה'); setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-sm p-6" dir="rtl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-base font-semibold text-white flex items-center gap-2"><RefreshCw size={15} className="text-violet-400" /> פרסום מחדש</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
+        </div>
+        <p className="text-xs text-white/40 truncate mb-4" dir="ltr">{post.product_title}</p>
+
+        <div className="space-y-2 mb-4">
+          <button type="button" onClick={() => setMode('queue')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm transition-all ${mode === 'queue' ? 'bg-violet-600/15 border-violet-500/40 text-white' : 'bg-white/3 border-edge-hover text-white/60'}`}>
+            <ListOrdered size={15} className="text-violet-400" />
+            <span className="text-right"><span className="block font-medium">הוסף לתור</span><span className="block text-2xs text-white/40">יישלח בתור הבא לפי הגדרות התזמון — לא מיידי</span></span>
+          </button>
+          <button type="button" onClick={() => setMode('schedule')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm transition-all ${mode === 'schedule' ? 'bg-violet-600/15 border-violet-500/40 text-white' : 'bg-white/3 border-edge-hover text-white/60'}`}>
+            <Clock size={15} className="text-violet-400" />
+            <span className="text-right"><span className="block font-medium">תזמן לשעה מסוימת</span><span className="block text-2xs text-white/40">בחר תאריך ושעה לפרסום</span></span>
+          </button>
+        </div>
+
+        {mode === 'schedule' && (
+          <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
+            className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-violet-500/50 mb-4" dir="ltr" />
+        )}
+
+        {done && <p className="text-xs text-emerald-400 mb-3">✓ {done}</p>}
+        {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
+
+        <button onClick={submit} disabled={busy || !!done}
+          className="w-full flex items-center justify-center gap-2 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl">
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} {mode === 'queue' ? 'הוסף לתור' : 'תזמן'}
+        </button>
       </div>
     </div>
   );
@@ -507,12 +620,18 @@ export default function PostsPage() {
     load({ silent: true });
   };
 
+  const handleRetryFailed = async (id: string) => {
+    await postsApi.retryFailed(id);
+    load({ silent: true });
+  };
+
   const handleDelete = async (id: string) => {
     await postsApi.remove(id);
     load({ silent: true });
   };
 
   const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [republishingPost, setRepublishingPost] = useState<Post | null>(null);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -613,7 +732,7 @@ export default function PostsPage() {
             </thead>
             <tbody>
               {posts.map((p) => (
-                <PostRow key={p.id} post={p} onRetry={handleRetry} onDelete={handleDelete} onEdit={setEditingPost} />
+                <PostRow key={p.id} post={p} onRetry={handleRetry} onRetryFailed={handleRetryFailed} onDelete={handleDelete} onEdit={setEditingPost} onRepublish={setRepublishingPost} />
               ))}
             </tbody>
           </table>
@@ -664,6 +783,14 @@ export default function PostsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {republishingPost && (
+        <RepublishModal
+          post={republishingPost}
+          onClose={() => setRepublishingPost(null)}
+          onDone={() => { setRepublishingPost(null); load({ silent: true }); }}
+        />
       )}
 
       {editingPost && (

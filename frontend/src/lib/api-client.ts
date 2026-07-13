@@ -353,11 +353,20 @@ export const postsApi = {
   list: (params?: { page?: number; limit?: number; status?: string; campaign_id?: string; source?: 'aliexpress' | 'flylink' }) =>
     http.get<PaginatedResponse<Post>>('/posts', { params }).then(extract),
 
-  retry: (id: string) => http.post<Post>(`/posts/${id}/retry`).then(extract),
+  retry: (id: string) => http.post<Post>(`/posts/${id}/retry`, {}, { timeout: AI_TIMEOUT }).then(extract),
 
-  /** Edit a post's text and/or scheduled time (posts management screen). */
-  update: (id: string, data: { text?: string; scheduled_at?: string }) =>
-    http.patch<Post>(`/posts/${id}`, data).then(extract),
+  /** Re-send ONLY the platform(s) that failed on a partially-published post. */
+  retryFailed: (id: string) => http.post<Post>(`/posts/${id}/retry-failed`, {}, { timeout: AI_TIMEOUT }).then(extract),
+
+  /** Re-publish a post via the queue (no time) or schedule it (with scheduled_at). */
+  requeue: (id: string, scheduledAt?: string) =>
+    http.post<Post>(`/posts/${id}/requeue`, { scheduled_at: scheduledAt }).then(extract),
+
+  /** Full post edit: text, title, price, image, affiliate link, and/or scheduled time. */
+  update: (id: string, data: {
+    text?: string; scheduled_at?: string;
+    product_title?: string; price_ils?: number; product_image?: string; affiliate_url?: string;
+  }) => http.patch<Post>(`/posts/${id}`, data).then(extract),
 
   /** Delete any post (queued/scheduled/sent/failed). */
   remove: (id: string) => http.delete(`/posts/${id}`).then(extract),

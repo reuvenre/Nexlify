@@ -72,6 +72,20 @@ export class PostsController {
     return this.svc.retry(this.uid(req), id);
   }
 
+  /** Re-send only the platform(s) that failed on a partially-published post. */
+  @Post(':id/retry-failed')
+  @HttpCode(200)
+  retryFailed(@Req() req: Request, @Param('id') id: string) {
+    return this.svc.retryFailedChannels(this.uid(req), id);
+  }
+
+  /** Re-publish a post through the queue (no time) or schedule it (with time). */
+  @Post(':id/requeue')
+  @HttpCode(200)
+  requeue(@Req() req: Request, @Param('id') id: string, @Body('scheduled_at') scheduledAt?: string) {
+    return this.svc.requeue(this.uid(req), id, scheduledAt);
+  }
+
   // ── Queue ──────────────────────────────────────────────────────────────────
 
   @Get('queue')
@@ -111,7 +125,10 @@ export class PostsController {
 
   /** Edit a post's text and/or scheduled time (from the posts management screen). */
   @Patch(':id')
-  updatePost(@Req() req: Request, @Param('id') id: string, @Body() dto: { text?: string; scheduled_at?: string }) {
+  updatePost(@Req() req: Request, @Param('id') id: string, @Body() dto: {
+    text?: string; scheduled_at?: string;
+    product_title?: string; price_ils?: number; product_image?: string; affiliate_url?: string;
+  }) {
     return this.svc.updatePost(this.uid(req), id, dto);
   }
 

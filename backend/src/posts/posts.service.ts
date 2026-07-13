@@ -490,12 +490,23 @@ export class PostsService {
     return { deleted: true };
   }
 
-  /** Edit a post's text and/or scheduled time. (Editing a sent post's text does not
-   * change the already-published Telegram message — it only affects a later retry.) */
-  async updatePost(userId: string, postId: string, dto: { text?: string; scheduled_at?: string }): Promise<Post> {
+  /** Full post edit: text, title, price, image, affiliate link, and/or scheduled time.
+   * (Editing an already-sent post does not change the live Telegram/FB message — the
+   * new values apply to a later retry / re-queue.) */
+  async updatePost(userId: string, postId: string, dto: {
+    text?: string; scheduled_at?: string;
+    product_title?: string; price_ils?: number; product_image?: string; affiliate_url?: string;
+  }): Promise<Post> {
     const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
     if (!post) throw new NotFoundException('פוסט לא נמצא');
     if (typeof dto.text === 'string') post.generated_text = dto.text;
+    if (typeof dto.product_title === 'string') post.product_title = dto.product_title;
+    if (typeof dto.product_image === 'string' && dto.product_image.trim()) post.product_image = dto.product_image.trim();
+    if (typeof dto.affiliate_url === 'string') post.affiliate_url = dto.affiliate_url.trim();
+    if (dto.price_ils !== undefined && dto.price_ils !== null) {
+      const p = Number(dto.price_ils);
+      if (Number.isFinite(p) && p >= 0) post.price_ils = p;
+    }
     if (dto.scheduled_at) {
       post.scheduled_at = new Date(dto.scheduled_at);
       if (post.status === 'failed') post.status = 'scheduled'; // reschedule a failed post
@@ -646,6 +657,100 @@ export class PostsService {
     return post;
   }
 
+  /** Composes the final message body: affiliate link + per-channel footer + HTML
+   *  normalisation. Shared by the publisher and the failed-channel retry. */
+  private async buildPostBody(post: Post, creds: DecryptedCredentials, channelOverride?: string): Promise<string> {
+    const linkAlreadyInText = post.affiliate_url && post.generated_text.includes(post.affiliate_url);
+    let body = (post.affiliate_url && !linkAlreadyInText)
+      ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
+      : post.generated_text;
+    const footer = await this.resolveFooterText(post.user_id, creds, channelOverride);
+    if (footer && !body.includes(footer)) body = `${body}\n\n${footer}`;
+    return mdBoldToHtml(body);
+  }
+
+  /**
+   * Re-attempt ONLY the platform(s) that failed on a partially-published post (e.g.
+   * Telegram already went out but Facebook was rejected). The failed platforms are
+   * read from `error_message`; only those are re-sent, and publish credits are NOT
+   * charged again (the post was already billed on its original publish).
+   */
+  async retryFailedChannels(userId: string, postId: string): Promise<Post> {
+    const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
+    if (!post) throw new NotFoundException('פוסט לא נמצא');
+    const prev = (post.error_message || '').trim();
+    if (!prev) throw new BadRequestException('אין פלטפורמה שנכשלה בפוסט הזה');
+
+    const creds = await this.credentials.getRaw(userId);
+    if (!creds) throw new BadRequestException('חסרים פרטי חיבור');
+    const body = await this.buildPostBody(post, creds, post.channel_override || undefined);
+    const wantMake = creds.publish_via_make === true && !!creds.make_webhook_url;
+
+    const errors: string[] = [];
+    const tasks: Promise<void>[] = [];
+    const failed = (p: string) => new RegExp(`(^|\\|)\\s*${p}:`, 'i').test(prev);
+
+    if (failed('Telegram')) {
+      tasks.push(this.sendToTelegramChannel(post, creds, body, post.channel_override || undefined)
+        .catch((err: any) => { errors.push(`Telegram: ${err?.response?.data?.description || err.message}`); }));
+    }
+    // Facebook is delivered via Make when enabled, else the native Graph API.
+    if (failed('Facebook') && !wantMake) {
+      tasks.push(this.sendToFacebook(post, creds, body)
+        .catch((err: any) => { errors.push(`Facebook: ${err?.response?.data?.error?.message || err.message}`); }));
+    }
+    if (failed('Make') || (failed('Facebook') && wantMake)) {
+      tasks.push(this.sendToMakeWebhook(post, creds, body)
+        .catch((err: any) => { errors.push(`Make: ${err?.response?.data?.message || err.message}`); }));
+    }
+    if (failed('Instagram')) {
+      tasks.push(this.sendToInstagram(post, creds, body)
+        .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }));
+    }
+    if (!tasks.length) throw new BadRequestException('לא זוהתה פלטפורמה שנכשלה לניסיון חוזר');
+
+    await Promise.all(tasks);
+    post.error_message = errors.length ? errors.join(' | ') : null;
+    if (!post.error_message) {
+      post.status = 'sent';
+      if (!post.sent_at) post.sent_at = new Date();
+    }
+    await this.repo.save(post);
+    return post;
+  }
+
+  /**
+   * Re-publish an existing post THROUGH THE QUEUE/SCHEDULE rather than immediately.
+   * No `scheduled_at` → appended to the auto-send queue (goes out on the next slot);
+   * with `scheduled_at` → scheduled for that time. Resets the publish state so it
+   * sends fresh. Works identically for AliExpress and FLYLINK posts.
+   */
+  async requeue(userId: string, postId: string, scheduledAt?: string): Promise<Post> {
+    const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
+    if (!post) throw new NotFoundException('פוסט לא נמצא');
+
+    post.error_message = null;
+    post.sent_at = null;
+    post.telegram_message_id = null;
+    post.facebook_post_id = null;
+    post.instagram_post_id = null;
+
+    if (scheduledAt) {
+      post.status = 'scheduled';
+      post.scheduled_at = new Date(scheduledAt);
+    } else {
+      const maxOrderResult = await this.repo
+        .createQueryBuilder('p')
+        .select('MAX(p.queue_order)', 'maxOrder')
+        .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
+        .getRawOne();
+      post.status = 'queued';
+      post.queue_order = (maxOrderResult?.maxOrder ?? -1) + 1;
+      post.scheduled_at = null;
+    }
+    return this.repo.save(post);
+  }
+
   // ── Multi-channel publisher ─────────────────────────────────────────────
   //
   // Fans a post out to every enabled channel (Telegram + Facebook). The post is
@@ -694,22 +799,8 @@ export class PostsService {
       }
     }
 
-    // Only append the affiliate link if it's not already present in the text
-    // (the frontend may have already included it in the generated_text)
-    const linkAlreadyInText = post.affiliate_url && post.generated_text.includes(post.affiliate_url);
-    let body = (post.affiliate_url && !linkAlreadyInText)
-      ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
-      : post.generated_text;
-
-    // Append the footer (channel branding + that group's OWN join link) if set and not
-    // already present. Per-channel footer overrides the global default when routed.
-    const footer = await this.resolveFooterText(post.user_id, creds, channelOverride);
-    if (footer && !body.includes(footer)) {
-      body = `${body}\n\n${footer}`;
-    }
-
-    // Normalise any Markdown bold the model emitted so Telegram doesn't show ** literally.
-    body = mdBoldToHtml(body);
+    // Compose the final message (link + footer + HTML normalisation).
+    let body = await this.buildPostBody(post, creds, channelOverride);
 
     // Send to all channels IN PARALLEL. Sequential sends meant a hung/expired
     // Facebook token added its full timeout on top of Telegram — the user waited
