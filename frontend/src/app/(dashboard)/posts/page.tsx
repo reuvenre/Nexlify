@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
-  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal,
+  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal, Eye,
 } from 'lucide-react';
 import Link from 'next/link';
 import { postsApi, credentialsApi } from '@/lib/api-client';
@@ -93,13 +93,14 @@ const LIMITS = [10, 20, 50, 100];
 // ─── Queue Item ───────────────────────────────────────────────────────────────
 
 function QueueItem({
-  post, index, sendAt, onRemove,
+  post, index, sendAt, onRemove, onEdit,
 }: {
   post: Post;
   index: number;
   /** Estimated send time (null when the queue is disabled). */
   sendAt: Date | null;
   onRemove: (id: string) => Promise<void>;
+  onEdit: (post: Post) => void;
 }) {
   const [removing, setRemoving] = useState(false);
 
@@ -164,6 +165,12 @@ function QueueItem({
         <p className="text-2xs text-white/25 mt-1.5">
           נוסף {new Date(post.created_at).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
         </p>
+        <button
+          onClick={() => onEdit(post)}
+          className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-blue-500/10 text-xs text-white/60 hover:text-blue-300 border border-transparent hover:border-blue-500/20 transition-all"
+        >
+          <Eye size={12} /> תצוגה מקדימה ועריכה
+        </button>
       </div>
     </div>
   );
@@ -176,6 +183,7 @@ function QueuePanel() {
   const [schedule, setSchedule] = useState<ScheduleInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [previewPost, setPreviewPost] = useState<Post | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -288,11 +296,20 @@ function QueuePanel() {
                   index={idx}
                   sendAt={schedule?.enabled ? slots[idx] : null}
                   onRemove={handleRemove}
+                  onEdit={setPreviewPost}
                 />
               ));
             })()}
           </div>
         </>
+      )}
+
+      {previewPost && (
+        <EditPostModal
+          post={previewPost}
+          onClose={() => setPreviewPost(null)}
+          onSaved={() => { setPreviewPost(null); load(true); }}
+        />
       )}
     </div>
   );
