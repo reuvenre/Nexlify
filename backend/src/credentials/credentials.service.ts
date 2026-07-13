@@ -6,6 +6,9 @@ import { CredentialSetDto } from './dto/credential-set.dto';
 import { encrypt, decrypt, mask } from '../common/crypto';
 import axios from 'axios';
 
+/** Facebook Graph API version — kept current & in one place (v19 is deprecated). */
+export const GRAPH_VERSION = 'v21.0';
+
 export interface DecryptedCredentials {
   /** Owner of these credentials — lets downstream services (AI, publishing)
    *  attribute usage/credits without changing every call signature. */
@@ -23,6 +26,7 @@ export interface DecryptedCredentials {
   anthropic_model?: string;
   gemini_api_key?: string;
   gemini_model?: string;
+  ai_monthly_token_budget?: number | null;
   // Facebook / Meta
   facebook_page_id?: string;
   facebook_page_token?: string;
@@ -80,6 +84,11 @@ export class CredentialsService {
     if (dto.ai_provider?.trim())             cred.ai_provider = dto.ai_provider.trim();
     if (dto.anthropic_model?.trim())         cred.anthropic_model = dto.anthropic_model.trim();
     if (dto.gemini_model?.trim())            cred.gemini_model = dto.gemini_model.trim();
+    // AI token budget: allow clearing (0 / empty → null = untracked)
+    if (dto.ai_monthly_token_budget !== undefined) {
+      const b = Number(dto.ai_monthly_token_budget);
+      cred.ai_monthly_token_budget = Number.isFinite(b) && b > 0 ? Math.round(b) : null;
+    }
 
     // Facebook / Meta (non-secret)
     if (dto.facebook_page_id?.trim())        cred.facebook_page_id = dto.facebook_page_id.trim();
@@ -207,16 +216,34 @@ export class CredentialsService {
       }
     } catch (err: any) { errors.anthropic = apiErrorMessage(err); }
 
-    // Verify Facebook page token
+    // Verify Facebook page token — check PUBLISH capability, not just readability.
+    // A plain user token (or a token missing pages_manage_posts) can read the page
+    // name but CANNOT POST to /{page}/feed, so a name-only check gives a false "OK".
+    // Asking for `tasks` reveals whether the token may create content on the page,
+    // and — if the id is a personal profile, not a Page — Graph errors on `tasks`,
+    // which is exactly the misconfiguration we want to surface.
     try {
       const token = decrypt(cred.facebook_page_token_enc);
       if (token && cred.facebook_page_id) {
         const res = await axios.get(
-          `https://graph.facebook.com/v19.0/${cred.facebook_page_id}?fields=name&access_token=${token}`,
-          { timeout: 5000 },
+          `https://graph.facebook.com/${GRAPH_VERSION}/${cred.facebook_page_id}?fields=name,tasks&access_token=${token}`,
+          { timeout: 6000, validateStatus: () => true },
         );
-        results.facebook = res.status === 200 && !res.data?.error;
-        if (!results.facebook) errors.facebook = res.data?.error?.message || 'unknown error';
+        if (res.data?.error) {
+          results.facebook = false;
+          const msg = res.data.error.message || 'unknown error';
+          // #100/#803: object not found or wrong node type (e.g. a personal profile id)
+          errors.facebook = /tasks|nonexisting|does not exist|Unsupported/i.test(msg)
+            ? `${msg} — ודא שהמזהה הוא של דף עסקי (Page), לא פרופיל אישי, ושהטוקן הוא Page Access Token`
+            : msg;
+        } else {
+          const tasks: string[] = Array.isArray(res.data?.tasks) ? res.data.tasks : [];
+          const canPublish = tasks.includes('CREATE_CONTENT') || tasks.includes('MANAGE');
+          results.facebook = res.status === 200 && canPublish;
+          if (!canPublish) {
+            errors.facebook = 'הטוקן קורא את הדף אך אין לו הרשאת פרסום. נדרש Page Access Token של אדמין הדף עם ההרשאה pages_manage_posts.';
+          }
+        }
       } else if (!token) {
         errors.facebook = 'לא הוזן Page Access Token';
       } else {
@@ -234,7 +261,7 @@ export class CredentialsService {
           ? cred.meta_ad_account_id
           : `act_${cred.meta_ad_account_id}`;
         const res = await axios.get(
-          `https://graph.facebook.com/v19.0/${adAccount}?fields=name,account_status&access_token=${token}`,
+          `https://graph.facebook.com/${GRAPH_VERSION}/${adAccount}?fields=name,account_status&access_token=${token}`,
           { timeout: 5000 },
         );
         results.metaAdAccount = res.status === 200 && !res.data?.error;
@@ -273,6 +300,7 @@ export class CredentialsService {
       anthropic_model: cred.anthropic_model,
       gemini_api_key: decrypt(cred.gemini_api_key_enc),
       gemini_model: cred.gemini_model,
+      ai_monthly_token_budget: cred.ai_monthly_token_budget ?? null,
       facebook_page_id: cred.facebook_page_id,
       facebook_page_token: decrypt(cred.facebook_page_token_enc),
       meta_ad_account_id: cred.meta_ad_account_id,
@@ -330,6 +358,7 @@ export class CredentialsService {
       anthropic_model: cred.anthropic_model || 'claude-sonnet-4-6',
       gemini_api_key: cred.gemini_api_key_enc ? mask(decrypt(cred.gemini_api_key_enc)) : '',
       gemini_model: cred.gemini_model || 'gemini-2.5-flash',
+      ai_monthly_token_budget: cred.ai_monthly_token_budget ?? null,
       // Facebook / Meta
       facebook_page_id: cred.facebook_page_id || '',
       facebook_page_token: cred.facebook_page_token_enc ? mask(decrypt(cred.facebook_page_token_enc)) : '',

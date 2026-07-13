@@ -8,7 +8,7 @@ import FormData = require('form-data');
 import { Post } from './post.entity';
 import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
-import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
+import { CredentialsService, DecryptedCredentials, GRAPH_VERSION } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
 import { AiService, GenerateImage } from '../ai/ai.service';
 import { SubscriptionService } from '../subscription/subscription.service';
@@ -659,8 +659,12 @@ export class PostsService {
 
     // A channelOverride always targets Telegram. Otherwise respect the user's
     // per-channel publish toggles (Telegram defaults on, Facebook defaults off).
+    // Facebook honours its toggle GLOBALLY — even for group/queue posts that carry a
+    // Telegram channelOverride — so enabling "publish to Facebook" fans every post out
+    // to the page, not only default-channel posts. (Previously a channelOverride
+    // silently skipped Facebook, so queued/supplier posts never reached it.)
     const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
-    const wantFacebook = !channelOverride && creds?.publish_facebook === true;
+    const wantFacebook = creds?.publish_facebook === true;
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
@@ -877,7 +881,7 @@ export class PostsService {
     });
 
     const res = await axios.post(
-      `https://graph.facebook.com/v19.0/${pageId}/feed`,
+      `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/feed`,
       params.toString(),
       // 8s is plenty for the Graph API — a longer timeout just makes an
       // expired-token failure feel like the whole system is stuck.

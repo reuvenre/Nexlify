@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { DecryptedCredentials } from '../credentials/credentials.service';
+import { AiUsageService } from './ai-usage.service';
 
 export type AiProvider = 'anthropic' | 'openai' | 'gemini';
 
@@ -22,6 +23,8 @@ export interface GenerateResult {
   text: string;
   provider: AiProvider;
   tokens: number;
+  promptTokens?: number;
+  outputTokens?: number;
 }
 
 /**
@@ -35,6 +38,8 @@ export interface GenerateResult {
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
+
+  constructor(private readonly usage: AiUsageService) {}
 
   /** Returns true if at least one provider has a usable key. */
   hasAnyKey(creds: DecryptedCredentials | null): boolean {
@@ -62,14 +67,28 @@ export class AiService {
     const temperature = opts.temperature ?? 0.85;
 
     try {
+      let result: GenerateResult;
       switch (provider) {
         case 'anthropic':
-          return await this.callAnthropic(creds, opts, maxTokens, temperature);
+          result = await this.callAnthropic(creds, opts, maxTokens, temperature);
+          break;
         case 'openai':
-          return await this.callOpenAI(creds, opts, maxTokens, temperature);
+          result = await this.callOpenAI(creds, opts, maxTokens, temperature);
+          break;
         case 'gemini':
-          return await this.callGemini(creds, opts, maxTokens, temperature);
+          result = await this.callGemini(creds, opts, maxTokens, temperature);
+          break;
+        default:
+          return null;
       }
+      // Meter token consumption per user/day/provider (best-effort, never blocks).
+      if (creds.user_id && result.tokens > 0) {
+        void this.usage.record(
+          creds.user_id, result.provider,
+          result.promptTokens ?? 0, result.outputTokens ?? 0, result.tokens,
+        );
+      }
+      return result;
     } catch (err: any) {
       this.logger.error(`[AI:${provider}] generation failed: ${err?.response?.data?.error?.message || err.message}`);
       return null;
@@ -118,7 +137,9 @@ export class AiService {
       .join('')
       .trim();
     const usage = res.data?.usage || {};
-    return { text, provider: 'anthropic', tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0) };
+    const promptTokens = usage.input_tokens || 0;
+    const outputTokens = usage.output_tokens || 0;
+    return { text, provider: 'anthropic', tokens: promptTokens + outputTokens, promptTokens, outputTokens };
   }
 
   // ── OpenAI ────────────────────────────────────────────────────────────────
@@ -153,7 +174,10 @@ export class AiService {
       ),
     );
     const text = (res.data?.choices?.[0]?.message?.content || '').trim();
-    return { text, provider: 'openai', tokens: res.data?.usage?.total_tokens || 0 };
+    const u = res.data?.usage || {};
+    const promptTokens = u.prompt_tokens || 0;
+    const outputTokens = u.completion_tokens || 0;
+    return { text, provider: 'openai', tokens: u.total_tokens || promptTokens + outputTokens, promptTokens, outputTokens };
   }
 
   // ── Google Gemini ─────────────────────────────────────────────────────────
@@ -194,7 +218,13 @@ export class AiService {
     const parts = res.data?.candidates?.[0]?.content?.parts || [];
     const text = parts.map((p: any) => p?.text || '').join('').trim();
     const usage = res.data?.usageMetadata || {};
-    return { text, provider: 'gemini', tokens: usage.totalTokenCount || 0 };
+    const promptTokens = usage.promptTokenCount || 0;
+    const outputTokens = usage.candidatesTokenCount || 0;
+    return {
+      text, provider: 'gemini',
+      tokens: usage.totalTokenCount || promptTokens + outputTokens,
+      promptTokens, outputTokens,
+    };
   }
 
   // ── Shared retry (handles 429 rate limits) ─────────────────────────────────

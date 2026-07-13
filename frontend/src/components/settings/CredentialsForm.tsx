@@ -21,6 +21,7 @@ export function CredentialsForm() {
     anthropic_model: 'claude-sonnet-4-6',
     gemini_api_key: '',
     gemini_model: 'gemini-2.5-flash',
+    ai_monthly_token_budget: null,
     apify_api_token: '',
     currency_pair: 'USD_ILS',
   });
@@ -42,6 +43,7 @@ export function CredentialsForm() {
           ai_provider: c.ai_provider || 'anthropic',
           anthropic_model: c.anthropic_model || 'claude-sonnet-4-6',
           gemini_model: c.gemini_model || 'gemini-2.5-flash',
+          ai_monthly_token_budget: c.ai_monthly_token_budget ?? null,
           currency_pair: c.currency_pair || 'USD_ILS',
           // Secrets: leave empty — backend keeps existing value when empty is submitted
           aliexpress_app_secret: '',
@@ -233,6 +235,21 @@ export function CredentialsForm() {
               </div>
             </>
           )}
+
+          {/* AI token budget — powers the dashboard usage gauge / quota early-warning */}
+          <div className="sm:col-span-2 border-t border-edge pt-4 mt-1">
+            <label className="block text-xs font-medium text-white/50 mb-1.5">תקציב טוקנים חודשי (אופציונלי)</label>
+            <input
+              type="number" min={0} step={1000} dir="ltr"
+              value={form.ai_monthly_token_budget ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, ai_monthly_token_budget: e.target.value ? Math.max(0, parseInt(e.target.value, 10) || 0) : null }))}
+              placeholder="לדוגמה: 1000000"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
+            />
+            <p className="text-2xs text-white/35 mt-1.5">
+              מספר הטוקנים החודשי שתרצה לעקוב מולו. בדשבורד יופיע חיווי כמה נוצלו וכמה נותרו + התראה בהתקרבות למכסה. השאר ריק כדי לעקוב אחר צריכה בלבד ללא מכסה.
+            </p>
+          </div>
         </div>
       </section>
 

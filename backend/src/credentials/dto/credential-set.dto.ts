@@ -50,6 +50,12 @@ export class CredentialSetDto {
   @IsString()
   gemini_model?: string;
 
+  /** Monthly AI token budget for the dashboard usage gauge (0 / omitted = untracked). */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  ai_monthly_token_budget?: number;
+
   // ── Facebook / Meta ──
   @IsOptional()
   @IsString()

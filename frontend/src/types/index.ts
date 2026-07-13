@@ -61,6 +61,25 @@ export interface AdminStats {
   google_users: number;
 }
 
+// ─── AI token usage (dashboard metering) ─────────────────────────────────────
+
+export interface DailyUsage {
+  day: string; // YYYY-MM-DD (Asia/Jerusalem)
+  total_tokens: number;
+  prompt_tokens: number;
+  output_tokens: number;
+  calls: number;
+}
+
+export interface AiUsageSummary {
+  today: DailyUsage;
+  month_total: number;
+  days: DailyUsage[];              // continuous series, oldest→newest
+  budget: number | null;          // user-set monthly token budget
+  remaining: number | null;       // budget − month_total (≥0), null if no budget
+  by_provider: { provider: string; total_tokens: number }[];
+}
+
 export interface AuthResponse {
   access_token: string;
   refresh_token?: string;
@@ -86,6 +105,7 @@ export interface CredentialSet {
   anthropic_model: string;
   gemini_api_key: string;         // masked
   gemini_model: string;
+  ai_monthly_token_budget: number | null;
   // Facebook / Meta
   facebook_page_id: string;
   facebook_page_token: string;    // masked
@@ -132,6 +152,7 @@ export interface CredentialSetInput {
   anthropic_model?: string;
   gemini_api_key?: string;
   gemini_model?: string;
+  ai_monthly_token_budget?: number | null;
   // Facebook / Meta
   facebook_page_id?: string;
   facebook_page_token?: string;

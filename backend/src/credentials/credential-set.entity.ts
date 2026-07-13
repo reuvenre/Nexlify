@@ -56,6 +56,11 @@ export class CredentialSet {
   @Column({ default: 'gemini-2.5-flash' })
   gemini_model: string;
 
+  /** Optional monthly AI token budget — powers the dashboard usage gauge / quota
+   *  early-warning. null = untracked (widget shows consumption only). */
+  @Column({ type: 'int', nullable: true })
+  ai_monthly_token_budget: number | null;
+
   /* ── Facebook / Meta publishing ────────────────────────────────────────── */
 
   @Column({ nullable: true })

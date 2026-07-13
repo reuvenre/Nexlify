@@ -35,6 +35,7 @@ import type {
   BillingCycle,
   SupplierCatalog,
   SupplierProduct,
+  AiUsageSummary,
 } from '@/types';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -227,6 +228,13 @@ export const credentialsApi = {
     http.put<CredentialSet>('/credentials', data).then(extract),
 
   verify: () => http.post<VerifyResult>('/credentials/verify').then(extract),
+};
+
+// ─── AI token-usage metering ─────────────────────────────────────────────────
+
+export const usageApi = {
+  /** Per-day AI token consumption + monthly budget gauge for the dashboard. */
+  ai: (days?: number) => http.get<AiUsageSummary>('/ai/usage', { params: days ? { days } : undefined }).then(extract),
 };
 
 // ─── Ads / Boost API ─────────────────────────────────────────────────────────
