@@ -37,9 +37,14 @@ export function normalizeSku(
       return up;
     }
     case 'regex': {
+      const pattern = config?.pattern;
+      // No pattern configured → `new RegExp(undefined)` matches the empty string and
+      // returned "" for EVERY code (so all products collided). Fall back to exact.
+      if (!pattern) return s.toUpperCase();
       try {
-        const m = s.match(new RegExp(config.pattern, 'i'));
-        return (m?.[1] ?? m?.[0] ?? s).toUpperCase();
+        const m = s.match(new RegExp(pattern, 'i'));
+        // `||` (not `??`) so an empty capture/match falls back to the raw code, never "".
+        return (m?.[1] || m?.[0] || s).toUpperCase();
       } catch {
         return s.toUpperCase();
       }

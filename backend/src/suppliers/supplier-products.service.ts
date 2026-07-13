@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SupplierProduct } from './entities/supplier-product.entity';
@@ -113,9 +113,21 @@ export class SupplierProductsService {
       // No hard block — the affiliate link is trusted as pasted (per-product generated).
     }
 
-    // Dedup within the user by canonical SKU.
-    const existing = await this.repo.findOne({ where: { user_id: userId, sku: yupooCanon } });
-    if (existing) throw new ConflictException('מוצר עם קוד זה כבר קיים');
+    // Dedup by canonical SKU WITHIN THE SAME CATALOG — the same code in a different store
+    // is a different product (e.g. numeric mode maps LUN1463 and WT1463 both to "1463";
+    // scoping per-user wrongly flagged them as duplicates). If it already exists here,
+    // reuse it (refresh the FLYLINK link) instead of erroring — so "create post" always works.
+    const existing = await this.repo.findOne({
+      where: { user_id: userId, supplier_catalog_id: catalog.id, sku: yupooCanon },
+    });
+    if (existing) {
+      const newLink = dto.flylinkUrl.trim();
+      if (newLink && newLink !== existing.flylink_url) {
+        existing.flylink_url = newLink;
+        await this.repo.save(existing);
+      }
+      return { ...existing, sku_verified };
+    }
 
     const product = this.repo.create({
       user_id: userId,
