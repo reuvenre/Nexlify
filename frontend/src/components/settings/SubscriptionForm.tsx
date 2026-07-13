@@ -39,9 +39,26 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
     ],
   },
   scale: {
-    includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
+    // The top tier is an explicit superset — it visibly lists every feature from
+    // all cheaper plans, not just its own extras, so buyers see they get everything.
+    includesLabel: 'הכול — כל הפיצ׳רים מכל התוכניות, כולל',
     features: [
       { label: 'קבוצות ללא הגבלה' },
+      { label: 'AliExpress' },
+      { label: 'טלגרם' },
+      { label: 'פייסבוק' },
+      { label: 'כותב תוכן AI' },
+      { label: 'פרסום אוטומטי' },
+      { label: 'תור פרסום חכם' },
+      { label: 'האצת מודעות אוטומטית (Meta)' },
+      { label: 'גילוי מוצרים AI' },
+      { label: 'סוכני AI לניהול קמפיינים' },
+      { label: 'מעקב טוקנים ותקציב AI' },
+      { label: '6,000 קרדיטים בחודש' },
+      { label: 'וואטסאפ', soon: true },
+      { label: 'אינסטגרם', soon: true },
+      { label: 'משפר תמונות AI', soon: true },
+      { label: 'אינטגרציית אמזון', soon: true },
       { label: 'פינטרסט', soon: true },
     ],
   },

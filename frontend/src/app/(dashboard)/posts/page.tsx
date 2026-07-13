@@ -352,10 +352,20 @@ function PostRow({ post, onRetry, onDelete, onEdit }: {
         </div>
       </td>
       <td className="py-3 px-4">
-        <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${cfg.cls}`}>
-          <cfg.Icon size={11} />
-          {cfg.label}
-        </span>
+        {/* A 'sent' post that still carries an error published to SOME channels but
+            failed on another (e.g. Telegram OK, Facebook rejected) — show it as a
+            partial success (amber) instead of a misleading all-green "נשלח". */}
+        {post.status === 'sent' && post.error_message ? (
+          <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400" title={post.error_message}>
+            <AlertTriangle size={11} />
+            פורסם חלקית
+          </span>
+        ) : (
+          <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${cfg.cls}`}>
+            <cfg.Icon size={11} />
+            {cfg.label}
+          </span>
+        )}
       </td>
       <td className="py-3 px-4 text-sm text-white/50">
         ₪{post.price_ils?.toFixed(2) || '—'}
