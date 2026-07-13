@@ -1071,9 +1071,18 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
       <td className="px-4 py-3 text-right"><p className="text-body font-semibold text-white">{s}{displayPrice}</p></td>
       <td className="px-4 py-3 text-right"><span className="text-2xs text-blue-400/70">{catalogName}</span></td>
       <td className="px-4 py-3">
-        {product.in_stock === false
-          ? <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-red-500/15 text-red-400 border-red-500/25">אזל</span>
-          : <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-emerald-500/15 text-emerald-400 border-emerald-500/25">במלאי</span>}
+        <div className="flex flex-col items-start gap-1">
+          {/* Publish lifecycle (queue → ממתין, published → נשלח) when a post exists. */}
+          {product.publish_status === 'sent' && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-emerald-500/15 text-emerald-400 border-emerald-500/25">נשלח</span>
+          )}
+          {product.publish_status === 'pending' && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-amber-500/15 text-amber-400 border-amber-500/25">ממתין</span>
+          )}
+          {product.in_stock === false
+            ? <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-red-500/15 text-red-400 border-red-500/25">אזל</span>
+            : <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-white/5 text-white/40 border-edge">במלאי</span>}
+        </div>
       </td>
       <td className="px-4 py-3 text-right"><p className="text-xs text-white/30">{fmtDate(product.synced_at)}</p></td>
       <td className="px-4 py-3">

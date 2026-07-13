@@ -50,7 +50,35 @@ export class SupplierProductsService {
     const products = await this.repo.find({ where, order: { created_at: 'DESC' }, take: 300 });
     // Attach the converted price (USD→user currency) so the dashboard shows ₪ like AliExpress.
     const { rate, currency } = await this.rateFor(userId);
-    return products.map((p) => ({ ...p, price_ils: +((p.price || 0) * rate).toFixed(2), display_currency: currency }));
+
+    // Derive each product's PUBLISH status from its posts (matched by product_id, which
+    // supplier posts set to `sku || id`): in queue / scheduled / pending → 'pending'
+    // (ממתין), published → 'sent' (נשלח). Pending wins so a re-queued product shows as
+    // awaiting send again — same lifecycle as the AliExpress catalog.
+    const keys = products.map((p) => p.sku || p.id).filter(Boolean);
+    const publishMap = new Map<string, 'pending' | 'sent'>();
+    if (keys.length) {
+      const rows: Array<{ pid: string; has_pending: boolean; has_sent: boolean }> = await this.repo.manager.query(
+        `SELECT product_id AS pid,
+                bool_or(status IN ('queued','scheduled','pending')) AS has_pending,
+                bool_or(status = 'sent') AS has_sent
+         FROM posts
+         WHERE user_id = $1 AND product_id = ANY($2)
+         GROUP BY product_id`,
+        [userId, keys],
+      );
+      for (const r of rows) {
+        if (r.has_pending) publishMap.set(r.pid, 'pending');
+        else if (r.has_sent) publishMap.set(r.pid, 'sent');
+      }
+    }
+
+    return products.map((p) => ({
+      ...p,
+      price_ils: +((p.price || 0) * rate).toFixed(2),
+      display_currency: currency,
+      publish_status: publishMap.get(p.sku || p.id) ?? null,
+    }));
   }
 
   async get(userId: string, id: string): Promise<SupplierProduct> {
