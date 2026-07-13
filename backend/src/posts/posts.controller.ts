@@ -46,10 +46,11 @@ export class PostsController {
     @Body('product_image') productImage?: string,
     @Body('affiliate_url') affiliateUrlOverride?: string,
     @Body('product') product?: any,
+    @Body('channels') channels?: string[],
   ) {
     return this.svc.schedulePost(
       this.uid(req), productId, new Date(scheduledAt),
-      text, channelOverride, productImage, affiliateUrlOverride, product,
+      text, channelOverride, productImage, affiliateUrlOverride, product, channels,
     );
   }
 
@@ -62,9 +63,10 @@ export class PostsController {
     @Body('product_image') productImage?: string,
     @Body('affiliate_url') affiliateUrlOverride?: string,
     @Body('product') product?: any,
+    @Body('channels') channels?: string[],
   ) {
     return this.svc.quickPost(
-      this.uid(req), productId, text, channelOverride, productImage, affiliateUrlOverride, product,
+      this.uid(req), productId, text, channelOverride, productImage, affiliateUrlOverride, product, channels,
     );
   }
 
@@ -102,6 +104,7 @@ export class PostsController {
     @Req() req: Request,
     @Body('product') product: any,
     @Body('text') text?: string,
+    @Body('channels') channels?: string[],
   ) {
     return this.svc.addToQueue(this.uid(req), {
       product_id: String(product?.product_id ?? ''),
@@ -116,7 +119,7 @@ export class PostsController {
       discount_percent: Number(product?.discount_percent) || 0,
       orders_count: Number(product?.orders_count) || 0,
       rating: Number(product?.rating) || 0,
-    }, text);
+    }, text, channels);
   }
 
   @Delete('queue/:id')

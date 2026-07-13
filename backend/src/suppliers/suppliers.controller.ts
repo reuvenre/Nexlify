@@ -100,8 +100,9 @@ export class SuppliersController {
     @Body('text') text?: string,
     @Body('images') images?: string[],
     @Body('collage_cells') collageCells?: number,
+    @Body('channels') channels?: string[],
   ) {
-    return this.products.queue(this.uid(req), id, text, channelId, images, collageCells);
+    return this.products.queue(this.uid(req), id, text, channelId, images, collageCells, channels);
   }
 
   @Post('products/:id/send')
@@ -113,8 +114,9 @@ export class SuppliersController {
     @Body('text') text?: string,
     @Body('images') images?: string[],
     @Body('collage_cells') collageCells?: number,
+    @Body('channels') channels?: string[],
   ) {
-    return this.products.send(this.uid(req), id, text, channelId, images, collageCells);
+    return this.products.send(this.uid(req), id, text, channelId, images, collageCells, channels);
   }
 
   @Post('products/:id/schedule')
@@ -127,7 +129,8 @@ export class SuppliersController {
     @Body('text') text?: string,
     @Body('images') images?: string[],
     @Body('collage_cells') collageCells?: number,
+    @Body('channels') channels?: string[],
   ) {
-    return this.products.schedule(this.uid(req), id, new Date(scheduledAt), text, channelId, images, collageCells);
+    return this.products.schedule(this.uid(req), id, new Date(scheduledAt), text, channelId, images, collageCells, channels);
   }
 }

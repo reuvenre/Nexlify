@@ -83,6 +83,15 @@ export class Post {
   @Column({ nullable: true })
   channel_override: string;
 
+  /**
+   * JSON array of target channel_ids when a post fans out to MORE THAN ONE group
+   * (e.g. published to both מאמא מותגים and טקטי בקליק at once). When set, the post is
+   * delivered to every listed group's Telegram chat and its own Facebook page — while
+   * still costing a single publish credit. null/empty = single target (channel_override).
+   */
+  @Column({ nullable: true, type: 'text' })
+  channel_overrides: string | null;
+
   /** JSON array of extra image URLs → sent as a Telegram media group (colors/variants). */
   @Column({ nullable: true, type: 'text' })
   gallery_json: string;

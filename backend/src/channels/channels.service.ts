@@ -171,6 +171,12 @@ export class ChannelsService {
     return c?.facebook_page_id || null;
   }
 
+  /** The saved channel's display name (for multi-group error labels). Null if unknown. */
+  async getName(userId: string, channelId: string): Promise<string | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    return c?.name || null;
+  }
+
   private async findOwned(userId: string, id: string): Promise<Channel> {
     const channel = await this.repo.findOne({ where: { id, user_id: userId } });
     if (!channel) throw new NotFoundException('Channel not found');

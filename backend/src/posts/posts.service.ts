@@ -218,6 +218,7 @@ export class PostsService {
     productImageOverride?: string,   // image URL already known by frontend — avoids wrong re-fetch
     affiliateUrlOverride?: string,   // affiliate link already fetched by frontend
     productData?: Parameters<PostsService['productFromData']>[0], // price/title from the frontend
+    channels?: string[],             // target group(s) — fan out to several at once (1 credit)
   ) {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
@@ -248,6 +249,7 @@ export class PostsService {
       generated_text: text,
       status: 'pending',
     });
+    this.applyChannels(post, channels, channelOverride);
 
     await this.repo.save(post);
     await this.sendToTelegram(post, creds, channelOverride);
@@ -265,6 +267,7 @@ export class PostsService {
     productImageOverride?: string,
     affiliateUrlOverride?: string,
     productData?: Parameters<PostsService['productFromData']>[0],
+    channels?: string[],             // target group(s) — fan out to several at once (1 credit)
   ) {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
@@ -294,6 +297,7 @@ export class PostsService {
       status: 'scheduled',
       scheduled_at: scheduledAt,
     });
+    this.applyChannels(post, channels, channelOverride);
 
     await this.repo.save(post);
     return post;
@@ -308,12 +312,13 @@ export class PostsService {
   private buildCustomPost(userId: string, data: {
     productId: string; title: string; image: string; images?: string[];
     affiliateUrl: string; text: string; priceIls?: number; channelOverride?: string;
+    channels?: string[]; // target group(s) — fan out to several at once (1 credit)
     collageCells?: number; // when set, images are composed into collage sheets (allows up to 30 images)
   }): Post {
     // A normal album caps at 10 images; a collage post can carry up to 30 source images
     // (composed into ≤10 sheets at send time).
     const cap = data.collageCells ? 30 : 10;
-    return this.repo.create({
+    const post = this.repo.create({
       user_id: userId,
       product_id: data.productId,
       product_title: data.title,
@@ -327,6 +332,8 @@ export class PostsService {
       gallery_json: data.images && data.images.length > 1 ? JSON.stringify(data.images.slice(0, cap)) : null,
       collage_cells: data.collageCells || null,
     });
+    this.applyChannels(post, data.channels, data.channelOverride);
+    return post;
   }
 
   /** Send a custom post immediately. */
@@ -377,6 +384,7 @@ export class PostsService {
     channelOverride?: string,
     images?: string[],
     collageCells?: number,
+    channels?: string[],             // target group(s) — fan out to several at once (1 credit)
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
     const currencyPair = creds?.currency_pair || 'USD_ILS';
@@ -442,6 +450,7 @@ export class PostsService {
       gallery_json: images && images.length > 1 ? JSON.stringify(images.slice(0, collageCells ? 30 : 10)) : null,
       collage_cells: collageCells || null,
     });
+    this.applyChannels(post, channels, channelOverride);
 
     return this.repo.save(post);
   }
@@ -488,8 +497,9 @@ export class PostsService {
       discount_percent: number; orders_count: number; rating: number;
     },
     text?: string,
+    channels?: string[],
   ) {
-    const post = await this.createQueuedPost(userId, product, undefined, text);
+    const post = await this.createQueuedPost(userId, product, undefined, text, channels?.[0], undefined, undefined, channels);
     const creds = await this.credentials.getRaw(userId);
     return {
       post,
@@ -709,27 +719,57 @@ export class PostsService {
 
     const creds = await this.credentials.getRaw(userId);
     if (!creds) throw new BadRequestException('חסרים פרטי חיבור');
-    const body = await this.buildPostBody(post, creds, post.channel_override || undefined);
     const wantMake = creds.publish_via_make === true && !!creds.make_webhook_url;
 
+    const targets = this.resolveTargets(post);
+    const multi = targets.length > 1;
     const errors: string[] = [];
     const tasks: Promise<void>[] = [];
     const failed = (p: string) => new RegExp(`(^|\\|)\\s*${p}:`, 'i').test(prev);
 
+    // For a multi-group post that only PARTIALLY failed, re-send ONLY to the groups whose
+    // name/id appears in the error — otherwise we'd re-post to a group that already
+    // succeeded (a duplicate). Single-group posts always qualify.
+    const names = new Map<string | undefined, string | null>();
+    for (const t of targets) names.set(t, t ? await this.channels.getName(userId, t).catch(() => null) : null);
+    const isNamed = (t: string | undefined): boolean => {
+      const name = names.get(t);
+      return (!!name && prev.includes(name)) || (!!t && prev.includes(t));
+    };
+    // If the error names specific groups, only those failed. If it names NONE (e.g. groups
+    // sharing one page, or a legacy error), we can't discriminate → retry all of them.
+    const anyGroupNamed = targets.some(isNamed);
+    const groupFailed = (t: string | undefined): boolean => !multi || !anyGroupNamed || isNamed(t);
+
+    // Telegram: re-send to each failed target group.
     if (failed('Telegram')) {
-      tasks.push(this.sendToTelegramChannel(post, creds, body, post.channel_override || undefined)
-        .catch((err: any) => { errors.push(`Telegram: ${err?.response?.data?.description || err.message}`); }));
+      for (const target of targets) {
+        if (!groupFailed(target)) continue;
+        const body = await this.buildPostBody(post, creds, target);
+        const label = await this.targetLabel(userId, target, multi);
+        tasks.push(this.sendToTelegramChannel(post, creds, body, target)
+          .catch((err: any) => { errors.push(`Telegram: ${label}${err?.response?.data?.description || err.message}`); }));
+      }
     }
-    // Facebook is delivered via Make when enabled, else the native Graph API.
-    if (failed('Facebook') && !wantMake) {
-      tasks.push(this.sendToFacebook(post, creds, body)
-        .catch((err: any) => { errors.push(`Facebook: ${err?.response?.data?.error?.message || err.message}`); }));
-    }
-    if (failed('Make') || (failed('Facebook') && wantMake)) {
-      tasks.push(this.sendToMakeWebhook(post, creds, body)
-        .catch((err: any) => { errors.push(`Make: ${err?.response?.data?.message || err.message}`); }));
+    // Facebook / Make: one send per unique failed page. FB is delivered via Make when enabled.
+    if ((failed('Facebook') || failed('Make'))) {
+      const pages = await this.resolvePages(userId, targets, creds);
+      for (const [pageId, target] of pages) {
+        if (!groupFailed(target)) continue;
+        const body = await this.buildPostBody(post, creds, target);
+        const label = await this.targetLabel(userId, target, multi && pages.size > 1);
+        if ((failed('Facebook') && !wantMake)) {
+          tasks.push(this.sendToFacebook(post, creds, body, pageId)
+            .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }));
+        }
+        if (failed('Make') || (failed('Facebook') && wantMake)) {
+          tasks.push(this.sendToMakeWebhook(post, creds, body, pageId)
+            .catch((err: any) => { errors.push(`Make: ${label}${err?.response?.data?.message || err.message}`); }));
+        }
+      }
     }
     if (failed('Instagram')) {
+      const body = await this.buildPostBody(post, creds, targets[0]);
       tasks.push(this.sendToInstagram(post, creds, body)
         .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }));
     }
@@ -777,24 +817,78 @@ export class PostsService {
     return this.repo.save(post);
   }
 
-  // ── Multi-channel publisher ─────────────────────────────────────────────
+  // ── Multi-group / multi-channel publisher ────────────────────────────────
   //
-  // Fans a post out to every enabled channel (Telegram + Facebook). The post is
-  // marked 'sent' if AT LEAST ONE channel succeeds (matching Nexlify behaviour),
-  // and 'failed' only when every attempted channel errored. The method keeps its
-  // historic name so all existing call sites stay unchanged.
+  // Fans a post out to every target GROUP (Telegram chat + that group's own
+  // Facebook page) and every enabled channel. A post carrying `channel_overrides`
+  // publishes to several groups AT ONCE (e.g. מאמא מותגים + טקטי בקליק) — while still
+  // costing a SINGLE publish credit. The post is marked 'sent' if AT LEAST ONE
+  // delivery succeeds, and 'failed' only when every attempt errored. The method keeps
+  // its historic name so all existing call sites stay unchanged.
+
+  /**
+   * The list of target groups for a post. `channel_overrides` (JSON array) wins when a
+   * post fans out to several groups; otherwise the single `channel_override` (or the
+   * explicit param) is used; `[undefined]` means the user's default channel.
+   */
+  private resolveTargets(post: Post, channelOverride?: string): (string | undefined)[] {
+    let list: string[] = [];
+    try { list = post.channel_overrides ? JSON.parse(post.channel_overrides) : []; } catch { /* ignore */ }
+    list = Array.from(new Set(list.filter((c) => typeof c === 'string' && c.trim())));
+    if (list.length) return list;
+    if (channelOverride) return [channelOverride];
+    if (post.channel_override) return [post.channel_override];
+    return [undefined];
+  }
+
+  /** Persist the chosen target group(s) on a post (single or multi). */
+  private applyChannels(post: Post, channels?: string[], channelOverride?: string): void {
+    const uniq = Array.from(new Set((channels || [])
+      .map((c) => (typeof c === 'string' ? c.trim() : ''))
+      .filter(Boolean)));
+    if (uniq.length) {
+      post.channel_override = uniq[0];
+      post.channel_overrides = uniq.length > 1 ? JSON.stringify(uniq) : null;
+    } else if (channelOverride) {
+      post.channel_override = channelOverride;
+      post.channel_overrides = null;
+    }
+  }
+
+  /**
+   * Maps each target group to its Facebook page and DEDUPES by page id — so two groups
+   * that share the same page (or fall back to the default) publish to it only once,
+   * while groups with their own pages each get their post. Returns pageId → a
+   * representative target (used to pick that page's footer/body).
+   */
+  private async resolvePages(userId: string, targets: (string | undefined)[], creds: DecryptedCredentials): Promise<Map<string, string | undefined>> {
+    const pages = new Map<string, string | undefined>();
+    for (const t of targets) {
+      const pid = await this.resolveFacebookPageId(userId, t, creds);
+      if (!pages.has(pid)) pages.set(pid, t);
+    }
+    return pages;
+  }
+
+  /** Short "[group name] " prefix for a target, for multi-group error messages. */
+  private async targetLabel(userId: string, target: string | undefined, multi: boolean): Promise<string> {
+    if (!multi || !target) return '';
+    const name = await this.channels.getName(userId, target).catch(() => null);
+    return `[${name || target}] `;
+  }
 
   private async sendToTelegram(post: Post, creds: DecryptedCredentials, channelOverride?: string) {
     const errors: string[] = [];
     let anySuccess = false;
 
-    // A channelOverride always targets Telegram. Otherwise respect the user's
+    const targets = this.resolveTargets(post, channelOverride);
+    const multi = targets.length > 1;
+
+    // Any explicit group target always means Telegram. Otherwise respect the user's
     // per-channel publish toggles (Telegram defaults on, Facebook defaults off).
-    // Facebook honours its toggle GLOBALLY — even for group/queue posts that carry a
-    // Telegram channelOverride — so enabling "publish to Facebook" fans every post out
-    // to the page, not only default-channel posts. (Previously a channelOverride
-    // silently skipped Facebook, so queued/supplier posts never reached it.)
-    const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
+    // Facebook honours its toggle GLOBALLY — even for group/queue posts — so enabling
+    // "publish to Facebook" fans every post out to the page(s), not only default posts.
+    const wantTelegram = targets.some((t) => !!t) || creds?.publish_telegram !== false;
     // Make.com relay: when enabled + a webhook is set, Facebook is delivered by POSTing
     // the post to the user's Make scenario (which posts via its own authorized FB
     // connection). Make then REPLACES the native Graph API path so FB isn't double-posted.
@@ -811,8 +905,8 @@ export class PostsService {
       return;
     }
 
-    // Plan enforcement: publishing a post costs credits (flat per post, however many
-    // platforms it fans out to). Consumed only once we know a channel is enabled.
+    // Plan enforcement: publishing costs ONE credit per action — however many groups
+    // or platforms it fans out to. Consumed only once we know a channel is enabled.
     if (post.user_id) {
       const ok = await this.subscription.tryConsume(
         post.user_id, this.subscription.costs.publish, 'publish',
@@ -825,41 +919,56 @@ export class PostsService {
       }
     }
 
-    // Compose the final message (link + footer + HTML normalisation).
-    let body = await this.buildPostBody(post, creds, channelOverride);
-
-    // Send to all channels IN PARALLEL. Sequential sends meant a hung/expired
-    // Facebook token added its full timeout on top of Telegram — the user waited
-    // ~15+ extra seconds per post for a channel that was going to fail anyway.
+    // Send everything IN PARALLEL. Sequential sends meant a hung/expired token added its
+    // full timeout on top of the others. Each group's body uses that group's own footer.
     const tasks: Promise<void>[] = [];
+
+    // Telegram: one send per target group chat.
     if (wantTelegram) {
-      tasks.push(
-        this.sendToTelegramChannel(post, creds, body, channelOverride)
-          .then(() => { anySuccess = true; })
-          .catch((err: any) => { errors.push(`Telegram: ${err?.response?.data?.description || err.message}`); }),
-      );
+      for (const target of targets) {
+        const body = await this.buildPostBody(post, creds, target);
+        const label = await this.targetLabel(post.user_id, target, multi);
+        tasks.push(
+          this.sendToTelegramChannel(post, creds, body, target)
+            .then(() => { anySuccess = true; })
+            .catch((err: any) => { errors.push(`Telegram: ${label}${err?.response?.data?.description || err.message}`); }),
+        );
+      }
     }
-    if (wantFacebook) {
-      tasks.push(
-        this.sendToFacebook(post, creds, body)
-          .then(() => { anySuccess = true; })
-          .catch((err: any) => { errors.push(`Facebook: ${err?.response?.data?.error?.message || err.message}`); }),
-      );
+
+    // Facebook / Make: one send per UNIQUE page (groups sharing a page post once).
+    if (wantFacebook || wantMake) {
+      const pages = await this.resolvePages(post.user_id, targets, creds);
+      for (const [pageId, target] of pages) {
+        const body = await this.buildPostBody(post, creds, target);
+        const label = await this.targetLabel(post.user_id, target, multi && pages.size > 1);
+        if (wantFacebook) {
+          tasks.push(
+            this.sendToFacebook(post, creds, body, pageId)
+              .then(() => { anySuccess = true; })
+              .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }),
+          );
+        }
+        if (wantMake) {
+          tasks.push(
+            this.sendToMakeWebhook(post, creds, body, pageId)
+              .then(() => { anySuccess = true; })
+              .catch((err: any) => { errors.push(`Make: ${label}${err?.response?.data?.message || err.message}`); }),
+          );
+        }
+      }
     }
+
+    // Instagram: a single business account (no per-group fan-out).
     if (wantInstagram) {
+      const body = await this.buildPostBody(post, creds, targets[0]);
       tasks.push(
         this.sendToInstagram(post, creds, body)
           .then(() => { anySuccess = true; })
           .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }),
       );
     }
-    if (wantMake) {
-      tasks.push(
-        this.sendToMakeWebhook(post, creds, body)
-          .then(() => { anySuccess = true; })
-          .catch((err: any) => { errors.push(`Make: ${err?.response?.data?.message || err.message}`); }),
-      );
-    }
+
     await Promise.all(tasks);
 
     if (anySuccess) {
@@ -1046,17 +1155,16 @@ export class PostsService {
    * Lets each Telegram group fan out to its own Facebook page (מאמא מותגים → its page,
    * טקטי בקליק → its page).
    */
-  private async resolveFacebookPageId(post: Post, creds: DecryptedCredentials): Promise<string> {
-    if (post.channel_override) {
-      const pid = await this.channels.getFacebookPageId(post.user_id, post.channel_override);
+  private async resolveFacebookPageId(userId: string, channelOverride: string | undefined, creds: DecryptedCredentials): Promise<string> {
+    if (channelOverride) {
+      const pid = await this.channels.getFacebookPageId(userId, channelOverride);
       if (pid) return pid;
     }
     return creds?.facebook_page_id || '';
   }
 
-  /** Publishes the post to the user's Facebook Page feed. Throws on failure. */
-  private async sendToFacebook(post: Post, creds: DecryptedCredentials, message: string) {
-    const pageId = await this.resolveFacebookPageId(post, creds);
+  /** Publishes the post to a specific Facebook Page feed. Throws on failure. */
+  private async sendToFacebook(post: Post, creds: DecryptedCredentials, message: string, pageId: string) {
     const token = creds?.facebook_page_token;
     if (!pageId || !token) throw new Error('Missing Facebook credentials');
 
@@ -1130,7 +1238,7 @@ export class PostsService {
    * sheet row, Make receives a clean JSON payload per post. Sends both the plain and
    * HTML text plus every image URL, so the scenario can map whatever it needs.
    */
-  private async sendToMakeWebhook(post: Post, creds: DecryptedCredentials, body: string) {
+  private async sendToMakeWebhook(post: Post, creds: DecryptedCredentials, body: string, pageId: string) {
     const url = creds?.make_webhook_url;
     if (!url) throw new Error('Missing Make webhook URL');
 
@@ -1142,10 +1250,9 @@ export class PostsService {
     const images = gallery.length ? gallery.slice(0, 10) : (post.product_image ? [post.product_image] : []);
     const photos = images.map((url) => ({ type: 'url', url, caption: '' }));
     const plain = body.replace(/<\/?[^>]+>/g, '');
-    // The target group's own Facebook page (falls back to the global default). The Make
-    // scenario maps this to the FB module's page_id so each group posts to its own page.
-    const pageId = await this.resolveFacebookPageId(post, creds);
-
+    // `pageId` is the target group's own Facebook page (resolved by the caller, falling
+    // back to the global default). The Make scenario maps this to the FB module's page_id
+    // so each group posts to its own page.
     const payload = {
       text: plain,                 // ready-to-post caption (no HTML)
       html: body,                  // HTML variant (Telegram-style), if the scenario wants it

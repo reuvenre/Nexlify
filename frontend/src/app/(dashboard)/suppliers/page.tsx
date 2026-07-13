@@ -11,6 +11,7 @@ import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } fro
 import { PostPreview } from '@/components/products/PostPreview';
 import { ProductSourceTabs } from '@/components/products/ProductSourceTabs';
 import { TemplatePanel, BUILTIN as BUILTIN_BODY_TEMPLATES } from '@/components/templates/TemplatePanel';
+import { GroupMultiSelect } from '@/components/GroupMultiSelect';
 import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel, PostPreview as PostPreviewType, PostTemplate } from '@/types';
 
 const POST_LANGS: { value: string; label: string }[] = [
@@ -404,7 +405,8 @@ function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCata
 function PostComposer({ productId, channels, defaultChannel, onSent }: {
   productId: string; channels: Channel[]; defaultChannel?: string; onSent?: () => void;
 }) {
-  const [channelId, setChannelId] = useState(defaultChannel || '');
+  const [channelIds, setChannelIds] = useState<string[]>(defaultChannel ? [defaultChannel] : []);
+  const primaryChannel = channelIds[0] || ''; // the group whose template/footer drives the preview
   const [postLang, setPostLang] = useState('he');
   const [template, setTemplate] = useState<PostTemplate>(BUILTIN_DEFAULT_TEMPLATE);
   const [vision, setVision] = useState(true); // let the AI write from the actual product photos
@@ -423,7 +425,12 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [scheduleWindow, setScheduleWindow] = useState<{ start: number; end: number } | undefined>();
   const galleryInited = useRef(false);
 
-  const chLabel = (ch: string) => ch === 'default' ? 'ברירת מחדל' : 'קבוצה';
+  // Human label for the result toast: the group names, or "ברירת מחדל".
+  const chLabel = (chs: string[]) => {
+    const real = (chs || []).filter((c) => c && c !== 'default');
+    if (!real.length) return 'ברירת מחדל';
+    return real.map((cid) => channels.find((c) => c.channel_id === cid)?.name || 'קבוצה').join(' + ');
+  };
 
   // Collage mode composes many photos into grid "sheets" → up to 30 in one album.
   const [collage, setCollage] = useState(false);
@@ -472,7 +479,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
         const gid = c.default_body_template_id || 'builtin_default';
         setCustomTemplates(ts);
         setGlobalBodyId(gid);
-        setTemplate(resolveTemplateFor(channelId, ts, gid));
+        setTemplate(resolveTemplateFor(primaryChannel, ts, gid));
         if (typeof c.schedule_start_hour === 'number' && typeof c.schedule_end_hour === 'number') {
           setScheduleWindow({ start: c.schedule_start_hour, end: c.schedule_end_hour });
         }
@@ -482,12 +489,12 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When the target group changes, switch to THAT group's body template.
+  // When the primary target group changes, switch to THAT group's body template.
   useEffect(() => {
     if (!ready) return;
-    setTemplate(resolveTemplateFor(channelId, customTemplates, globalBodyId));
+    setTemplate(resolveTemplateFor(primaryChannel, customTemplates, globalBodyId));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId]);
+  }, [primaryChannel]);
 
   // hint is read from a ref so typing it does NOT auto-regenerate (each generate costs a
   // credit) — it applies on the next explicit regenerate / language change.
@@ -509,22 +516,23 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
     return () => { alive = false; };
   }, [fetchPreview, ready]);
 
+  const targetChannels = () => (channelIds.length ? channelIds : undefined);
   const onPost = async (text: string) => {
     setPosting(true); setDone(null); setErr(null);
-    try { const r = await suppliersApi.send(productId, channelId || undefined, text, selectedImages(), cells()); setDone(`✓ נשלח (${chLabel(r.channel)})`); onSent?.(); }
+    try { const r = await suppliersApi.send(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels()); setDone(`✓ נשלח (${chLabel(r.channels)})`); onSent?.(); }
     catch (e: any) { setErr(e?.response?.data?.message || 'השליחה נכשלה — נסה שוב'); }
     finally { setPosting(false); }
   };
   const onSchedule = async (text: string, at: string) => {
     try {
-      const r = await suppliersApi.schedule(productId, at, channelId || undefined, text, selectedImages(), cells());
+      const r = await suppliersApi.schedule(productId, at, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels());
       const when = new Date(at).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      setDone(`✓ תוזמן ל-${when} (${chLabel(r.channel)}) — צפייה ב"פוסטים → מתוזמן"`); onSent?.();
+      setDone(`✓ תוזמן ל-${when} (${chLabel(r.channels)}) — צפייה ב"פוסטים → מתוזמן"`); onSent?.();
     }
     catch (e: any) { setErr(e?.response?.data?.message || 'התזמון נכשל — נסה שוב'); throw e; }
   };
   const onQueue = async (text: string) => {
-    const r = await suppliersApi.queue(productId, channelId || undefined, text, selectedImages(), cells());
+    const r = await suppliersApi.queue(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels());
     onSent?.();
     return { queue_active: r.queue_active, interval_minutes: r.interval_minutes };
   };
@@ -602,12 +610,8 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
           </div>
         )}
         <div className="bg-surface-secondary border border-edge rounded-xl p-3">
-          <Field label="קבוצת פרסום" hint="ברירת המחדל = הקבוצה שקושרה לקטלוג">
-            <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white/80 outline-none focus:border-blue-500/50">
-              <option value="">— ברירת מחדל של הקטלוג / כללי —</option>
-              {channels.map((ch) => <option key={ch.id} value={ch.channel_id}>{ch.name}</option>)}
-            </select>
+          <Field label="קבוצות פרסום" hint="בחר קבוצה אחת או כמה — יפורסם לכולן בו-זמנית (קרדיט אחד)">
+            <GroupMultiSelect channels={channels} value={channelIds} onChange={setChannelIds} disabled={posting} />
           </Field>
         </div>
         <TemplatePanel selectedId={template.id} onSelect={setTemplate} />

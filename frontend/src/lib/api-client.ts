@@ -354,7 +354,7 @@ export const postsApi = {
   preview: (product_id: string, language?: string, custom_product?: Partial<AliProduct>, template?: string) =>
     http.post<PostPreview>('/posts/preview', { product_id, language, custom_product, template }, { timeout: AI_TIMEOUT }).then(extract),
 
-  quickPost: (data: { product_id: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string; product?: QuickPostProduct }) =>
+  quickPost: (data: { product_id: string; text?: string; channel_override?: string; channels?: string[]; product_image?: string; affiliate_url?: string; product?: QuickPostProduct }) =>
     http.post<Post>('/posts/quick', data, { timeout: AI_TIMEOUT }).then(extract),
 
   list: (params?: { page?: number; limit?: number; status?: string; campaign_id?: string; source?: 'aliexpress' | 'flylink' }) =>
@@ -378,7 +378,7 @@ export const postsApi = {
   /** Delete any post (queued/scheduled/sent/failed). */
   remove: (id: string) => http.delete(`/posts/${id}`).then(extract),
 
-  schedulePost: (data: { product_id: string; scheduled_at: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string; product?: QuickPostProduct }) =>
+  schedulePost: (data: { product_id: string; scheduled_at: string; text?: string; channel_override?: string; channels?: string[]; product_image?: string; affiliate_url?: string; product?: QuickPostProduct }) =>
     http.post<Post>('/posts/schedule', data, { timeout: AI_TIMEOUT }).then(extract),
 
   // ── Queue ──
@@ -386,9 +386,9 @@ export const postsApi = {
   dequeue: (id: string) => http.delete(`/posts/queue/${id}`).then(extract),
 
   /** One-click add-to-queue — the scheduler picks the send time from the user's settings. */
-  addToQueue: (product: Partial<AliProduct> & { image_url?: string; affiliate_url?: string }, text?: string) =>
+  addToQueue: (product: Partial<AliProduct> & { image_url?: string; affiliate_url?: string }, text?: string, channels?: string[]) =>
     http.post<{ post: Post; queue_active: boolean; interval_minutes: number; window_start: number; window_end: number }>(
-      '/posts/queue', { product, text }, { timeout: AI_TIMEOUT },
+      '/posts/queue', { product, text, channels }, { timeout: AI_TIMEOUT },
     ).then(extract),
 };
 
@@ -546,17 +546,17 @@ export const suppliersApi = {
   preview: (id: string, opts?: { language?: string; template?: string; vision?: boolean; hint?: string }) =>
     http.post<PostPreview & { gallery: string[]; vision_used: boolean }>(`/suppliers/products/${id}/preview`, opts || {}, { timeout: AI_TIMEOUT }).then(extract),
 
-  queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number) =>
-    http.post<{ queued: boolean; post_id: string; channel: string; queue_active: boolean; interval_minutes: number }>(
-      `/suppliers/products/${id}/queue`, { channel_id: channelId, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
+  queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
+    http.post<{ queued: boolean; post_id: string; channels: string[]; queue_active: boolean; interval_minutes: number }>(
+      `/suppliers/products/${id}/queue`, { channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 
-  send: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number) =>
-    http.post<{ sent: boolean; post_id: string; channel: string }>(
-      `/suppliers/products/${id}/send`, { channel_id: channelId, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
+  send: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
+    http.post<{ sent: boolean; post_id: string; channels: string[] }>(
+      `/suppliers/products/${id}/send`, { channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 
-  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[], collageCells?: number) =>
-    http.post<{ scheduled: boolean; post_id: string; channel: string; at: string }>(
-      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
+  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
+    http.post<{ scheduled: boolean; post_id: string; channels: string[]; at: string }>(
+      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 };
 
 export default http;

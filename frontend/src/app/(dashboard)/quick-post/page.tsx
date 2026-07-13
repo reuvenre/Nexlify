@@ -11,8 +11,9 @@ import { ProductCard } from '@/components/products/ProductCard';
 import { PostPreview } from '@/components/products/PostPreview';
 import { ProductEditPanel } from '@/components/products/ProductEditPanel';
 import { TemplatePanel } from '@/components/templates/TemplatePanel';
-import { productsApi, postsApi, templatesApi, credentialsApi, catalogApi } from '@/lib/api-client';
-import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate, CatalogProduct } from '@/types';
+import { productsApi, postsApi, templatesApi, credentialsApi, catalogApi, channelsApi } from '@/lib/api-client';
+import { GroupMultiSelect } from '@/components/GroupMultiSelect';
+import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate, CatalogProduct, Channel } from '@/types';
 
 /** The quick-post grid renders AliProduct — adapt a catalog row to that shape. */
 function catalogToAli(c: CatalogProduct): AliProduct {
@@ -117,6 +118,8 @@ export default function QuickPostPage() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [posted, setPosted] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [channelIds, setChannelIds] = useState<string[]>([]); // target groups (empty = default channel)
 
   // ── Infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -128,6 +131,7 @@ export default function QuickPostPage() {
   // ── Load categories once
   useEffect(() => {
     productsApi.categories().then(setCategories).catch(() => {});
+    channelsApi.list().then(setChannels).catch(() => {});
   }, []);
 
   // ── Pre-select the user's saved default body template
@@ -385,6 +389,7 @@ export default function QuickPostPage() {
       await postsApi.quickPost({
         product_id: selected.product_id,
         text,
+        channels: channelIds.length ? channelIds : undefined,
         // Pass the image and affiliate link so the backend uses the correct product image
         // instead of re-fetching via searchProduct (which returns wrong results)
         product_image: preview?.product?.image_url || selected.image_url || undefined,
@@ -421,6 +426,7 @@ export default function QuickPostPage() {
         product_id: selected.product_id,
         text,
         scheduled_at: scheduledAt,
+        channels: channelIds.length ? channelIds : undefined,
         product_image: preview?.product?.image_url || selected.image_url || undefined,
         affiliate_url: affiliateUrl || undefined,
         product: {
@@ -456,7 +462,7 @@ export default function QuickPostPage() {
       discount_percent: p.discount_percent,
       orders_count: p.orders_count,
       rating: p.rating,
-    }, text);
+    }, text, channelIds.length ? channelIds : undefined);
   };
 
   const handleRegenerate = async () => {
@@ -624,6 +630,14 @@ export default function QuickPostPage() {
             {previewError && !isLoadingPreview && (
               <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">
                 {previewError}
+              </div>
+            )}
+
+            {/* Target groups — publish to one or several at once (single credit) */}
+            {preview && !isLoadingPreview && (
+              <div className="bg-surface-secondary border border-edge rounded-xl p-3 mb-4">
+                <p className="text-xs text-white/40 mb-2">קבוצות פרסום — בחר אחת או כמה (יפורסם לכולן, קרדיט אחד)</p>
+                <GroupMultiSelect channels={channels} value={channelIds} onChange={setChannelIds} disabled={isPosting} />
               </div>
             )}
 

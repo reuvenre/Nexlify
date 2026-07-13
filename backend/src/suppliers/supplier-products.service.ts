@@ -238,11 +238,19 @@ export class SupplierProductsService {
     return gallery.map((u) => this.proxyImage(u));
   }
 
-  /** Resolve the publish target: explicit channel → catalog default → user default. */
-  private async targetChannel(p: SupplierProduct, channelId?: string): Promise<string | undefined> {
-    if (channelId?.trim()) return channelId.trim();
+  /**
+   * Resolve the publish target group(s): explicit multi-select `channels` →
+   * single `channelId` → the catalog's default group → the user's default channel.
+   * Returns [] when nothing is set (post goes to the user's default channel).
+   */
+  private async targetChannels(p: SupplierProduct, channels?: string[], channelId?: string): Promise<string[]> {
+    const multi = Array.from(new Set((channels || [])
+      .map((c) => (typeof c === 'string' ? c.trim() : ''))
+      .filter(Boolean)));
+    if (multi.length) return multi;
+    if (channelId?.trim()) return [channelId.trim()];
     const catalog = await this.repo.manager.findOne(SupplierCatalog, { where: { id: p.supplier_catalog_id } });
-    return catalog?.target_channel_id || undefined;
+    return catalog?.target_channel_id ? [catalog.target_channel_id] : [];
   }
 
   /** Map a supplier product to the AliProduct-ish shape the post pipeline expects.
@@ -351,8 +359,8 @@ export class SupplierProductsService {
     return full.slice(0, max);
   }
 
-  /** Send now. */
-  async send(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number) {
+  /** Send now — to one group or several at once (a single credit for the action). */
+  async send(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
     const p = await this.get(userId, id);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
@@ -360,20 +368,21 @@ export class SupplierProductsService {
     const gallery = this.selectGallery(p, images, collageCells ? 30 : 10);
     const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
-    const channel = await this.targetChannel(p, channelId);
+    const targets = await this.targetChannels(p, channels, channelId);
     const { price } = await this.pricing(userId, p.price);
 
     const post = await this.posts.sendCustomNow(userId, {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
-      affiliateUrl: p.flylink_url, text: finalText, priceIls: price, channelOverride: channel, collageCells,
+      affiliateUrl: p.flylink_url, text: finalText, priceIls: price,
+      channelOverride: targets[0], channels: targets, collageCells,
     });
     p.has_post = true;
     await this.repo.save(p);
-    return { sent: true, post_id: post.id, channel: channel || 'default' };
+    return { sent: true, post_id: post.id, channels: targets.length ? targets : ['default'] };
   }
 
-  /** Schedule for a specific time. */
-  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string, images?: string[], collageCells?: number) {
+  /** Schedule for a specific time — to one group or several at once. */
+  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
     const p = await this.get(userId, id);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
@@ -381,30 +390,31 @@ export class SupplierProductsService {
     const gallery = this.selectGallery(p, images, collageCells ? 30 : 10);
     const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
-    const channel = await this.targetChannel(p, channelId);
+    const targets = await this.targetChannels(p, channels, channelId);
     const { price } = await this.pricing(userId, p.price);
 
     const post = await this.posts.scheduleCustom(userId, {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
-      affiliateUrl: p.flylink_url, text: finalText, priceIls: price, channelOverride: channel, collageCells,
+      affiliateUrl: p.flylink_url, text: finalText, priceIls: price,
+      channelOverride: targets[0], channels: targets, collageCells,
     }, scheduledAt);
     p.has_post = true;
     await this.repo.save(p);
-    return { scheduled: true, post_id: post.id, at: scheduledAt, channel: channel || 'default' };
+    return { scheduled: true, post_id: post.id, at: scheduledAt, channels: targets.length ? targets : ['default'] };
   }
 
   /**
    * Publish: push the supplier product into the SHARED post queue, routed to the
    * chosen group (or the catalog's default). Reuses the entire existing pipeline.
    */
-  async queue(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number) {
+  async queue(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
     const p = await this.get(userId, id);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
     const gallery = this.selectGallery(p, images, collageCells ? 30 : 10);
     const image = gallery[0] || this.proxyImage(p.image_url) || '';
-    const channel = await this.targetChannel(p, channelId);
+    const targets = await this.targetChannels(p, channels, channelId);
     const { price, currency } = await this.pricing(userId, p.price);
 
     const post = await this.posts.createQueuedPost(
@@ -412,15 +422,16 @@ export class SupplierProductsService {
       this.toPostProduct(p, image, price, currency),
       undefined,
       text?.trim() || p.description || undefined,
-      channel,
+      targets[0],
       gallery,
       collageCells,
+      targets,
     );
     p.has_post = true;
     await this.repo.save(p);
     const creds = await this.credentials.getRaw(userId);
     return {
-      queued: true, post_id: post.id, channel: channel || 'default',
+      queued: true, post_id: post.id, channels: targets.length ? targets : ['default'],
       queue_active: creds?.schedule_enabled === true,
       interval_minutes: creds?.schedule_interval_minutes ?? 60,
     };
