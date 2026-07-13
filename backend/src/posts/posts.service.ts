@@ -75,6 +75,12 @@ function mdBoldToHtml(s: string): string {
   return out.trim();
 }
 
+/** Prepared Telegram media for a post — computed once, reused across all target groups. */
+type TgMedia =
+  | { kind: 'buffers'; buffers: Buffer[] }   // uploaded album/photo (collage sheets or enhanced bytes)
+  | { kind: 'album'; images: string[] }      // URL-based media group (>1 images)
+  | { kind: 'single'; image: string };       // single photo by URL
+
 @Injectable()
 export class PostsService {
   constructor(
@@ -741,15 +747,18 @@ export class PostsService {
     const anyGroupNamed = targets.some(isNamed);
     const groupFailed = (t: string | undefined): boolean => !multi || !anyGroupNamed || isNamed(t);
 
-    // Telegram: re-send to each failed target group.
+    // Telegram: re-send to each failed target group (media prepared once, sent sequentially).
     if (failed('Telegram')) {
-      for (const target of targets) {
-        if (!groupFailed(target)) continue;
-        const body = await this.buildPostBody(post, creds, target);
-        const label = await this.targetLabel(userId, target, multi);
-        tasks.push(this.sendToTelegramChannel(post, creds, body, target)
-          .catch((err: any) => { errors.push(`Telegram: ${label}${err?.response?.data?.description || err.message}`); }));
-      }
+      const media = await this.prepareTelegramMedia(post, creds);
+      tasks.push((async () => {
+        for (const target of targets) {
+          if (!groupFailed(target)) continue;
+          const body = await this.buildPostBody(post, creds, target);
+          const label = await this.targetLabel(userId, target, multi);
+          try { await this.sendToTelegramChannel(post, creds, body, target, media); }
+          catch (err: any) { errors.push(`Telegram: ${label}${err?.response?.data?.description || err.message}`); }
+        }
+      })());
     }
     // Facebook / Make: one send per unique failed page. FB is delivered via Make when enabled.
     if ((failed('Facebook') || failed('Make'))) {
@@ -923,17 +932,24 @@ export class PostsService {
     // full timeout on top of the others. Each group's body uses that group's own footer.
     const tasks: Promise<void>[] = [];
 
-    // Telegram: one send per target group chat.
+    // Telegram: prepare the album media ONCE, then send to each target group SEQUENTIALLY
+    // (reusing the same media) — recomputing collage/enhancement per group in parallel
+    // overloaded the instance and timed out the 2nd upload. This whole block still runs
+    // concurrently with Facebook/Make below.
     if (wantTelegram) {
-      for (const target of targets) {
-        const body = await this.buildPostBody(post, creds, target);
-        const label = await this.targetLabel(post.user_id, target, multi);
-        tasks.push(
-          this.sendToTelegramChannel(post, creds, body, target)
-            .then(() => { anySuccess = true; })
-            .catch((err: any) => { errors.push(`Telegram: ${label}${err?.response?.data?.description || err.message}`); }),
-        );
-      }
+      const media = await this.prepareTelegramMedia(post, creds);
+      tasks.push((async () => {
+        for (const target of targets) {
+          const body = await this.buildPostBody(post, creds, target);
+          const label = await this.targetLabel(post.user_id, target, multi);
+          try {
+            await this.sendToTelegramChannel(post, creds, body, target, media);
+            anySuccess = true;
+          } catch (err: any) {
+            errors.push(`Telegram: ${label}${err?.response?.data?.description || err.message}`);
+          }
+        }
+      })());
     }
 
     // Facebook / Make: one send per UNIQUE page (groups sharing a page post once).
@@ -982,8 +998,43 @@ export class PostsService {
     await this.repo.save(post);
   }
 
-  /** Sends the post photo(s)+caption to a Telegram channel. Throws on failure. */
-  private async sendToTelegramChannel(post: Post, creds: DecryptedCredentials, caption: string, channelOverride?: string) {
+  /**
+   * The Telegram media to send for a post, computed ONCE (collage compositing and image
+   * enhancement are CPU/network heavy). When a post fans out to several groups, the same
+   * prepared media is reused for every group instead of recomputed per group — recomputing
+   * in parallel on a small instance was overloading it and timing out the second upload.
+   */
+  private async prepareTelegramMedia(post: Post, creds: DecryptedCredentials): Promise<TgMedia> {
+    let gallery: string[] = [];
+    try { gallery = post.gallery_json ? JSON.parse(post.gallery_json) : []; } catch { /* ignore */ }
+
+    // Collage mode: compose the (up to 30) source images into grid sheets → one uploaded
+    // album (the only way to show >10 images in a single Telegram post).
+    if (post.collage_cells && gallery.length > 1) {
+      const sheets = await this.collage.compose(gallery, post.collage_cells).catch(() => [] as Buffer[]);
+      if (sheets.length) return { kind: 'buffers', buffers: sheets };
+    }
+
+    // Auto image enhancement: fetch the photo(s), run the "studio" pass, upload the enhanced
+    // bytes. Best-effort — if it yields nothing, fall through to the URL-based send.
+    if (creds?.image_enhance_enabled && !post.collage_cells) {
+      const src = gallery.length ? gallery.slice(0, 10) : (post.product_image ? [post.product_image] : []);
+      if (src.length) {
+        const buffers = await this.collage.enhance(src).catch(() => [] as Buffer[]);
+        if (buffers.length) return { kind: 'buffers', buffers };
+      }
+    }
+
+    if (gallery.length > 1) return { kind: 'album', images: gallery.slice(0, 10) };
+    return { kind: 'single', image: post.product_image };
+  }
+
+  /**
+   * Delivers a post's (pre-prepared) media + caption to ONE Telegram chat. `media` is
+   * computed once by prepareTelegramMedia and reused across all target groups; when
+   * omitted it is computed here (single-target callers).
+   */
+  private async sendToTelegramChannel(post: Post, creds: DecryptedCredentials, caption: string, channelOverride?: string, media?: TgMedia) {
     let token = creds?.telegram_bot_token;
     let channel = normalizeTelegramChatId(creds?.telegram_channel_id);
 
@@ -1002,46 +1053,25 @@ export class PostsService {
     }
     if (!token || !channel) throw new Error('Missing Telegram credentials');
 
-    let gallery: string[] = [];
-    try { gallery = post.gallery_json ? JSON.parse(post.gallery_json) : []; } catch { /* ignore */ }
+    const m = media || await this.prepareTelegramMedia(post, creds);
 
-    // Collage mode: compose the (up to 30) source images into grid sheets and send them
-    // as one uploaded album — the only way to show >10 images in a single Telegram post.
-    if (post.collage_cells && gallery.length > 1) {
-      const sheets = await this.collage.compose(gallery, post.collage_cells);
-      if (sheets.length) {
-        await this.sendMediaGroupUpload(token, channel, sheets, caption, post);
-        return;
-      }
-      // If compositing produced nothing, fall through to a normal album below.
+    if (m.kind === 'buffers') {
+      if (m.buffers.length >= 2) { await this.sendMediaGroupUpload(token, channel, m.buffers, caption, post); return; }
+      if (m.buffers.length === 1) { await this.sendPhotoUpload(token, channel, m.buffers[0], caption, post); return; }
+      // 0 buffers shouldn't reach here (prepare returns album/single instead) — fall through.
     }
 
-    // Auto image enhancement: fetch the photo(s), run the "studio" pass, and upload the
-    // enhanced buffers (so the improved bytes actually reach Telegram, not the original
-    // URL). Best-effort — if enhancement yields nothing, fall through to the normal send.
-    if (creds?.image_enhance_enabled && !post.collage_cells) {
-      const src = gallery.length ? gallery.slice(0, 10) : (post.product_image ? [post.product_image] : []);
-      if (src.length) {
-        const buffers = await this.collage.enhance(src).catch(() => [] as Buffer[]);
-        if (buffers.length >= 2) { await this.sendMediaGroupUpload(token, channel, buffers, caption, post); return; }
-        if (buffers.length === 1) { await this.sendPhotoUpload(token, channel, buffers[0], caption, post); return; }
-        // 0 enhanced → fall through to the normal URL-based send below.
-      }
-    }
-
-    // Multiple images (product colors/variants) → one swipeable media group
-    // instead of separate posts. Telegram caps a group at 10 and puts the caption
-    // on the first item only.
-    if (gallery.length > 1) {
-      await this.sendMediaGroup(token, channel, gallery.slice(0, 10), caption, post);
+    if (m.kind === 'album') {
+      await this.sendMediaGroup(token, channel, m.images, caption, post);
       return;
     }
 
+    const image = m.kind === 'single' ? m.image : post.product_image;
     const url = `https://api.telegram.org/bot${token}/sendPhoto`;
     try {
       const res = await axios.post(
         url,
-        { chat_id: channel, photo: post.product_image, caption, parse_mode: 'HTML' },
+        { chat_id: channel, photo: image, caption, parse_mode: 'HTML' },
         { timeout: 15000 },
       );
       post.telegram_message_id = res.data?.result?.message_id;
@@ -1054,7 +1084,7 @@ export class PostsService {
         const plain = caption.replace(/<[^>]+>/g, '');
         const res = await axios.post(
           url,
-          { chat_id: channel, photo: post.product_image, caption: plain },
+          { chat_id: channel, photo: image, caption: plain },
           { timeout: 15000 },
         );
         post.telegram_message_id = res.data?.result?.message_id;
