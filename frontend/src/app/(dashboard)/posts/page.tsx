@@ -153,10 +153,17 @@ function QueueItem({
         </p>
         <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-edge">
           <span className="text-sm font-bold text-white">₪{post.price_ils?.toFixed(2)}</span>
-          <span className="text-2xs text-white/25">
-            נוסף {new Date(post.created_at).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-          </span>
+          {sendAt ? (
+            <span className="flex items-center gap-1 text-xs font-semibold text-amber-400" title="מועד פרסום משוער">
+              <Clock size={11} /> יישלח {slotLabel(sendAt)}
+            </span>
+          ) : (
+            <span className="text-2xs text-amber-400/80">התור כבוי — הפעל בהגדרות</span>
+          )}
         </div>
+        <p className="text-2xs text-white/25 mt-1.5">
+          נוסף {new Date(post.created_at).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+        </p>
       </div>
     </div>
   );
