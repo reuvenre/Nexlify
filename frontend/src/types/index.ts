@@ -114,6 +114,8 @@ export interface CredentialSet {
   publish_telegram: boolean;
   publish_facebook: boolean;
   publish_instagram: boolean;
+  make_webhook_url: string;
+  publish_via_make: boolean;
   image_enhance_enabled: boolean;
   // Discovery
   apify_api_token: string;        // masked
@@ -172,6 +174,8 @@ export interface CredentialSetInput {
   publish_telegram?: boolean;
   publish_facebook?: boolean;
   publish_instagram?: boolean;
+  make_webhook_url?: string;
+  publish_via_make?: boolean;
   image_enhance_enabled?: boolean;
   // Discovery
   apify_api_token?: string;

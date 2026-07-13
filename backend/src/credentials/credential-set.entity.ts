@@ -87,6 +87,15 @@ export class CredentialSet {
   @Column({ default: false })
   publish_instagram: boolean;
 
+  /** Make.com incoming-webhook URL. When publish_via_make is on, Facebook posts are
+   *  delivered by POSTing the post to this webhook (which drives the user's own Make
+   *  scenario + its authorized Facebook connection) instead of our direct Graph API. */
+  @Column({ nullable: true })
+  make_webhook_url: string;
+
+  @Column({ default: false })
+  publish_via_make: boolean;
+
   /** Auto-enhance product photos (sharpen / brighten / colour) before publishing. */
   @Column({ default: false })
   image_enhance_enabled: boolean;

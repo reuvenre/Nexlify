@@ -86,6 +86,14 @@ export class CredentialSetDto {
   publish_instagram?: boolean;
 
   @IsOptional()
+  @IsString()
+  make_webhook_url?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  publish_via_make?: boolean;
+
+  @IsOptional()
   @IsBoolean()
   image_enhance_enabled?: boolean;
 

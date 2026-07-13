@@ -35,6 +35,10 @@ export function IntegrationsForm() {
   // Auto image enhancement (local sharp pass, applied on the Telegram album)
   const [imageEnhance, setImageEnhance] = useState(false);
 
+  // Make.com webhook relay (delivers Facebook via the user's own Make scenario)
+  const [makeUrl, setMakeUrl] = useState('');
+  const [pubViaMake, setPubViaMake] = useState(false);
+
   // Scaffolded integrations (credentials stored; activation pending external accounts)
   const [waPhoneId, setWaPhoneId] = useState('');
   const [waToken, setWaToken] = useState('');
@@ -55,6 +59,8 @@ export function IntegrationsForm() {
         setPubFacebook(c.publish_facebook ?? false);
         setPubInstagram(c.publish_instagram ?? false);
         setImageEnhance(c.image_enhance_enabled ?? false);
+        setMakeUrl(c.make_webhook_url || '');
+        setPubViaMake(c.publish_via_make ?? false);
         setWaPhoneId(c.whatsapp_phone_number_id || '');
         setPinBoardId(c.pinterest_board_id || '');
       })
@@ -84,6 +90,8 @@ export function IntegrationsForm() {
         publish_facebook: pubFacebook,
         publish_instagram: pubInstagram,
         image_enhance_enabled: imageEnhance,
+        make_webhook_url: makeUrl,
+        publish_via_make: pubViaMake,
         whatsapp_phone_number_id: waPhoneId,
         whatsapp_access_token: waToken,
         pinterest_board_id: pinBoardId,
@@ -309,6 +317,34 @@ export function IntegrationsForm() {
             className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 text-white/60 text-sm rounded-xl transition-all">
             {verifying ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
             בדוק דף + חשבון פרסום
+          </button>
+        </div>
+      </section>
+
+      {/* Make.com relay — publish Facebook through the user's own Make scenario */}
+      <section className="bg-surface-secondary border border-edge rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+          <span className="text-lg">🔗</span> פרסום דרך Make (Webhook)
+        </h3>
+        <p className="text-2xs text-white/30 mb-4">
+          מפרסם לפייסבוק דרך תרחיש ה-Make שלך (החיבור המורשה של Make) — עוקף את הצורך ב-Page Token. כשמופעל, פוסטים לפייסבוק נשלחים ל-Webhook במקום ל-Graph API הישיר. טלגרם ממשיך לצאת ישירות מהמערכת.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">כתובת Webhook של Make</label>
+            <input value={makeUrl} onChange={(e) => setMakeUrl(e.target.value)} placeholder="https://hook.eu2.make.com/..." dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+          <button
+            type="button"
+            onClick={() => setPubViaMake((v) => !v)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all
+              ${pubViaMake ? 'bg-blue-600/10 border-blue-500/30' : 'bg-white/3 border-edge-hover'}`}
+          >
+            <span className="flex items-center gap-2 text-sm text-white/80"><span>🔗</span>פרסם פייסבוק דרך Make</span>
+            <span className={`relative w-9 h-5 rounded-full transition-colors ${pubViaMake ? 'bg-blue-500' : 'bg-white/15'}`}>
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${pubViaMake ? 'right-0.5' : 'right-4'}`} />
+            </span>
           </button>
         </div>
       </section>

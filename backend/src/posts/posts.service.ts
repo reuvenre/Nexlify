@@ -664,12 +664,16 @@ export class PostsService {
     // to the page, not only default-channel posts. (Previously a channelOverride
     // silently skipped Facebook, so queued/supplier posts never reached it.)
     const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
-    const wantFacebook = creds?.publish_facebook === true;
+    // Make.com relay: when enabled + a webhook is set, Facebook is delivered by POSTing
+    // the post to the user's Make scenario (which posts via its own authorized FB
+    // connection). Make then REPLACES the native Graph API path so FB isn't double-posted.
+    const wantMake = creds?.publish_via_make === true && !!creds?.make_webhook_url;
+    const wantFacebook = creds?.publish_facebook === true && !wantMake;
     const wantInstagram = creds?.publish_instagram === true;
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
-    if (!wantTelegram && !wantFacebook && !wantInstagram) {
+    if (!wantTelegram && !wantFacebook && !wantInstagram && !wantMake) {
       post.status = 'failed';
       post.error_message = 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
       await this.repo.save(post);
@@ -730,6 +734,13 @@ export class PostsService {
         this.sendToInstagram(post, creds, body)
           .then(() => { anySuccess = true; })
           .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }),
+      );
+    }
+    if (wantMake) {
+      tasks.push(
+        this.sendToMakeWebhook(post, creds, body)
+          .then(() => { anySuccess = true; })
+          .catch((err: any) => { errors.push(`Make: ${err?.response?.data?.message || err.message}`); }),
       );
     }
     await Promise.all(tasks);
@@ -979,6 +990,44 @@ export class PostsService {
     );
     if (publish.data?.error) throw new Error(publish.data.error.message);
     post.instagram_post_id = publish.data?.id || null;
+  }
+
+  /**
+   * Relays the post to a Make.com incoming webhook, which drives the user's own
+   * scenario (and its authorized Facebook connection) to publish. This is the bridge
+   * to their existing "Google Sheets → Facebook/Telegram" automation: instead of a
+   * sheet row, Make receives a clean JSON payload per post. Sends both the plain and
+   * HTML text plus every image URL, so the scenario can map whatever it needs.
+   */
+  private async sendToMakeWebhook(post: Post, creds: DecryptedCredentials, body: string) {
+    const url = creds?.make_webhook_url;
+    if (!url) throw new Error('Missing Make webhook URL');
+
+    let gallery: string[] = [];
+    try { gallery = post.gallery_json ? JSON.parse(post.gallery_json) : []; } catch { /* ignore */ }
+    const images = gallery.length ? gallery.slice(0, 10) : (post.product_image ? [post.product_image] : []);
+    const plain = body.replace(/<\/?[^>]+>/g, '');
+
+    const payload = {
+      text: plain,                 // ready-to-post caption (no HTML)
+      html: body,                  // HTML variant (Telegram-style), if the scenario wants it
+      title: post.product_title,
+      image: images[0] || post.product_image || '',
+      images,                      // full gallery for multi-image posts
+      link: post.affiliate_url || '',
+      price_ils: post.price_ils || 0,
+      facebook_page_id: creds.facebook_page_id || '',
+      post_id: post.id,
+    };
+
+    const res = await axios.post(url, payload, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 15000,
+      // Make returns 200 "Accepted" on success; surface anything else as an error.
+      validateStatus: (s) => s >= 200 && s < 300,
+    });
+    // Make webhooks echo a short body ("Accepted"); nothing to persist beyond success.
+    void res;
   }
 
   // ── AliExpress helpers ────────────────────────────────────────────────────

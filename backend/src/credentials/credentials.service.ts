@@ -35,6 +35,8 @@ export interface DecryptedCredentials {
   publish_telegram?: boolean;
   publish_facebook?: boolean;
   publish_instagram?: boolean;
+  make_webhook_url?: string;
+  publish_via_make?: boolean;
   image_enhance_enabled?: boolean;
   // Discovery
   apify_api_token?: string;
@@ -105,6 +107,8 @@ export class CredentialsService {
     if (dto.publish_telegram !== undefined)  cred.publish_telegram = dto.publish_telegram;
     if (dto.publish_facebook !== undefined)  cred.publish_facebook = dto.publish_facebook;
     if (dto.publish_instagram !== undefined) cred.publish_instagram = dto.publish_instagram;
+    if (dto.make_webhook_url !== undefined)  cred.make_webhook_url = dto.make_webhook_url.trim() || null;
+    if (dto.publish_via_make !== undefined)  cred.publish_via_make = dto.publish_via_make;
     if (dto.image_enhance_enabled !== undefined) cred.image_enhance_enabled = dto.image_enhance_enabled;
 
     // Auto-boost settings
@@ -343,6 +347,8 @@ export class CredentialsService {
       publish_telegram: cred.publish_telegram,
       publish_facebook: cred.publish_facebook,
       publish_instagram: cred.publish_instagram,
+      make_webhook_url: cred.make_webhook_url,
+      publish_via_make: cred.publish_via_make,
       image_enhance_enabled: cred.image_enhance_enabled,
       apify_api_token: decrypt(cred.apify_api_token_enc),
       boost_enabled: cred.boost_enabled,
@@ -405,6 +411,8 @@ export class CredentialsService {
       publish_telegram: cred.publish_telegram ?? true,
       publish_facebook: cred.publish_facebook ?? false,
       publish_instagram: cred.publish_instagram ?? false,
+      make_webhook_url: cred.make_webhook_url || '',
+      publish_via_make: cred.publish_via_make ?? false,
       image_enhance_enabled: cred.image_enhance_enabled ?? false,
       // Discovery
       apify_api_token: cred.apify_api_token_enc ? mask(decrypt(cred.apify_api_token_enc)) : '',
