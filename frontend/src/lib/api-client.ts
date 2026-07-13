@@ -343,11 +343,18 @@ export const productsApi = {
 // 15s global timeout, so the generate/publish/schedule calls get a longer one.
 const AI_TIMEOUT = 60_000;
 
+/** Product price/title the UI already has — sent with quick/scheduled posts so the
+ *  post keeps the real price instead of a ₪0, empty-title post. */
+type QuickPostProduct = {
+  title?: string; sale_price?: number; original_price?: number; currency?: string;
+  discount_percent?: number; orders_count?: number; rating?: number;
+};
+
 export const postsApi = {
   preview: (product_id: string, language?: string, custom_product?: Partial<AliProduct>, template?: string) =>
     http.post<PostPreview>('/posts/preview', { product_id, language, custom_product, template }, { timeout: AI_TIMEOUT }).then(extract),
 
-  quickPost: (data: { product_id: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string }) =>
+  quickPost: (data: { product_id: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string; product?: QuickPostProduct }) =>
     http.post<Post>('/posts/quick', data, { timeout: AI_TIMEOUT }).then(extract),
 
   list: (params?: { page?: number; limit?: number; status?: string; campaign_id?: string; source?: 'aliexpress' | 'flylink' }) =>
@@ -371,7 +378,7 @@ export const postsApi = {
   /** Delete any post (queued/scheduled/sent/failed). */
   remove: (id: string) => http.delete(`/posts/${id}`).then(extract),
 
-  schedulePost: (data: { product_id: string; scheduled_at: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string }) =>
+  schedulePost: (data: { product_id: string; scheduled_at: string; text?: string; channel_override?: string; product_image?: string; affiliate_url?: string; product?: QuickPostProduct }) =>
     http.post<Post>('/posts/schedule', data, { timeout: AI_TIMEOUT }).then(extract),
 
   // ── Queue ──

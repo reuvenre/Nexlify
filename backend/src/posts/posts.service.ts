@@ -109,6 +109,31 @@ export class PostsService {
     };
   }
 
+  /**
+   * Build a product object from the price/title the frontend already displayed, so a
+   * quick/scheduled post keeps the REAL price + title. Previously, when the frontend
+   * supplied an image (to avoid the unreliable keyword re-fetch), the product was left
+   * null → the post was saved with an empty title and ₪0 price. We now trust the data
+   * the UI already has instead of re-fetching. Returns null if nothing usable was sent.
+   */
+  private productFromData(d?: {
+    title?: string; sale_price?: number; original_price?: number; currency?: string;
+    discount_percent?: number; orders_count?: number; rating?: number;
+  }): any | null {
+    if (!d) return null;
+    const sale = Number(d.sale_price) || 0;
+    if (!d.title && sale <= 0) return null; // no title and no price → nothing to use
+    return {
+      title: d.title || '',
+      sale_price: sale,
+      original_price: Number(d.original_price) || sale,
+      currency: d.currency || 'USD',
+      discount_percent: Number(d.discount_percent) || 0,
+      orders_count: Number(d.orders_count) || 0,
+      rating: Number(d.rating) || 0,
+    };
+  }
+
   /** Resolve the user's default footer template content (appended to every post). */
   private async getFooterText(userId: string, creds: DecryptedCredentials): Promise<string> {
     const id = creds?.default_footer_template_id;
@@ -192,14 +217,15 @@ export class PostsService {
     channelOverride?: string,
     productImageOverride?: string,   // image URL already known by frontend — avoids wrong re-fetch
     affiliateUrlOverride?: string,   // affiliate link already fetched by frontend
+    productData?: Parameters<PostsService['productFromData']>[0], // price/title from the frontend
   ) {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
 
-    // Only fetch the product from AliExpress if we don't already have the image
-    const product = productImageOverride
-      ? null
-      : await this.searchProduct(productId, creds);
+    // Prefer the price/title the frontend already has; otherwise fetch (only when no
+    // image was supplied). This keeps the real price instead of a ₪0 / empty-title post.
+    const product = this.productFromData(productData)
+      || (productImageOverride ? null : await this.searchProduct(productId, creds));
 
     const affiliateUrl = affiliateUrlOverride
       || await this.getAffiliateLink(productId, creds);
@@ -238,13 +264,13 @@ export class PostsService {
     channelOverride?: string,
     productImageOverride?: string,
     affiliateUrlOverride?: string,
+    productData?: Parameters<PostsService['productFromData']>[0],
   ) {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
 
-    const product = productImageOverride
-      ? null
-      : await this.searchProduct(productId, creds);
+    const product = this.productFromData(productData)
+      || (productImageOverride ? null : await this.searchProduct(productId, creds));
 
     const affiliateUrl = affiliateUrlOverride
       || await this.getAffiliateLink(productId, creds);

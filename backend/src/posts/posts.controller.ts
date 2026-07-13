@@ -45,10 +45,11 @@ export class PostsController {
     @Body('channel_override') channelOverride?: string,
     @Body('product_image') productImage?: string,
     @Body('affiliate_url') affiliateUrlOverride?: string,
+    @Body('product') product?: any,
   ) {
     return this.svc.schedulePost(
       this.uid(req), productId, new Date(scheduledAt),
-      text, channelOverride, productImage, affiliateUrlOverride,
+      text, channelOverride, productImage, affiliateUrlOverride, product,
     );
   }
 
@@ -60,9 +61,10 @@ export class PostsController {
     @Body('channel_override') channelOverride?: string,
     @Body('product_image') productImage?: string,
     @Body('affiliate_url') affiliateUrlOverride?: string,
+    @Body('product') product?: any,
   ) {
     return this.svc.quickPost(
-      this.uid(req), productId, text, channelOverride, productImage, affiliateUrlOverride,
+      this.uid(req), productId, text, channelOverride, productImage, affiliateUrlOverride, product,
     );
   }
 

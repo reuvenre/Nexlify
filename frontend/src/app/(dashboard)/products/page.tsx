@@ -339,6 +339,14 @@ function ProductRow({
         text: product.post_text || undefined,
         product_image: product.image_url || undefined,
         affiliate_url: product.affiliate_url || undefined,
+        // Keep the catalog product's real price/title on the post (avoid ₪0).
+        product: {
+          title: product.title,
+          sale_price: product.sale_price,
+          original_price: product.original_price,
+          currency: product.currency,
+          discount_percent: product.discount_percent,
+        },
       });
       setShowSchedule(false);
       setScheduledAt('');

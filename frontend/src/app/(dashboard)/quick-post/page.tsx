@@ -389,6 +389,17 @@ export default function QuickPostPage() {
         // instead of re-fetching via searchProduct (which returns wrong results)
         product_image: preview?.product?.image_url || selected.image_url || undefined,
         affiliate_url: affiliateUrl || undefined,
+        // Send the price/title the UI already has so the post keeps the real price
+        // (skipping the re-fetch used to save a ₪0, empty-title post).
+        product: {
+          title: selected.title,
+          sale_price: selected.sale_price,
+          original_price: selected.original_price,
+          currency: selected.currency,
+          discount_percent: selected.discount_percent,
+          orders_count: selected.orders_count,
+          rating: selected.rating,
+        },
       });
       setPosted(true);
       setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
@@ -412,6 +423,15 @@ export default function QuickPostPage() {
         scheduled_at: scheduledAt,
         product_image: preview?.product?.image_url || selected.image_url || undefined,
         affiliate_url: affiliateUrl || undefined,
+        product: {
+          title: selected.title,
+          sale_price: selected.sale_price,
+          original_price: selected.original_price,
+          currency: selected.currency,
+          discount_percent: selected.discount_percent,
+          orders_count: selected.orders_count,
+          rating: selected.rating,
+        },
       });
       setPosted(true);
       setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
