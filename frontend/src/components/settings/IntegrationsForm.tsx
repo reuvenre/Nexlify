@@ -32,6 +32,9 @@ export function IntegrationsForm() {
   const [instagramOk, setInstagramOk] = useState<boolean | null>(null);
   const [instagramError, setInstagramError] = useState<string | null>(null);
 
+  // Auto image enhancement (local sharp pass, applied on the Telegram album)
+  const [imageEnhance, setImageEnhance] = useState(false);
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loadingChannels, setLoadingChannels] = useState(true);
 
@@ -45,6 +48,7 @@ export function IntegrationsForm() {
         setPubTelegram(c.publish_telegram ?? true);
         setPubFacebook(c.publish_facebook ?? false);
         setPubInstagram(c.publish_instagram ?? false);
+        setImageEnhance(c.image_enhance_enabled ?? false);
       })
       .catch(() => {});
 
@@ -71,6 +75,7 @@ export function IntegrationsForm() {
         publish_telegram: pubTelegram,
         publish_facebook: pubFacebook,
         publish_instagram: pubInstagram,
+        image_enhance_enabled: imageEnhance,
       });
       setSaved(true);
       setBotToken('');
@@ -284,6 +289,27 @@ export function IntegrationsForm() {
             </button>
           ))}
         </div>
+      </section>
+
+      {/* Auto image enhancement */}
+      <section className="bg-surface-secondary border border-edge rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+          <span className="text-lg">✨</span> שיפור תמונות אוטומטי
+        </h3>
+        <p className="text-2xs text-white/30 mb-4">
+          לפני פרסום בטלגרם, תמונות המוצר עוברות שיפור אוטומטי — חידוד, הבהרה, חיזוק צבעים ואיזון ניגודיות — לתמונה מקצועית ומזמינה יותר.
+        </p>
+        <button
+          type="button"
+          onClick={() => setImageEnhance((v) => !v)}
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all
+            ${imageEnhance ? 'bg-blue-600/10 border-blue-500/30' : 'bg-white/3 border-edge-hover'}`}
+        >
+          <span className="flex items-center gap-2 text-sm text-white/80"><span>✨</span>הפעל שיפור תמונות</span>
+          <span className={`relative w-9 h-5 rounded-full transition-colors ${imageEnhance ? 'bg-blue-500' : 'bg-white/15'}`}>
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${imageEnhance ? 'right-0.5' : 'right-4'}`} />
+          </span>
+        </button>
       </section>
 
       {/* Instagram Business (publishing reuses the Facebook Page token) */}

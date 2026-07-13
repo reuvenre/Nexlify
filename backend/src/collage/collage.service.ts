@@ -44,6 +44,34 @@ export class CollageService {
     return sheets;
   }
 
+  /**
+   * Auto-enhance product photos before publishing: fetch each, then apply a light
+   * "studio" pass — auto-orient, cap size, lift brightness/saturation, sharpen and
+   * normalise contrast — and return JPEG buffers (≤10). Best-effort per image; a
+   * failed fetch/decode is skipped so publishing never breaks.
+   */
+  async enhance(urls: string[]): Promise<Buffer[]> {
+    const out: Buffer[] = [];
+    for (const url of urls.slice(0, 10)) {
+      const buf = await this.fetchImage(url);
+      if (!buf) continue;
+      try {
+        const enhanced = await sharp(buf)
+          .rotate()                                              // honour EXIF orientation
+          .resize(1440, 1440, { fit: 'inside', withoutEnlargement: true })
+          .modulate({ brightness: 1.06, saturation: 1.12 })      // brighter, punchier colour
+          .sharpen()                                             // crisp product edges
+          .normalise()                                           // stretch contrast
+          .jpeg({ quality: 88 })
+          .toBuffer();
+        out.push(enhanced);
+      } catch (e: any) {
+        this.logger.warn(`image enhance failed: ${e?.message}`);
+      }
+    }
+    return out;
+  }
+
   private async buildSheet(
     urls: string[], cols: number,
     diag: { fetched: number; fetchFail: number; sharpFail: number; firstErr: string },

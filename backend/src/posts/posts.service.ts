@@ -779,6 +779,19 @@ export class PostsService {
       // If compositing produced nothing, fall through to a normal album below.
     }
 
+    // Auto image enhancement: fetch the photo(s), run the "studio" pass, and upload the
+    // enhanced buffers (so the improved bytes actually reach Telegram, not the original
+    // URL). Best-effort — if enhancement yields nothing, fall through to the normal send.
+    if (creds?.image_enhance_enabled && !post.collage_cells) {
+      const src = gallery.length ? gallery.slice(0, 10) : (post.product_image ? [post.product_image] : []);
+      if (src.length) {
+        const buffers = await this.collage.enhance(src).catch(() => [] as Buffer[]);
+        if (buffers.length >= 2) { await this.sendMediaGroupUpload(token, channel, buffers, caption, post); return; }
+        if (buffers.length === 1) { await this.sendPhotoUpload(token, channel, buffers[0], caption, post); return; }
+        // 0 enhanced → fall through to the normal URL-based send below.
+      }
+    }
+
     // Multiple images (product colors/variants) → one swipeable media group
     // instead of separate posts. Telegram caps a group at 10 and puts the caption
     // on the first item only.
@@ -868,6 +881,31 @@ export class PostsService {
       if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
         const res = await send(false);
         post.telegram_message_id = res.data?.result?.[0]?.message_id;
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /** Uploads a single in-memory photo buffer (e.g. an enhanced image) to Telegram. */
+  private async sendPhotoUpload(token: string, channel: string, buffer: Buffer, caption: string, post: Post) {
+    const url = `https://api.telegram.org/bot${token}/sendPhoto`;
+    const send = async (withHtml: boolean) => {
+      const form = new FormData();
+      form.append('chat_id', channel);
+      form.append('caption', withHtml ? caption : caption.replace(/<[^>]+>/g, ''));
+      if (withHtml) form.append('parse_mode', 'HTML');
+      form.append('photo', buffer, { filename: 'photo.jpg', contentType: 'image/jpeg' });
+      return axios.post(url, form, { headers: form.getHeaders(), timeout: 30000, maxBodyLength: Infinity, maxContentLength: Infinity });
+    };
+    try {
+      const res = await send(true);
+      post.telegram_message_id = res.data?.result?.message_id;
+    } catch (err: any) {
+      const desc: string = err?.response?.data?.description || '';
+      if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
+        const res = await send(false);
+        post.telegram_message_id = res.data?.result?.message_id;
         return;
       }
       throw err;

@@ -35,6 +35,7 @@ export interface DecryptedCredentials {
   publish_telegram?: boolean;
   publish_facebook?: boolean;
   publish_instagram?: boolean;
+  image_enhance_enabled?: boolean;
   // Discovery
   apify_api_token?: string;
   // Auto-boost
@@ -104,6 +105,7 @@ export class CredentialsService {
     if (dto.publish_telegram !== undefined)  cred.publish_telegram = dto.publish_telegram;
     if (dto.publish_facebook !== undefined)  cred.publish_facebook = dto.publish_facebook;
     if (dto.publish_instagram !== undefined) cred.publish_instagram = dto.publish_instagram;
+    if (dto.image_enhance_enabled !== undefined) cred.image_enhance_enabled = dto.image_enhance_enabled;
 
     // Auto-boost settings
     if (dto.boost_enabled !== undefined)         cred.boost_enabled = dto.boost_enabled;
@@ -332,6 +334,7 @@ export class CredentialsService {
       publish_telegram: cred.publish_telegram,
       publish_facebook: cred.publish_facebook,
       publish_instagram: cred.publish_instagram,
+      image_enhance_enabled: cred.image_enhance_enabled,
       apify_api_token: decrypt(cred.apify_api_token_enc),
       boost_enabled: cred.boost_enabled,
       boost_roas_threshold: cred.boost_roas_threshold,
@@ -393,6 +396,7 @@ export class CredentialsService {
       publish_telegram: cred.publish_telegram ?? true,
       publish_facebook: cred.publish_facebook ?? false,
       publish_instagram: cred.publish_instagram ?? false,
+      image_enhance_enabled: cred.image_enhance_enabled ?? false,
       // Discovery
       apify_api_token: cred.apify_api_token_enc ? mask(decrypt(cred.apify_api_token_enc)) : '',
       // Auto-boost

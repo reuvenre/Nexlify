@@ -85,6 +85,10 @@ export class CredentialSetDto {
   @IsBoolean()
   publish_instagram?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  image_enhance_enabled?: boolean;
+
   // ── Discovery (Apify) ──
   @IsOptional()
   @IsString()

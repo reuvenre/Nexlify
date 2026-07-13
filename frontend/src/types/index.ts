@@ -114,6 +114,7 @@ export interface CredentialSet {
   publish_telegram: boolean;
   publish_facebook: boolean;
   publish_instagram: boolean;
+  image_enhance_enabled: boolean;
   // Discovery
   apify_api_token: string;        // masked
   // Auto-boost
@@ -163,6 +164,7 @@ export interface CredentialSetInput {
   publish_telegram?: boolean;
   publish_facebook?: boolean;
   publish_instagram?: boolean;
+  image_enhance_enabled?: boolean;
   // Discovery
   apify_api_token?: string;
   // Auto-boost

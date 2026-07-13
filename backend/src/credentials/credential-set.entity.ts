@@ -87,6 +87,10 @@ export class CredentialSet {
   @Column({ default: false })
   publish_instagram: boolean;
 
+  /** Auto-enhance product photos (sharpen / brighten / colour) before publishing. */
+  @Column({ default: false })
+  image_enhance_enabled: boolean;
+
   /* ── Product discovery (Apify) ─────────────────────────────────────────── */
 
   @Column({ nullable: true })
