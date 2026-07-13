@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Store, Plus, Loader2, Trash2, Link2, Sparkles, X,
   Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, Images, Wand2,
-  Globe, FileText, ListOrdered, Clock, CheckCheck, AlertCircle, ShoppingBag, Layers,
+  Globe, FileText, CheckCheck, ShoppingBag, Layers,
   Maximize2, ChevronLeft, ChevronRight, Check,
 } from 'lucide-react';
 import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } from '@/lib/api-client';
@@ -22,10 +22,6 @@ const BUILTIN_DEFAULT_TEMPLATE: PostTemplate = { id: 'builtin_default', name: '�
 
 const SYMS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
 const priceSym = (c: string) => SYMS[c] || '$';
-
-// datetime-local strings in LOCAL time; scheduling defaults to one hour ahead.
-const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-const localPlusHour = () => localInput(new Date(Date.now() + 60 * 60 * 1000));
 
 // The FLYLINK affiliate link is already saved on the product and comes back on the
 // preview — append it to the post text automatically so it never has to be re-pasted.
@@ -1032,14 +1028,8 @@ function ActionBtn({ icon: Icon, label, onClick, color = 'default', loading = fa
 function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
   product: SupplierProduct; catalogName: string; onCompose: () => void; onEdit: () => void; reload: () => void;
 }) {
-  const [loadingQueue, setLoadingQueue] = useState(false);
   const [loadingDesc, setLoadingDesc] = useState(false);
-  const [queued, setQueued] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [showSchedule, setShowSchedule] = useState(false);
-  const [scheduledAt, setScheduledAt] = useState(() => localPlusHour());
-  const [scheduling, setScheduling] = useState(false);
-  const minDateTime = localInput(new Date(Date.now() + 2 * 60 * 1000));
   const s = priceSym(product.display_currency || product.currency);
   const displayPrice = product.price_ils ?? product.price;
 
@@ -1052,24 +1042,11 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
     await navigator.clipboard.writeText(product.flylink_url);
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
-  const handleQueue = async () => {
-    setLoadingQueue(true);
-    try { await suppliersApi.queue(product.id); setQueued(true); setTimeout(() => setQueued(false), 3000); reload(); }
-    catch (e: any) { alert(e?.response?.data?.message || 'שגיאה בהוספה לתור'); }
-    finally { setLoadingQueue(false); }
-  };
   const handleDesc = async () => {
     setLoadingDesc(true);
     try { await suppliersApi.generateDescription(product.id); reload(); }
     catch (e: any) { alert(e?.response?.data?.message || 'שגיאה ביצירת תיאור'); }
     finally { setLoadingDesc(false); }
-  };
-  const handleSchedule = async () => {
-    if (!scheduledAt) return;
-    setScheduling(true);
-    try { await suppliersApi.schedule(product.id, new Date(scheduledAt).toISOString()); setShowSchedule(false); setScheduledAt(localPlusHour()); reload(); }
-    catch (e: any) { alert(e?.response?.data?.message || 'שגיאה בתזמון'); }
-    finally { setScheduling(false); }
   };
 
   return (
@@ -1104,34 +1081,13 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
           <ActionBtn icon={Trash2} label="מחק מוצר" onClick={handleDelete} color="red" />
           <ActionBtn icon={copied ? CheckCheck : Link2} label={copied ? 'הועתק!' : 'העתק קישור FLYLINK'} onClick={handleCopy} color="blue" />
           <ActionBtn icon={Sparkles} label="צור תיאור AI" onClick={handleDesc} color="purple" loading={loadingDesc} />
-          <ActionBtn icon={FileText} label="צור פוסט" onClick={onCompose} color="purple" />
-          <ActionBtn icon={Clock} label="תזמן פוסט" onClick={() => setShowSchedule(true)} color="purple" />
-          <ActionBtn icon={queued ? CheckCheck : ListOrdered} label={queued ? 'נוסף לתור!' : 'הוסף לתור'} onClick={handleQueue} color="blue" loading={loadingQueue} />
+          {/* Single publish entry-point: the composer honors your image selection,
+              and offers send / schedule / add-to-queue from inside. The old one-click
+              queue/schedule shortcuts bypassed image selection (always sent the full
+              album ≤10), so they were removed to keep "what you pick is what sends". */}
+          <ActionBtn icon={FileText} label="צור פוסט (שליחה / תזמון / תור)" onClick={onCompose} color="purple" />
           <ActionBtn icon={Pencil} label="ערוך מוצר" onClick={onEdit} color="blue" />
         </div>
-
-        {showSchedule && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSchedule(false)}>
-            <div className="bg-surface-secondary border border-edge rounded-2xl p-5 w-[360px]" onClick={(e) => e.stopPropagation()} dir="rtl">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={14} className="text-blue-400" /> תזמון פרסום</h3>
-                <button onClick={() => setShowSchedule(false)} className="text-white/30 hover:text-white/60"><X size={14} /></button>
-              </div>
-              <p className="text-xs text-white/40 line-clamp-1 mb-3" dir="ltr">{product.title}</p>
-              <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-3">
-                <AlertCircle size={12} className="text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-2xs text-amber-400">ייווצר טקסט אוטומטי (Gemini). לשליטה מלאה — &quot;צור פוסט&quot; ותזמן משם.</p>
-              </div>
-              <label className="block text-2xs text-white/40 mb-1.5">תאריך ושעה לפרסום</label>
-              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} min={minDateTime}
-                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/50 mb-4" dir="ltr" />
-              <button onClick={handleSchedule} disabled={!scheduledAt || scheduling}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all">
-                {scheduling ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}{scheduling ? 'מתזמן...' : 'תזמן פרסום'}
-              </button>
-            </div>
-          </div>
-        )}
       </td>
     </tr>
   );
