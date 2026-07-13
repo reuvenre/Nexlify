@@ -31,11 +31,18 @@ export interface AdminUser {
   campaigns_count: number;
 }
 
-export interface BroadcastResult {
-  smtp_configured: boolean;
+export interface BroadcastChannelResult {
+  configured?: boolean;
   total: number;
   sent: number;
   failed: number;
+  note?: string;
+}
+
+export interface BroadcastResult {
+  email?: BroadcastChannelResult;
+  telegram?: BroadcastChannelResult;
+  whatsapp?: BroadcastChannelResult;
 }
 
 // ─── Subscription ────────────────────────────────────────────────────────────

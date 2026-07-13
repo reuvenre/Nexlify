@@ -177,6 +177,32 @@ export class ChannelsService {
     return c?.name || null;
   }
 
+  /**
+   * Broadcast a plain-text announcement to every saved Telegram group. Each group is sent
+   * with its OWN bot token (falling back to `fallbackToken` — the user's default bot — when
+   * a channel has none). Best-effort per group; returns delivery counts.
+   */
+  async broadcastText(userId: string, text: string, fallbackToken?: string | null): Promise<{ sent: number; failed: number; total: number }> {
+    const channels = await this.repo.find({ where: { user_id: userId } });
+    let sent = 0, failed = 0;
+    for (const c of channels) {
+      const token = (c.bot_token_enc ? decrypt(c.bot_token_enc) : null) || fallbackToken || null;
+      const chatId = c.channel_id ? normalizeTelegramChatId(c.channel_id) : null;
+      if (!token || !chatId) { failed++; continue; }
+      try {
+        await axios.post(
+          `https://api.telegram.org/bot${token}/sendMessage`,
+          { chat_id: chatId, text, disable_web_page_preview: false },
+          { timeout: 10000 },
+        );
+        sent++;
+      } catch {
+        failed++;
+      }
+    }
+    return { sent, failed, total: channels.length };
+  }
+
   private async findOwned(userId: string, id: string): Promise<Channel> {
     const channel = await this.repo.findOne({ where: { id, user_id: userId } });
     if (!channel) throw new NotFoundException('Channel not found');

@@ -322,19 +322,28 @@ function AddUserModal({ plans, onClose, onSaved }: { plans: PlanDef[]; onClose: 
   );
 }
 
-// ─── Broadcast modal ────────────────────────────────────────────────────────────
+// ─── Broadcast modal (email / Telegram / WhatsApp) ──────────────────────────────
+type Chan = 'email' | 'telegram' | 'whatsapp';
+
 function BroadcastModal({ onClose }: { onClose: () => void }) {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [target, setTarget] = useState<'all' | 'users' | 'admins'>('all');
+  const [chans, setChans] = useState<Chan[]>(['email']);
+  const [waNumbers, setWaNumbers] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<BroadcastResult | null>(null);
 
+  const toggle = (c: Chan) => setChans((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+
   const send = async () => {
     setSending(true); setError(''); setResult(null);
     try {
-      const r = await adminApi.broadcast({ subject: subject.trim(), message: message.trim(), target });
+      const r = await adminApi.broadcast({
+        subject: subject.trim(), message: message.trim(), target,
+        channels: chans, whatsapp_numbers: chans.includes('whatsapp') ? waNumbers : undefined,
+      });
       setResult(r);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'שליחת התפוצה נכשלה');
@@ -343,52 +352,99 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const CHAN_META: { id: Chan; label: string }[] = [
+    { id: 'email', label: 'אימייל' },
+    { id: 'telegram', label: 'טלגרם (הקבוצות שלי)' },
+    { id: 'whatsapp', label: 'וואטסאפ' },
+  ];
+
+  const ResultLine = ({ label, r }: { label: string; r?: { configured?: boolean; total: number; sent: number; failed: number; note?: string } }) => {
+    if (!r) return null;
+    if (r.configured === false) return (
+      <p className="text-xs text-amber-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {label}: לא מוגדר — לא נשלח.</p>
+    );
+    if (r.note === 'no_numbers') return (
+      <p className="text-xs text-amber-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {label}: לא הוזנו מספרים.</p>
+    );
+    return (
+      <p className="text-xs text-white/70 flex items-center gap-1.5">
+        <CheckCircle2 size={12} className="text-green-400" /> {label}: נשלחו {r.sent}/{r.total}{r.failed ? ` · ${r.failed} נכשלו` : ''}.
+      </p>
+    );
+  };
+
   return (
     <ModalShell title="שליחת הודעת תפוצה" icon={<Send size={17} className="text-violet-400" />} onClose={onClose}>
       {result ? (
-        <div className="text-center py-4">
-          {result.smtp_configured ? (
-            <>
-              <CheckCircle2 size={32} className="text-green-400 mx-auto mb-3" />
-              <p className="text-sm text-white">נשלחו {result.sent} מתוך {result.total} הודעות.</p>
-              {result.failed > 0 && <p className="text-xs text-amber-400 mt-1">{result.failed} נכשלו.</p>}
-            </>
-          ) : (
-            <>
-              <AlertTriangle size={32} className="text-amber-400 mx-auto mb-3" />
-              <p className="text-sm text-white">שרת האימייל (SMTP) לא מוגדר — לא נשלחו הודעות.</p>
-              <p className="text-xs text-white/40 mt-2">הגדר SMTP_HOST / SMTP_USER / SMTP_PASS בשרת (Render) כדי לשלוח בפועל. ({result.total} נמענים היו מתאימים.)</p>
-            </>
-          )}
-          <button onClick={onClose} className="mt-5 px-5 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 text-sm transition-all">סגור</button>
+        <div className="py-2">
+          <CheckCircle2 size={30} className="text-green-400 mx-auto mb-3" />
+          <div className="space-y-2 bg-white/[0.03] border border-edge rounded-lg p-3">
+            <ResultLine label="אימייל" r={result.email} />
+            <ResultLine label="טלגרם" r={result.telegram} />
+            <ResultLine label="וואטסאפ" r={result.whatsapp} />
+          </div>
+          <button onClick={onClose} className="mt-5 w-full px-5 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 text-sm transition-all">סגור</button>
         </div>
       ) : (
         <div className="space-y-4">
           <div>
-            <label className={labelCls}>נמענים</label>
-            <select value={target} onChange={(e) => setTarget(e.target.value as any)} className={inputCls}>
-              <option value="all">כל המשתמשים</option>
-              <option value="users">משתמשים רגילים בלבד</option>
-              <option value="admins">מנהלים בלבד</option>
-            </select>
+            <label className={labelCls}>ערוצי שליחה</label>
+            <div className="flex flex-wrap gap-2">
+              {CHAN_META.map((c) => {
+                const on = chans.includes(c.id);
+                return (
+                  <button key={c.id} type="button" onClick={() => toggle(c.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                      on ? 'bg-violet-600/20 border-violet-500/50 text-violet-200' : 'bg-white/5 border-edge-hover text-white/50 hover:text-white/80'
+                    }`}>
+                    <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${on ? 'bg-violet-500 border-violet-500' : 'border-white/30'}`}>
+                      {on && <CheckCircle2 size={10} className="text-white" />}
+                    </span>
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          {chans.includes('email') && (
+            <div>
+              <label className={labelCls}>נמעני אימייל</label>
+              <select value={target} onChange={(e) => setTarget(e.target.value as any)} className={inputCls}>
+                <option value="all">כל המשתמשים</option>
+                <option value="users">משתמשים רגילים בלבד</option>
+                <option value="admins">מנהלים בלבד</option>
+              </select>
+            </div>
+          )}
+
+          {chans.includes('whatsapp') && (
+            <div>
+              <label className={labelCls}>מספרי וואטסאפ</label>
+              <textarea value={waNumbers} onChange={(e) => setWaNumbers(e.target.value)} rows={2} dir="ltr"
+                placeholder="972501234567, 972521112233"
+                className={`${inputCls} resize-y`} />
+              <p className="text-2xs text-white/30 mt-1">מספרים בפורמט בינלאומי (ללא +), מופרדים בפסיק/רווח. דורש חשבון WhatsApp Business מוגדר בהגדרות.</p>
+            </div>
+          )}
+
           <div>
-            <label className={labelCls}>נושא</label>
+            <label className={labelCls}>נושא (אימייל)</label>
             <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="נושא ההודעה" className={inputCls} />
           </div>
           <div>
             <label className={labelCls}>תוכן ההודעה</label>
-            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={6}
-              placeholder="כתוב כאן את תוכן ההודעה שתישלח לכל הנמענים..."
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5}
+              placeholder="כתוב כאן את תוכן ההודעה שתישלח..."
               className={`${inputCls} resize-y leading-relaxed`} />
           </div>
 
           {error && <p className="text-xs text-red-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {error}</p>}
 
           <div className="flex gap-2 pt-1">
-            <button onClick={send} disabled={sending || !subject.trim() || !message.trim()}
+            <button onClick={send} disabled={sending || !message.trim() || !chans.length}
               className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white text-sm font-medium transition-all">
-              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} שלח לכולם
+              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} שלח
             </button>
             <button onClick={onClose} className="px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm transition-all">ביטול</button>
           </div>

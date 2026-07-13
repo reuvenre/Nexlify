@@ -259,8 +259,10 @@ export const adminApi = {
     http.patch<{ ok: boolean }>(`/admin/users/${userId}/role`, { role }).then(extract),
   setBlocked: (userId: string, blocked: boolean) =>
     http.patch<{ ok: boolean; blocked: boolean }>(`/admin/users/${userId}/block`, { blocked }).then(extract),
-  broadcast: (data: { subject: string; message: string; target?: 'all' | 'users' | 'admins' }) =>
-    http.post<BroadcastResult>('/admin/broadcast', data, { timeout: 60000 }).then(extract),
+  broadcast: (data: {
+    subject: string; message: string; target?: 'all' | 'users' | 'admins';
+    channels?: ('email' | 'telegram' | 'whatsapp')[]; whatsapp_numbers?: string;
+  }) => http.post<BroadcastResult>('/admin/broadcast', data, { timeout: 120000 }).then(extract),
 };
 
 // ─── Subscription API ────────────────────────────────────────────────────────

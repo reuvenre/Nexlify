@@ -370,6 +370,21 @@ export class CredentialsService {
     };
   }
 
+  /** WhatsApp Cloud API credentials (decrypted), or null when not configured. */
+  async getWhatsApp(userId: string): Promise<{ phoneNumberId: string; token: string } | null> {
+    const cred = await this.repo.findOne({ where: { user_id: userId } });
+    const phoneNumberId = cred?.whatsapp_phone_number_id?.trim();
+    const token = cred?.whatsapp_access_token_enc ? decrypt(cred.whatsapp_access_token_enc) : '';
+    if (!phoneNumberId || !token) return null;
+    return { phoneNumberId, token };
+  }
+
+  /** The user's default Telegram bot token (decrypted) — used as a broadcast fallback. */
+  async getTelegramToken(userId: string): Promise<string | null> {
+    const cred = await this.repo.findOne({ where: { user_id: userId } });
+    return cred?.telegram_bot_token_enc ? decrypt(cred.telegram_bot_token_enc) : null;
+  }
+
   /** Returns all credential sets with scheduling enabled (for queue cron) */
   async getAllSchedulingEnabled(): Promise<CredentialSet[]> {
     return this.repo.find({ where: { schedule_enabled: true } });

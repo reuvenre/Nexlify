@@ -2,12 +2,17 @@ import {
   BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Post, Req, UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
+import axios from 'axios';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { UsersService } from './users.service';
 import { MailService } from '../mail/mail.service';
+import { ChannelsService } from '../channels/channels.service';
+import { CredentialsService } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { BillingCycle } from '../subscription/plans.const';
+
+type BroadcastChannel = 'email' | 'telegram' | 'whatsapp';
 
 /** Admin-only views + user management. Guarded by JWT + admin role. */
 @Controller('admin')
@@ -17,6 +22,8 @@ export class AdminController {
     private readonly users: UsersService,
     private readonly subscription: SubscriptionService,
     private readonly mail: MailService,
+    private readonly channels: ChannelsService,
+    private readonly credentials: CredentialsService,
   ) {}
 
   private uid(req: Request) { return (req.user as any).id; }
@@ -79,31 +86,90 @@ export class AdminController {
   }
 
   /**
-   * Send a broadcast email to users. `target`: 'all' | 'users' | 'admins'. Sends
-   * sequentially (SMTP-friendly) and reports how many were delivered. When SMTP isn't
-   * configured, nothing is delivered and `smtp_configured:false` is returned.
+   * Multi-channel broadcast. `channels` selects any of email / telegram / whatsapp:
+   *  • email    → registered users (`target`: all | users | admins)
+   *  • telegram → the admin's saved Telegram groups (announcement)
+   *  • whatsapp → the phone numbers pasted in `whatsapp_numbers` (WhatsApp Cloud API)
+   * Each channel reports its own delivery counts; a channel that isn't configured returns
+   * `configured:false` rather than failing the whole request.
    */
   @Post('broadcast')
   @HttpCode(200)
   async broadcast(
+    @Req() req: Request,
     @Body('subject') subject: string,
     @Body('message') message: string,
     @Body('target') target?: 'all' | 'users' | 'admins',
+    @Body('channels') channels?: BroadcastChannel[],
+    @Body('whatsapp_numbers') whatsappNumbers?: string,
   ) {
-    if (!subject?.trim() || !message?.trim()) {
-      throw new BadRequestException('נא למלא נושא ותוכן להודעה');
-    }
-    const recipients = await this.users.recipients(target || 'all');
-    if (!recipients.length) throw new BadRequestException('אין נמענים מתאימים');
+    if (!message?.trim()) throw new BadRequestException('נא למלא תוכן להודעה');
+    const chans: BroadcastChannel[] = Array.isArray(channels) && channels.length ? channels : ['email'];
+    const userId = this.uid(req);
+    const msg = message.trim();
+    const subj = subject?.trim() || 'הודעה מ-Nexlify';
+    const result: any = {};
 
-    if (!this.mail.isConfigured()) {
-      return { smtp_configured: false, total: recipients.length, sent: 0, failed: 0 };
+    // ── Email ──
+    if (chans.includes('email')) {
+      if (!this.mail.isConfigured()) {
+        result.email = { configured: false, total: 0, sent: 0, failed: 0 };
+      } else {
+        const recipients = await this.users.recipients(target || 'all');
+        let sent = 0, failed = 0;
+        for (const r of recipients) {
+          const ok = await this.mail.sendBroadcast(r.email, subj, msg).catch(() => false);
+          if (ok) sent++; else failed++;
+        }
+        result.email = { configured: true, total: recipients.length, sent, failed };
+      }
     }
-    let sent = 0, failed = 0;
-    for (const r of recipients) {
-      const ok = await this.mail.sendBroadcast(r.email, subject.trim(), message.trim()).catch(() => false);
-      if (ok) sent++; else failed++;
+
+    // ── Telegram groups ──
+    if (chans.includes('telegram')) {
+      const fallback = await this.credentials.getTelegramToken(userId).catch(() => null);
+      result.telegram = await this.channels.broadcastText(userId, msg, fallback);
     }
-    return { smtp_configured: true, total: recipients.length, sent, failed };
+
+    // ── WhatsApp (Cloud API → pasted numbers) ──
+    if (chans.includes('whatsapp')) {
+      const wa = await this.credentials.getWhatsApp(userId);
+      const numbers = this.parseNumbers(whatsappNumbers);
+      if (!wa) {
+        result.whatsapp = { configured: false, total: numbers.length, sent: 0, failed: 0 };
+      } else if (!numbers.length) {
+        result.whatsapp = { configured: true, total: 0, sent: 0, failed: 0, note: 'no_numbers' };
+      } else {
+        let sent = 0, failed = 0;
+        for (const to of numbers) {
+          const ok = await this.sendWhatsApp(wa.phoneNumberId, wa.token, to, msg).catch(() => false);
+          if (ok) sent++; else failed++;
+        }
+        result.whatsapp = { configured: true, total: numbers.length, sent, failed };
+      }
+    }
+
+    return result;
+  }
+
+  /** Parse a pasted list of phone numbers (comma/space/newline separated) → E.164 digits. */
+  private parseNumbers(raw?: string): string[] {
+    if (!raw) return [];
+    return Array.from(new Set(
+      raw.split(/[\s,;]+/)
+        .map((n) => n.replace(/[^\d+]/g, '').replace(/^\+/, ''))
+        .filter((n) => n.length >= 8 && n.length <= 15),
+    ));
+  }
+
+  /** Send one WhatsApp text message via the Cloud API. Throws on API error. */
+  private async sendWhatsApp(phoneNumberId: string, token: string, to: string, body: string): Promise<boolean> {
+    const res = await axios.post(
+      `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+      { messaging_product: 'whatsapp', to, type: 'text', text: { body, preview_url: false } },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 12000 },
+    );
+    if (res.data?.error) throw new Error(res.data.error.message);
+    return true;
   }
 }
