@@ -1,28 +1,35 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Users, Shield, Loader2, Mail, BadgeCheck, RefreshCw } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import {
+  Users, Shield, Loader2, Mail, BadgeCheck, RefreshCw, UserPlus, Send,
+  Ban, CheckCircle2, X, Settings2, AlertTriangle,
+} from 'lucide-react';
 import { StatCard } from '@/components/common/StatCard';
-import { adminApi } from '@/lib/api-client';
+import { adminApi, subscriptionApi } from '@/lib/api-client';
 import { useAuth } from '@/lib/hooks/useAuth';
-import type { AdminUser, AdminStats } from '@/types';
+import type { AdminUser, AdminStats, PlanDef, BroadcastResult } from '@/types';
 
 export default function AdminUsersPage() {
   const { user } = useAuth();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [plans, setPlans] = useState<PlanDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
+  const [managing, setManaging] = useState<AdminUser | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
-    Promise.all([adminApi.stats(), adminApi.users()])
-      .then(([s, u]) => { setStats(s); setUsers(u); setForbidden(false); })
+    Promise.all([adminApi.stats(), adminApi.users(), subscriptionApi.plans().catch(() => [])])
+      .then(([s, u, p]) => { setStats(s); setUsers(u); setPlans(p); setForbidden(false); })
       .catch((e) => { if (e?.response?.status === 403) setForbidden(true); })
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(load, []);
+  useEffect(() => { load(); }, [load]);
 
   if (forbidden || (user && user.role !== 'admin')) {
     return (
@@ -35,26 +42,39 @@ export default function AdminUsersPage() {
   }
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const planName = (id?: string) => plans.find((p) => p.id === id)?.name || id || '—';
+  const blockedCount = users.filter((u) => u.is_blocked).length;
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between">
+      <div className="mb-6 flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Users size={22} className="text-blue-400" /> ניהול משתמשים
           </h1>
-          <p className="text-sm text-white/40 mt-1">כל המשתמשים שנרשמו למערכת</p>
+          <p className="text-sm text-white/40 mt-1">הוספה, הרשאות, מנויים, חסימה ושליחת תפוצה</p>
         </div>
-        <button onClick={load} disabled={loading}
-          className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-white/70 text-sm rounded-xl transition-all">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> רענן
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setBroadcasting(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/30 text-violet-200 text-sm rounded-xl transition-all">
+            <Send size={14} /> שלח תפוצה
+          </button>
+          <button onClick={() => setAdding(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600/90 hover:bg-blue-600 text-white text-sm font-medium rounded-xl transition-all">
+            <UserPlus size={14} /> הוסף משתמש
+          </button>
+          <button onClick={load} disabled={loading}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-white/70 text-sm rounded-xl transition-all">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> רענן
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard label="סך משתמשים" value={stats?.total_users ?? 0} icon={Users} accent="blue" />
         <StatCard label="מנהלים" value={stats?.admins ?? 0} icon={Shield} accent="violet" />
         <StatCard label="דרך Google" value={stats?.google_users ?? 0} icon={BadgeCheck} accent="green" />
+        <StatCard label="חסומים" value={blockedCount} icon={Ban} accent="amber" />
       </div>
 
       <section className="bg-surface-secondary border border-edge rounded-xl overflow-hidden">
@@ -74,15 +94,23 @@ export default function AdminUsersPage() {
                 <tr className="text-right text-2xs text-white/35 border-b border-edge">
                   <th className="px-5 py-2.5 font-medium">אימייל</th>
                   <th className="px-3 py-2.5 font-medium">תפקיד</th>
+                  <th className="px-3 py-2.5 font-medium">מנוי</th>
+                  <th className="px-3 py-2.5 font-medium">סטטוס</th>
                   <th className="px-3 py-2.5 font-medium text-center">פוסטים</th>
                   <th className="px-3 py-2.5 font-medium text-center">קמפיינים</th>
                   <th className="px-3 py-2.5 font-medium">הצטרף</th>
+                  <th className="px-3 py-2.5 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
                 {users.map((u) => (
                   <tr key={u.id} className="border-b border-edge last:border-0 hover:bg-white/[0.02] transition-colors">
-                    <td className="px-5 py-3 text-white/80" dir="ltr">{u.email}</td>
+                    <td className="px-5 py-3 text-white/80" dir="ltr">
+                      <div className="flex items-center gap-2 justify-end">
+                        {u.via_google && <BadgeCheck size={13} className="text-green-400/70 shrink-0" />}
+                        <span className="truncate">{u.email}</span>
+                      </div>
+                    </td>
                     <td className="px-3 py-3">
                       <span className={`text-2xs px-2 py-0.5 rounded-full border ${u.role === 'admin'
                         ? 'bg-violet-500/10 text-violet-300 border-violet-500/25'
@@ -90,9 +118,27 @@ export default function AdminUsersPage() {
                         {u.role === 'admin' ? 'אדמין' : 'משתמש'}
                       </span>
                     </td>
+                    <td className="px-3 py-3 text-white/60">{planName(u.subscription_plan)}</td>
+                    <td className="px-3 py-3">
+                      {u.is_blocked ? (
+                        <span className="inline-flex items-center gap-1 text-2xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-300 border border-red-500/25">
+                          <Ban size={10} /> חסום
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-2xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-300 border border-green-500/25">
+                          <CheckCircle2 size={10} /> פעיל
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-3 text-center text-white/60">{u.posts_count}</td>
                     <td className="px-3 py-3 text-center text-white/60">{u.campaigns_count}</td>
                     <td className="px-3 py-3 text-white/45">{fmtDate(u.created_at)}</td>
+                    <td className="px-3 py-3">
+                      <button onClick={() => setManaging(u)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-blue-500/10 text-xs text-white/60 hover:text-blue-300 border border-transparent hover:border-blue-500/20 transition-all">
+                        <Settings2 size={12} /> נהל
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -100,6 +146,254 @@ export default function AdminUsersPage() {
           </div>
         )}
       </section>
+
+      {managing && (
+        <ManageUserModal
+          user={managing} plans={plans} isSelf={managing.id === user?.id}
+          onClose={() => setManaging(null)}
+          onSaved={() => { setManaging(null); load(); }}
+        />
+      )}
+      {adding && (
+        <AddUserModal plans={plans} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />
+      )}
+      {broadcasting && (
+        <BroadcastModal onClose={() => setBroadcasting(false)} />
+      )}
     </div>
+  );
+}
+
+// ─── Modal shell ──────────────────────────────────────────────────────────────
+function ModalShell({ title, icon, onClose, children }: { title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-surface-secondary border border-edge rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-edge sticky top-0 bg-surface-secondary">
+          <h3 className="text-base font-semibold text-white flex items-center gap-2">{icon} {title}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"><X size={16} /></button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const inputCls = 'w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white/85 outline-none focus:border-blue-500/50';
+const labelCls = 'block text-xs text-white/50 mb-1.5';
+
+// ─── Manage user modal (role / plan / block) ───────────────────────────────────
+function ManageUserModal({ user, plans, isSelf, onClose, onSaved }: {
+  user: AdminUser; plans: PlanDef[]; isSelf: boolean; onClose: () => void; onSaved: () => void;
+}) {
+  const [role, setRole] = useState<'user' | 'admin'>(user.role);
+  const [plan, setPlan] = useState<string>(user.subscription_plan || 'starter');
+  const [blocked, setBlocked] = useState<boolean>(!!user.is_blocked);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      if (role !== user.role) await adminApi.setRole(user.id, role);
+      if (plan !== (user.subscription_plan || 'starter')) await adminApi.setSubscription(user.id, plan);
+      if (blocked !== !!user.is_blocked) await adminApi.setBlocked(user.id, blocked);
+      onSaved();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'שמירה נכשלה — נסה שוב');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title="ניהול משתמש" icon={<Settings2 size={17} className="text-blue-400" />} onClose={onClose}>
+      <p className="text-sm text-white/70 mb-4 truncate" dir="ltr">{user.email}</p>
+
+      <div className="space-y-4">
+        <div>
+          <label className={labelCls}>הרשאה</label>
+          <select value={role} onChange={(e) => setRole(e.target.value as 'user' | 'admin')} className={inputCls} disabled={isSelf}>
+            <option value="user">משתמש</option>
+            <option value="admin">אדמין</option>
+          </select>
+          {isSelf && <p className="text-2xs text-white/30 mt-1">אי אפשר לשנות את ההרשאה של עצמך.</p>}
+        </div>
+
+        <div>
+          <label className={labelCls}>מנוי</label>
+          <select value={plan} onChange={(e) => setPlan(e.target.value)} className={inputCls}>
+            {plans.map((p) => (
+              <option key={p.id} value={p.id}>{p.name} — {p.monthly_credits} קרדיטים/חודש</option>
+            ))}
+          </select>
+          <p className="text-2xs text-white/30 mt-1">שינוי מנוי מאפס את מכסת הקרדיטים החודשית.</p>
+        </div>
+
+        <div>
+          <label className={labelCls}>סטטוס חשבון</label>
+          <button
+            type="button"
+            disabled={isSelf}
+            onClick={() => setBlocked((b) => !b)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all disabled:opacity-50 ${
+              blocked ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-green-500/10 border-green-500/30 text-green-300'
+            }`}
+          >
+            <span className="flex items-center gap-2 text-sm">
+              {blocked ? <Ban size={14} /> : <CheckCircle2 size={14} />}
+              {blocked ? 'חסום (לא יכול להתחבר)' : 'פעיל'}
+            </span>
+            <span className="text-2xs text-white/40">{blocked ? 'לחץ לביטול חסימה' : 'לחץ לחסימה'}</span>
+          </button>
+          {isSelf && <p className="text-2xs text-white/30 mt-1">אי אפשר לחסום את עצמך.</p>}
+        </div>
+
+        {error && <p className="text-xs text-red-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {error}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={save} disabled={saving}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium transition-all">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} שמור שינויים
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm transition-all">ביטול</button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Add user modal ─────────────────────────────────────────────────────────────
+function AddUserModal({ plans, onClose, onSaved }: { plans: PlanDef[]; onClose: () => void; onSaved: () => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [plan, setPlan] = useState('starter');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      await adminApi.createUser({ email: email.trim(), password, role, plan });
+      onSaved();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'יצירת המשתמש נכשלה');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title="הוספת משתמש" icon={<UserPlus size={17} className="text-blue-400" />} onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className={labelCls}>אימייל</label>
+          <input type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>סיסמה ראשונית</label>
+          <input type="text" dir="ltr" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="לפחות 6 תווים" className={inputCls} />
+          <p className="text-2xs text-white/30 mt-1">מסור למשתמש — הוא יוכל לשנות אותה דרך &quot;שכחתי סיסמה&quot;.</p>
+        </div>
+        <div>
+          <label className={labelCls}>הרשאה</label>
+          <select value={role} onChange={(e) => setRole(e.target.value as 'user' | 'admin')} className={inputCls}>
+            <option value="user">משתמש</option>
+            <option value="admin">אדמין</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>מנוי</label>
+          <select value={plan} onChange={(e) => setPlan(e.target.value)} className={inputCls}>
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+
+        {error && <p className="text-xs text-red-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {error}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={save} disabled={saving || !email.trim() || !password}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium transition-all">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />} צור משתמש
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm transition-all">ביטול</button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Broadcast modal ────────────────────────────────────────────────────────────
+function BroadcastModal({ onClose }: { onClose: () => void }) {
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [target, setTarget] = useState<'all' | 'users' | 'admins'>('all');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<BroadcastResult | null>(null);
+
+  const send = async () => {
+    setSending(true); setError(''); setResult(null);
+    try {
+      const r = await adminApi.broadcast({ subject: subject.trim(), message: message.trim(), target });
+      setResult(r);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'שליחת התפוצה נכשלה');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <ModalShell title="שליחת הודעת תפוצה" icon={<Send size={17} className="text-violet-400" />} onClose={onClose}>
+      {result ? (
+        <div className="text-center py-4">
+          {result.smtp_configured ? (
+            <>
+              <CheckCircle2 size={32} className="text-green-400 mx-auto mb-3" />
+              <p className="text-sm text-white">נשלחו {result.sent} מתוך {result.total} הודעות.</p>
+              {result.failed > 0 && <p className="text-xs text-amber-400 mt-1">{result.failed} נכשלו.</p>}
+            </>
+          ) : (
+            <>
+              <AlertTriangle size={32} className="text-amber-400 mx-auto mb-3" />
+              <p className="text-sm text-white">שרת האימייל (SMTP) לא מוגדר — לא נשלחו הודעות.</p>
+              <p className="text-xs text-white/40 mt-2">הגדר SMTP_HOST / SMTP_USER / SMTP_PASS בשרת (Render) כדי לשלוח בפועל. ({result.total} נמענים היו מתאימים.)</p>
+            </>
+          )}
+          <button onClick={onClose} className="mt-5 px-5 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 text-sm transition-all">סגור</button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <label className={labelCls}>נמענים</label>
+            <select value={target} onChange={(e) => setTarget(e.target.value as any)} className={inputCls}>
+              <option value="all">כל המשתמשים</option>
+              <option value="users">משתמשים רגילים בלבד</option>
+              <option value="admins">מנהלים בלבד</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>נושא</label>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="נושא ההודעה" className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>תוכן ההודעה</label>
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={6}
+              placeholder="כתוב כאן את תוכן ההודעה שתישלח לכל הנמענים..."
+              className={`${inputCls} resize-y leading-relaxed`} />
+          </div>
+
+          {error && <p className="text-xs text-red-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {error}</p>}
+
+          <div className="flex gap-2 pt-1">
+            <button onClick={send} disabled={sending || !subject.trim() || !message.trim()}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white text-sm font-medium transition-all">
+              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} שלח לכולם
+            </button>
+            <button onClick={onClose} className="px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm transition-all">ביטול</button>
+          </div>
+        </div>
+      )}
+    </ModalShell>
   );
 }

@@ -30,6 +30,7 @@ import type {
   ValidateResult,
   AdminUser,
   AdminStats,
+  BroadcastResult,
   SubscriptionStatus,
   PlanDef,
   BillingCycle,
@@ -252,6 +253,14 @@ export const adminApi = {
   stats: () => http.get<AdminStats>('/admin/stats').then(extract),
   setSubscription: (userId: string, plan: string, billing?: BillingCycle) =>
     http.patch<SubscriptionStatus>(`/admin/users/${userId}/subscription`, { plan, billing }).then(extract),
+  createUser: (data: { email: string; password: string; role?: 'user' | 'admin'; plan?: string }) =>
+    http.post<AdminUser>('/admin/users', data).then(extract),
+  setRole: (userId: string, role: 'user' | 'admin') =>
+    http.patch<{ ok: boolean }>(`/admin/users/${userId}/role`, { role }).then(extract),
+  setBlocked: (userId: string, blocked: boolean) =>
+    http.patch<{ ok: boolean; blocked: boolean }>(`/admin/users/${userId}/block`, { blocked }).then(extract),
+  broadcast: (data: { subject: string; message: string; target?: 'all' | 'users' | 'admins' }) =>
+    http.post<BroadcastResult>('/admin/broadcast', data, { timeout: 60000 }).then(extract),
 };
 
 // ─── Subscription API ────────────────────────────────────────────────────────

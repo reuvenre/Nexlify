@@ -24,9 +24,18 @@ export interface AdminUser {
   created_at: string;
   via_google: boolean;
   subscription_plan?: PlanId;
+  plan_billing?: 'monthly' | 'annual';
   credits_remaining?: number;
+  is_blocked?: boolean;
   posts_count: number;
   campaigns_count: number;
+}
+
+export interface BroadcastResult {
+  smtp_configured: boolean;
+  total: number;
+  sent: number;
+  failed: number;
 }
 
 // ─── Subscription ────────────────────────────────────────────────────────────

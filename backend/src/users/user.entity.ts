@@ -18,6 +18,10 @@ export class User {
   @Column({ default: 'user' })
   role: string;
 
+  /** When true the account is deactivated — the user cannot log in (admin control). */
+  @Column({ default: false })
+  is_blocked: boolean;
+
   @Column({ nullable: true })
   google_id: string;
 

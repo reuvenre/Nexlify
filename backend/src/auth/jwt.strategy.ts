@@ -16,6 +16,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   async validate(payload: { sub: string }) {
     const user = await this.users.findById(payload.sub);
     if (!user) throw new UnauthorizedException();
+    // A blocked user is locked out immediately — even on an already-issued access token.
+    if ((user as any).is_blocked) throw new UnauthorizedException('החשבון חסום');
     return user;
   }
 }

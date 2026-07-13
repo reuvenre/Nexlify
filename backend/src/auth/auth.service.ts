@@ -46,6 +46,11 @@ export class AuthService {
   }
 
   private async issueTokens(user: User, res: any) {
+    // Blocked accounts can't get a session — enforced on EVERY login path (password,
+    // 2FA, Google, refresh) since they all funnel through here.
+    if ((user as any).is_blocked) {
+      throw new UnauthorizedException('החשבון חסום — פנה למנהל המערכת');
+    }
     const access_token = this.signAccess(user.id);
     const refresh = this.signRefresh(user.id);
     await this.users.saveRefreshToken(user.id, refresh);

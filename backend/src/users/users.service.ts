@@ -41,13 +41,54 @@ export class UsersService implements OnModuleInit {
   async listAll(): Promise<any[]> {
     return this.repo.query(`
       SELECT u.id, u.email, u.role, u.created_at,
-             u.subscription_plan, u.credits_remaining,
+             u.subscription_plan, u.plan_billing, u.credits_remaining, u.is_blocked,
              (u.google_id IS NOT NULL) AS via_google,
              (SELECT COUNT(*)::int FROM posts p WHERE p.user_id = u.id) AS posts_count,
              (SELECT COUNT(*)::int FROM campaigns c WHERE c.user_id = u.id) AS campaigns_count
       FROM users u
       ORDER BY u.created_at DESC
     `);
+  }
+
+  // ── Admin user management ─────────────────────────────────────────────────
+
+  /** Admin-create a user with an initial role. Password is hashed like normal signup. */
+  async adminCreate(email: string, password: string, role: 'user' | 'admin' = 'user'): Promise<User> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalized)) {
+      throw new ConflictException('כתובת אימייל לא תקינה');
+    }
+    if (!password || password.length < 6) throw new ConflictException('סיסמה חייבת להכיל לפחות 6 תווים');
+    const exists = await this.repo.findOne({ where: { email: normalized } });
+    if (exists) throw new ConflictException('האימייל כבר רשום במערכת');
+    const password_hash = await bcrypt.hash(password, 12);
+    const finalRole = normalized === ADMIN_EMAIL ? 'admin' : (role === 'admin' ? 'admin' : 'user');
+    const user = this.repo.create({ email: normalized, password_hash, role: finalRole });
+    return this.repo.save(user);
+  }
+
+  /** Set a user's role. */
+  async setRole(userId: string, role: string): Promise<void> {
+    const next = role === 'admin' ? 'admin' : 'user';
+    await this.repo.update(userId, { role: next });
+  }
+
+  /** Block/unblock a user. Blocking also revokes the active refresh token. */
+  async setBlocked(userId: string, blocked: boolean): Promise<void> {
+    await this.repo.update(userId, {
+      is_blocked: blocked,
+      ...(blocked ? { refresh_token_hash: null } : {}),
+    });
+  }
+
+  /** Email recipients for a broadcast. `target`: 'all' | 'users' | 'admins'. */
+  async recipients(target: 'all' | 'users' | 'admins' = 'all'): Promise<{ id: string; email: string }[]> {
+    const qb = this.repo.createQueryBuilder('u')
+      .select(['u.id AS id', 'u.email AS email'])
+      .where("u.email <> ''");
+    if (target === 'users') qb.andWhere("u.role != 'admin'");
+    else if (target === 'admins') qb.andWhere("u.role = 'admin'");
+    return qb.getRawMany();
   }
 
   /** Aggregate counts for the admin dashboard. */
