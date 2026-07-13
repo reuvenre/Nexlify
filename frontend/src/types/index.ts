@@ -110,8 +110,10 @@ export interface CredentialSet {
   facebook_page_id: string;
   facebook_page_token: string;    // masked
   meta_ad_account_id: string;
+  instagram_business_id: string;
   publish_telegram: boolean;
   publish_facebook: boolean;
+  publish_instagram: boolean;
   // Discovery
   apify_api_token: string;        // masked
   // Auto-boost
@@ -157,8 +159,10 @@ export interface CredentialSetInput {
   facebook_page_id?: string;
   facebook_page_token?: string;
   meta_ad_account_id?: string;
+  instagram_business_id?: string;
   publish_telegram?: boolean;
   publish_facebook?: boolean;
+  publish_instagram?: boolean;
   // Discovery
   apify_api_token?: string;
   // Auto-boost
@@ -188,9 +192,10 @@ export interface VerifyResult {
   gemini: boolean;
   anthropic: boolean;
   facebook: boolean;
+  instagram: boolean;
   metaAdAccount: boolean;
   apify: boolean;
-  errors?: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'metaAdAccount', string>>;
+  errors?: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'instagram' | 'metaAdAccount', string>>;
 }
 
 // ─── Suppliers (Yupoo ↔ FLYLINK) ─────────────────────────────────────────────

@@ -70,12 +70,20 @@ export class CredentialSetDto {
   meta_ad_account_id?: string;
 
   @IsOptional()
+  @IsString()
+  instagram_business_id?: string;
+
+  @IsOptional()
   @IsBoolean()
   publish_telegram?: boolean;
 
   @IsOptional()
   @IsBoolean()
   publish_facebook?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  publish_instagram?: boolean;
 
   // ── Discovery (Apify) ──
   @IsOptional()

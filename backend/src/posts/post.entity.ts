@@ -57,6 +57,10 @@ export class Post {
   @Column({ nullable: true })
   facebook_post_id: string;
 
+  /** Instagram media id once published to an IG Business account */
+  @Column({ nullable: true })
+  instagram_post_id: string;
+
   @Column({ default: 'pending' })
   status: PostStatus;
 

@@ -31,8 +31,10 @@ export interface DecryptedCredentials {
   facebook_page_id?: string;
   facebook_page_token?: string;
   meta_ad_account_id?: string;
+  instagram_business_id?: string;
   publish_telegram?: boolean;
   publish_facebook?: boolean;
+  publish_instagram?: boolean;
   // Discovery
   apify_api_token?: string;
   // Auto-boost
@@ -98,8 +100,10 @@ export class CredentialsService {
       const v = dto.meta_ad_account_id.trim();
       cred.meta_ad_account_id = /^\d+$/.test(v) ? `act_${v}` : v;
     }
+    if (dto.instagram_business_id?.trim())   cred.instagram_business_id = dto.instagram_business_id.trim();
     if (dto.publish_telegram !== undefined)  cred.publish_telegram = dto.publish_telegram;
     if (dto.publish_facebook !== undefined)  cred.publish_facebook = dto.publish_facebook;
+    if (dto.publish_instagram !== undefined) cred.publish_instagram = dto.publish_instagram;
 
     // Auto-boost settings
     if (dto.boost_enabled !== undefined)         cred.boost_enabled = dto.boost_enabled;
@@ -152,15 +156,15 @@ export class CredentialsService {
 
   async verify(userId: string): Promise<{
     aliexpress: boolean; telegram: boolean; openai: boolean;
-    gemini: boolean; anthropic: boolean; facebook: boolean; metaAdAccount: boolean; apify: boolean;
-    errors: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'metaAdAccount', string>>;
+    gemini: boolean; anthropic: boolean; facebook: boolean; instagram: boolean; metaAdAccount: boolean; apify: boolean;
+    errors: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'instagram' | 'metaAdAccount', string>>;
   }> {
-    const empty = { aliexpress: false, telegram: false, openai: false, gemini: false, anthropic: false, facebook: false, metaAdAccount: false, apify: false };
+    const empty = { aliexpress: false, telegram: false, openai: false, gemini: false, anthropic: false, facebook: false, instagram: false, metaAdAccount: false, apify: false };
     const cred = await this.repo.findOne({ where: { user_id: userId } });
     if (!cred) return { ...empty, errors: {} };
 
     const results = { ...empty };
-    const errors: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'metaAdAccount', string>> = {};
+    const errors: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'instagram' | 'metaAdAccount', string>> = {};
     const apiErrorMessage = (err: any): string =>
       err?.response?.data?.error?.message
       || err?.response?.data?.description
@@ -251,6 +255,26 @@ export class CredentialsService {
       }
     } catch (err: any) { errors.facebook = apiErrorMessage(err); }
 
+    // Verify Instagram Business account (publishing reuses the Page token + IG business id).
+    try {
+      const token = decrypt(cred.facebook_page_token_enc);
+      if (token && cred.instagram_business_id) {
+        const res = await axios.get(
+          `https://graph.facebook.com/${GRAPH_VERSION}/${cred.instagram_business_id}?fields=username&access_token=${token}`,
+          { timeout: 6000, validateStatus: () => true },
+        );
+        results.instagram = res.status === 200 && !res.data?.error && !!res.data?.username;
+        if (!results.instagram) {
+          errors.instagram = res.data?.error?.message
+            || 'לא נמצא חשבון אינסטגרם עסקי. ודא שהמזהה הוא Instagram Business Account ID המקושר לדף, ושלטוקן יש instagram_content_publish.';
+        }
+      } else if (!token) {
+        errors.instagram = 'נדרש Page Access Token (בקטע פייסבוק)';
+      } else {
+        errors.instagram = 'לא הוזן Instagram Business Account ID';
+      }
+    } catch (err: any) { errors.instagram = apiErrorMessage(err); }
+
     // Verify Meta Ad Account (used only by the auto-boost feature — separate from the
     // page check since it's a distinct purpose/permission, though it reuses the token).
     try {
@@ -304,8 +328,10 @@ export class CredentialsService {
       facebook_page_id: cred.facebook_page_id,
       facebook_page_token: decrypt(cred.facebook_page_token_enc),
       meta_ad_account_id: cred.meta_ad_account_id,
+      instagram_business_id: cred.instagram_business_id,
       publish_telegram: cred.publish_telegram,
       publish_facebook: cred.publish_facebook,
+      publish_instagram: cred.publish_instagram,
       apify_api_token: decrypt(cred.apify_api_token_enc),
       boost_enabled: cred.boost_enabled,
       boost_roas_threshold: cred.boost_roas_threshold,
@@ -363,8 +389,10 @@ export class CredentialsService {
       facebook_page_id: cred.facebook_page_id || '',
       facebook_page_token: cred.facebook_page_token_enc ? mask(decrypt(cred.facebook_page_token_enc)) : '',
       meta_ad_account_id: cred.meta_ad_account_id || '',
+      instagram_business_id: cred.instagram_business_id || '',
       publish_telegram: cred.publish_telegram ?? true,
       publish_facebook: cred.publish_facebook ?? false,
+      publish_instagram: cred.publish_instagram ?? false,
       // Discovery
       apify_api_token: cred.apify_api_token_enc ? mask(decrypt(cred.apify_api_token_enc)) : '',
       // Auto-boost

@@ -665,10 +665,11 @@ export class PostsService {
     // silently skipped Facebook, so queued/supplier posts never reached it.)
     const wantTelegram = !!channelOverride || creds?.publish_telegram !== false;
     const wantFacebook = creds?.publish_facebook === true;
+    const wantInstagram = creds?.publish_instagram === true;
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
-    if (!wantTelegram && !wantFacebook) {
+    if (!wantTelegram && !wantFacebook && !wantInstagram) {
       post.status = 'failed';
       post.error_message = 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
       await this.repo.save(post);
@@ -722,6 +723,13 @@ export class PostsService {
         this.sendToFacebook(post, creds, body)
           .then(() => { anySuccess = true; })
           .catch((err: any) => { errors.push(`Facebook: ${err?.response?.data?.error?.message || err.message}`); }),
+      );
+    }
+    if (wantInstagram) {
+      tasks.push(
+        this.sendToInstagram(post, creds, body)
+          .then(() => { anySuccess = true; })
+          .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }),
       );
     }
     await Promise.all(tasks);
@@ -889,6 +897,50 @@ export class PostsService {
     );
     if (res.data?.error) throw new Error(res.data.error.message);
     post.facebook_post_id = res.data?.id;
+  }
+
+  /**
+   * Publishes the post to Instagram via the Content Publishing API (two-step:
+   * create a media container from the product image + caption, then publish it).
+   * Reuses the linked Facebook Page token (needs instagram_content_publish).
+   * Instagram requires an image — text-only posts aren't supported — so we use the
+   * product's main photo. The image URL must be publicly reachable (AliExpress URLs
+   * and our Yupoo image proxy both are).
+   */
+  private async sendToInstagram(post: Post, creds: DecryptedCredentials, message: string) {
+    const igId = creds?.instagram_business_id;
+    const token = creds?.facebook_page_token;
+    if (!igId || !token) throw new Error('Missing Instagram credentials');
+
+    // First gallery image, else the main product image.
+    let image = post.product_image || '';
+    try {
+      const g = post.gallery_json ? JSON.parse(post.gallery_json) : [];
+      if (Array.isArray(g) && g[0]) image = g[0];
+    } catch { /* ignore */ }
+    if (!image) throw new Error('אין תמונת מוצר לפרסום באינסטגרם');
+
+    const caption = message.replace(/<\/?[^>]+>/g, ''); // IG shows no HTML
+    const base = `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`;
+
+    // 1) Create the media container.
+    const create = await axios.post(
+      `${base}/media`,
+      new URLSearchParams({ image_url: image, caption, access_token: token }).toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 },
+    );
+    if (create.data?.error) throw new Error(create.data.error.message);
+    const creationId = create.data?.id;
+    if (!creationId) throw new Error('Instagram container creation failed');
+
+    // 2) Publish the container.
+    const publish = await axios.post(
+      `${base}/media_publish`,
+      new URLSearchParams({ creation_id: creationId, access_token: token }).toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 },
+    );
+    if (publish.data?.error) throw new Error(publish.data.error.message);
+    post.instagram_post_id = publish.data?.id || null;
   }
 
   // ── AliExpress helpers ────────────────────────────────────────────────────

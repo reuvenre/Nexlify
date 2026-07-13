@@ -72,12 +72,20 @@ export class CredentialSet {
   @Column({ nullable: true })
   meta_ad_account_id: string;
 
+  /** Instagram Business account id (linked to the Facebook Page above). Publishing
+   *  reuses the Page access token with instagram_basic + instagram_content_publish. */
+  @Column({ nullable: true })
+  instagram_business_id: string;
+
   /** Whether each channel is part of the default publish fan-out */
   @Column({ default: true })
   publish_telegram: boolean;
 
   @Column({ default: false })
   publish_facebook: boolean;
+
+  @Column({ default: false })
+  publish_instagram: boolean;
 
   /* ── Product discovery (Apify) ─────────────────────────────────────────── */
 

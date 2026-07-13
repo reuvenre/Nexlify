@@ -26,6 +26,12 @@ export function IntegrationsForm() {
   const [adAccountOk, setAdAccountOk] = useState<boolean | null>(null);
   const [adAccountError, setAdAccountError] = useState<string | null>(null);
 
+  // Instagram (reuses the Facebook Page token)
+  const [igBusinessId, setIgBusinessId] = useState('');
+  const [pubInstagram, setPubInstagram] = useState(false);
+  const [instagramOk, setInstagramOk] = useState<boolean | null>(null);
+  const [instagramError, setInstagramError] = useState<string | null>(null);
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loadingChannels, setLoadingChannels] = useState(true);
 
@@ -35,8 +41,10 @@ export function IntegrationsForm() {
         setDefaultChannel(c.telegram_channel_id || '');
         setFbPageId(c.facebook_page_id || '');
         setMetaAdAccount(c.meta_ad_account_id || '');
+        setIgBusinessId(c.instagram_business_id || '');
         setPubTelegram(c.publish_telegram ?? true);
         setPubFacebook(c.publish_facebook ?? false);
+        setPubInstagram(c.publish_instagram ?? false);
       })
       .catch(() => {});
 
@@ -59,8 +67,10 @@ export function IntegrationsForm() {
         facebook_page_id: fbPageId,
         facebook_page_token: fbToken,
         meta_ad_account_id: metaAdAccount,
+        instagram_business_id: igBusinessId,
         publish_telegram: pubTelegram,
         publish_facebook: pubFacebook,
+        publish_instagram: pubInstagram,
       });
       setSaved(true);
       setBotToken('');
@@ -84,6 +94,8 @@ export function IntegrationsForm() {
       setTelegramOk(res.telegram);
       setFacebookOk(res.facebook);
       setFacebookError(res.facebook ? null : res.errors?.facebook || null);
+      setInstagramOk(res.instagram);
+      setInstagramError(res.instagram ? null : res.errors?.instagram || null);
       setAdAccountOk(res.metaAdAccount);
       setAdAccountError(res.metaAdAccount ? null : res.errors?.metaAdAccount || null);
     } finally {
@@ -256,6 +268,7 @@ export function IntegrationsForm() {
           {[
             { label: 'Telegram', emoji: '📨', value: pubTelegram, set: setPubTelegram },
             { label: 'Facebook', emoji: '📘', value: pubFacebook, set: setPubFacebook },
+            { label: 'Instagram', emoji: '📸', value: pubInstagram, set: setPubInstagram },
           ].map((ch) => (
             <button
               key={ch.label}
@@ -273,18 +286,29 @@ export function IntegrationsForm() {
         </div>
       </section>
 
-      {/* Instagram */}
+      {/* Instagram Business (publishing reuses the Facebook Page token) */}
       <section className="bg-surface-secondary border border-edge rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <span className="text-lg">📸</span> Instagram Business
-          </h3>
-          <span className="text-2xs bg-amber-500/15 text-amber-400 border border-amber-500/25 rounded-full px-2.5 py-0.5 font-medium">בקרוב</span>
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-1">
+          <span className="text-lg">📸</span> Instagram Business
+          {instagramOk === true && <CheckCircle2 size={14} className="text-emerald-400" />}
+          {instagramOk === false && <XCircle size={14} className="text-red-400" />}
+        </h3>
+        <p className="text-xs text-white/35 mb-4">
+          פרסום תמונות מוצר לחשבון Instagram Business. משתמש ב-Page Access Token של פייסבוק (למעלה) — ודא שהחשבון מקושר לדף ושלטוקן יש ההרשאה <span dir="ltr">instagram_content_publish</span>.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-white/50 mb-1.5">Instagram Business Account ID</label>
+          <input
+            value={igBusinessId}
+            onChange={(e) => setIgBusinessId(e.target.value)}
+            placeholder="17841400000000000" dir="ltr"
+            className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
+          />
+          <p className="text-2xs text-white/30 mt-1.5">
+            מזהה חשבון האינסטגרם העסקי המקושר לדף (נמצא ב-Meta Business Suite ← הגדרות ← חשבונות Instagram).
+          </p>
+          {instagramError && <p className="text-2xs text-red-400 mt-2">⚠️ {instagramError}</p>}
         </div>
-        <p className="text-xs text-white/35">פרסום Reels ופוסטים לחשבון Instagram Business שלך.</p>
-        <button disabled className="mt-3 flex items-center gap-2 px-4 py-2 bg-white/5 text-white/30 text-xs rounded-xl cursor-not-allowed opacity-50">
-          <Plus size={12} /> חבר חשבון Instagram
-        </button>
       </section>
 
       {/* Additional Channels */}
