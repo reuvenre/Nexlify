@@ -82,13 +82,29 @@ export class SupplierProductsService {
    * Link a Yupoo album (real content) to a FLYLINK affiliate link, verifying the
    * shared product code per the catalog's match mode.
    */
-  async link(userId: string, dto: { catalogId: string; yupooUrl: string; flylinkUrl: string; code?: string }) {
+  async link(userId: string, dto: {
+    catalogId: string; yupooUrl: string; flylinkUrl: string; code?: string;
+    album?: { code?: string; price?: number; currency?: string; description?: string; title?: string; images?: string[]; album_url?: string };
+  }) {
     if (!dto.yupooUrl?.trim() || !dto.flylinkUrl?.trim()) {
       throw new BadRequestException('חסר קישור Yupoo או FLYLINK');
     }
     const catalog = await this.catalogs.get(userId, dto.catalogId);
 
-    const item = await this.yupoo.fetchAlbum(dto.yupooUrl.trim());
+    // Reuse the album already fetched by previewAlbum (the Browse flow) so we don't hit
+    // Yupoo a SECOND time — that redundant request is what was timing out (ECONNABORTED).
+    // Fall back to fetching only when no album was passed (the manual "link" flow).
+    const item = (dto.album && dto.album.images?.length)
+      ? {
+          code: dto.album.code || '',
+          price: dto.album.price || 0,
+          currency: dto.album.currency || 'USD',
+          description: dto.album.description || '',
+          title: dto.album.title || dto.album.code || '',
+          images: dto.album.images,
+          album_url: dto.album.album_url || dto.yupooUrl.trim(),
+        }
+      : await this.yupoo.fetchAlbum(dto.yupooUrl.trim());
     const mode = catalog.sku_match_mode;
     const cfg = catalog.sku_match_config || {};
     const yupooCanon = normalizeSku(item.code, mode, cfg);

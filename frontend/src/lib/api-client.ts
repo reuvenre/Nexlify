@@ -494,8 +494,11 @@ export const suppliersApi = {
   // Products
   listProducts: (catalogId?: string) =>
     http.get<SupplierProduct[]>('/suppliers/products', { params: catalogId ? { catalog_id: catalogId } : undefined }).then(extract),
-  link: (data: { catalogId: string; yupooUrl: string; flylinkUrl: string; code?: string }) =>
-    http.post<SupplierProduct & { sku_verified: boolean }>('/suppliers/products/link', data, { timeout: 30_000 }).then(extract),
+  link: (data: {
+    catalogId: string; yupooUrl: string; flylinkUrl: string; code?: string;
+    album?: { code?: string; price?: number; currency?: string; description?: string; title?: string; images?: string[]; album_url?: string };
+  }) =>
+    http.post<SupplierProduct & { sku_verified: boolean }>('/suppliers/products/link', data, { timeout: 50_000 }).then(extract),
   updateProduct: (id: string, data: Partial<SupplierProduct>) =>
     http.patch<SupplierProduct>(`/suppliers/products/${id}`, data).then(extract),
   deleteProduct: (id: string) => http.delete(`/suppliers/products/${id}`).then(extract),

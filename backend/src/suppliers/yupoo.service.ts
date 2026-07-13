@@ -85,21 +85,24 @@ export class YupooService {
   }
 
   private async get(url: string, referer: string): Promise<string> {
-    let res;
-    try {
-      res = await axios.get(url, {
-        headers: { ...BROWSER_HEADERS, Referer: referer },
-        timeout: 12000, maxRedirects: 5, maxContentLength: 5 * 1024 * 1024,
-        validateStatus: () => true,
-      });
-    } catch (err: any) {
-      // Network/DNS/timeout (e.g. a malformed host) — surface as a clear 400, not 500.
-      throw new BadRequestException(`לא ניתן להגיע ל-Yupoo — בדוק את כתובת/שם החנות (${err?.code || err?.message || 'network error'})`);
+    // Render→Yupoo can be slow/intermittent (a single 12s attempt often ECONNABORTED).
+    // Retry with backoff before giving up; keep the total under the caller's HTTP timeout.
+    let lastMsg = 'network error';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await axios.get(url, {
+          headers: { ...BROWSER_HEADERS, Referer: referer },
+          timeout: 14000, maxRedirects: 5, maxContentLength: 5 * 1024 * 1024,
+          validateStatus: () => true,
+        });
+        if (res.status === 200 && typeof res.data === 'string') return res.data;
+        lastMsg = `HTTP ${res.status}`; // e.g. 567 anti-bot — worth a retry
+      } catch (err: any) {
+        lastMsg = err?.code || err?.message || 'network error';
+      }
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
     }
-    if (res.status !== 200 || typeof res.data !== 'string') {
-      throw new BadRequestException(`Yupoo לא נגיש (HTTP ${res.status}) — ייתכן חסימת אנטי-בוט`);
-    }
-    return res.data;
+    throw new BadRequestException(`לא ניתן להגיע ל-Yupoo — בדוק את כתובת/שם החנות (${lastMsg})`);
   }
 
   /** Fetch a single album page → the product content. */

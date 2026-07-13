@@ -752,7 +752,20 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
   const startPost = async () => {
     setLinking(true); setError('');
     try {
-      const linked = await suppliersApi.link({ catalogId, yupooUrl: albumUrl, flylinkUrl, code: code || undefined });
+      const linked = await suppliersApi.link({
+        catalogId, yupooUrl: albumUrl, flylinkUrl, code: code || undefined,
+        // Reuse the album we already fetched (previewAlbum) so the backend doesn't hit
+        // Yupoo a second time — that redundant fetch was timing out (ECONNABORTED).
+        album: album ? {
+          code: album.code,
+          price: album.source_price ?? album.price,
+          currency: album.source_currency ?? album.currency,
+          description: album.description,
+          title: album.title,
+          images: album.raw_images,
+          album_url: album.album_url,
+        } : undefined,
+      });
       setProductId(linked.id); // composer self-generates the post text
       onLinked(); // refresh "My Products" in the background — modal stays open on the composer
     } catch (e: any) { setError(e?.response?.data?.message || 'החיבור נכשל'); }
