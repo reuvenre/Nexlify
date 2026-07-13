@@ -1005,7 +1005,11 @@ export class PostsService {
 
     let gallery: string[] = [];
     try { gallery = post.gallery_json ? JSON.parse(post.gallery_json) : []; } catch { /* ignore */ }
+    // The exact images the user picked (same set that goes to the Telegram album), capped
+    // at Facebook's 10-per-post album limit. Sent both as a plain URL list AND pre-shaped
+    // as Facebook "photos" objects so the Make scenario can map the whole album in one field.
     const images = gallery.length ? gallery.slice(0, 10) : (post.product_image ? [post.product_image] : []);
+    const photos = images.map((url) => ({ type: 'url', url, caption: '' }));
     const plain = body.replace(/<\/?[^>]+>/g, '');
 
     const payload = {
@@ -1013,7 +1017,8 @@ export class PostsService {
       html: body,                  // HTML variant (Telegram-style), if the scenario wants it
       title: post.product_title,
       image: images[0] || post.product_image || '',
-      images,                      // full gallery for multi-image posts
+      images,                      // full gallery (plain URLs) for multi-image posts
+      photos,                      // same gallery pre-shaped for Facebook's photos array
       link: post.affiliate_url || '',
       price_ils: post.price_ils || 0,
       facebook_page_id: creds.facebook_page_id || '',
