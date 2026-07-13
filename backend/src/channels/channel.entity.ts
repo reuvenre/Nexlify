@@ -40,6 +40,11 @@ export class Channel {
   @Column({ type: 'uuid', nullable: true })
   footer_template_id: string | null;
 
+  /** Facebook Page id for THIS group — a post routed here publishes to its own page
+   *  (via the Make relay or native Graph). Null → the user's global default page. */
+  @Column({ nullable: true })
+  facebook_page_id: string;
+
   @Column({ default: true })
   is_active: boolean;
 

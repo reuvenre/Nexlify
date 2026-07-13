@@ -526,6 +526,7 @@ export interface Channel {
   bot_token_masked: string | null;
   body_template_id: string | null;
   footer_template_id: string | null;
+  facebook_page_id: string;
   members_count: number;
   created_at: string;
   updated_at: string;
@@ -538,6 +539,7 @@ export interface CreateChannelInput {
   channel_id?: string;
   description?: string;
   footer_template_id?: string;
+  facebook_page_id?: string;
 }
 
 export interface UpdateChannelInput {
@@ -548,6 +550,7 @@ export interface UpdateChannelInput {
   is_active?: boolean;
   body_template_id?: string;
   footer_template_id?: string;
+  facebook_page_id?: string;
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────

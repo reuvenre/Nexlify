@@ -1014,9 +1014,23 @@ export class PostsService {
     }
   }
 
+  /**
+   * The Facebook Page a post publishes to: the target group's OWN page when the post is
+   * routed to a saved channel that has one, otherwise the user's global default page.
+   * Lets each Telegram group fan out to its own Facebook page (מאמא מותגים → its page,
+   * טקטי בקליק → its page).
+   */
+  private async resolveFacebookPageId(post: Post, creds: DecryptedCredentials): Promise<string> {
+    if (post.channel_override) {
+      const pid = await this.channels.getFacebookPageId(post.user_id, post.channel_override);
+      if (pid) return pid;
+    }
+    return creds?.facebook_page_id || '';
+  }
+
   /** Publishes the post to the user's Facebook Page feed. Throws on failure. */
   private async sendToFacebook(post: Post, creds: DecryptedCredentials, message: string) {
-    const pageId = creds?.facebook_page_id;
+    const pageId = await this.resolveFacebookPageId(post, creds);
     const token = creds?.facebook_page_token;
     if (!pageId || !token) throw new Error('Missing Facebook credentials');
 
@@ -1102,6 +1116,9 @@ export class PostsService {
     const images = gallery.length ? gallery.slice(0, 10) : (post.product_image ? [post.product_image] : []);
     const photos = images.map((url) => ({ type: 'url', url, caption: '' }));
     const plain = body.replace(/<\/?[^>]+>/g, '');
+    // The target group's own Facebook page (falls back to the global default). The Make
+    // scenario maps this to the FB module's page_id so each group posts to its own page.
+    const pageId = await this.resolveFacebookPageId(post, creds);
 
     const payload = {
       text: plain,                 // ready-to-post caption (no HTML)
@@ -1112,7 +1129,7 @@ export class PostsService {
       photos,                      // same gallery pre-shaped for Facebook's photos array
       link: post.affiliate_url || '',
       price_ils: post.price_ils || 0,
-      facebook_page_id: creds.facebook_page_id || '',
+      facebook_page_id: pageId,
       post_id: post.id,
     };
 

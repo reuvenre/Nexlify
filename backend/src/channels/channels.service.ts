@@ -47,6 +47,7 @@ export class ChannelsService {
       description: dto.description,
       body_template_id: dto.body_template_id || null,
       footer_template_id: dto.footer_template_id || null,
+      facebook_page_id: dto.facebook_page_id?.trim() || null,
       bot_token_enc: dto.bot_token ? encrypt(dto.bot_token) : null,
     });
     await this.repo.save(channel);
@@ -61,6 +62,7 @@ export class ChannelsService {
     if (dto.is_active !== undefined) channel.is_active = dto.is_active;
     if (dto.body_template_id !== undefined) channel.body_template_id = dto.body_template_id || null;
     if (dto.footer_template_id !== undefined) channel.footer_template_id = dto.footer_template_id || null;
+    if (dto.facebook_page_id !== undefined) channel.facebook_page_id = dto.facebook_page_id?.trim() || null;
     if (dto.bot_token?.trim()) channel.bot_token_enc = encrypt(dto.bot_token.trim());
     await this.repo.save(channel);
     return this.toPublic(channel);
@@ -163,6 +165,12 @@ export class ChannelsService {
     return c?.body_template_id || null;
   }
 
+  /** The per-channel Facebook Page id (each group has its own page). Null → global default. */
+  async getFacebookPageId(userId: string, channelId: string): Promise<string | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    return c?.facebook_page_id || null;
+  }
+
   private async findOwned(userId: string, id: string): Promise<Channel> {
     const channel = await this.repo.findOne({ where: { id, user_id: userId } });
     if (!channel) throw new NotFoundException('Channel not found');
@@ -181,6 +189,7 @@ export class ChannelsService {
       bot_token_masked: c.bot_token_enc ? mask(decrypt(c.bot_token_enc)) : null,
       body_template_id: c.body_template_id || null,
       footer_template_id: c.footer_template_id || null,
+      facebook_page_id: c.facebook_page_id || '',
       members_count: c.members_count || 0,
       created_at: c.created_at,
       updated_at: c.updated_at,

@@ -20,6 +20,7 @@ function ChannelFormFields({
   description, setDescription,
   showToken, setShowToken,
   footerTemplateId, setFooterTemplateId, footerTemplates,
+  facebookPageId, setFacebookPageId,
   isEdit,
 }: {
   name: string; setName: (v: string) => void;
@@ -29,6 +30,7 @@ function ChannelFormFields({
   showToken: boolean; setShowToken: (v: boolean) => void;
   footerTemplateId: string; setFooterTemplateId: (v: string) => void;
   footerTemplates: PostTemplate[];
+  facebookPageId: string; setFacebookPageId: (v: string) => void;
   isEdit?: boolean;
 }) {
   return (
@@ -112,6 +114,20 @@ function ChannelFormFields({
           {footerTemplates.length === 0 && 'צור תבניות מסוג "כותרת תחתונה" במסך התבניות.'}
         </p>
       </div>
+
+      <div>
+        <label className="block text-xs text-white/50 mb-1.5">עמוד פייסבוק של הקבוצה (Page ID)</label>
+        <input
+          value={facebookPageId}
+          onChange={(e) => setFacebookPageId(e.target.value)}
+          placeholder="למשל: 544344958755340"
+          className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
+          dir="ltr"
+        />
+        <p className="text-2xs text-white/25 mt-1">
+          כל פוסט שיוצא לקבוצה הזו יתפרסם לעמוד הפייסבוק הזה. השאר ריק כדי להשתמש בעמוד ברירת המחדל הכללי.
+        </p>
+      </div>
     </>
   );
 }
@@ -124,6 +140,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
   const [channelId, setChannelId] = useState('');
   const [description, setDescription] = useState('');
   const [footerTemplateId, setFooterTemplateId] = useState('');
+  const [facebookPageId, setFacebookPageId] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -141,6 +158,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
         channel_id: channelId || undefined,
         description: description || undefined,
         footer_template_id: footerTemplateId || undefined,
+        facebook_page_id: facebookPageId || undefined,
       } as CreateChannelInput);
       onAdd(channel);
       onClose();
@@ -163,6 +181,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
             description={description} setDescription={setDescription}
             showToken={showToken} setShowToken={setShowToken}
             footerTemplateId={footerTemplateId} setFooterTemplateId={setFooterTemplateId} footerTemplates={footerTemplates}
+            facebookPageId={facebookPageId} setFacebookPageId={setFacebookPageId}
           />
           {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="flex gap-3 pt-1">
@@ -200,6 +219,7 @@ function EditChannelModal({
   const [channelId, setChannelId] = useState(channel.channel_id);
   const [description, setDescription] = useState(channel.description);
   const [footerTemplateId, setFooterTemplateId] = useState(channel.footer_template_id || '');
+  const [facebookPageId, setFacebookPageId] = useState(channel.facebook_page_id || '');
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -215,6 +235,7 @@ function EditChannelModal({
         channel_id: channelId,
         description,
         footer_template_id: footerTemplateId,
+        facebook_page_id: facebookPageId,
       };
       if (botToken.trim()) dto.bot_token = botToken.trim();
       const updated = await channelsApi.update(channel.id, dto);
@@ -256,6 +277,7 @@ function EditChannelModal({
             description={description} setDescription={setDescription}
             showToken={showToken} setShowToken={setShowToken}
             footerTemplateId={footerTemplateId} setFooterTemplateId={setFooterTemplateId} footerTemplates={footerTemplates}
+            facebookPageId={facebookPageId} setFacebookPageId={setFacebookPageId}
             isEdit
           />
           {error && <p className="text-xs text-red-400">{error}</p>}

@@ -27,6 +27,10 @@ export class CreateChannelDto {
   @IsOptional()
   @IsString()
   footer_template_id?: string;
+
+  @IsOptional()
+  @IsString()
+  facebook_page_id?: string;
 }
 
 export class UpdateChannelDto {
@@ -57,4 +61,8 @@ export class UpdateChannelDto {
   @IsOptional()
   @IsString()
   footer_template_id?: string;
+
+  @IsOptional()
+  @IsString()
+  facebook_page_id?: string;
 }
