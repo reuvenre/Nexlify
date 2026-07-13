@@ -503,11 +503,18 @@ function ProductRow({
         )}
       </td>
 
-      {/* Status */}
+      {/* Status — the PUBLISH lifecycle takes over once a post exists (in queue →
+          ממתין, published → נשלח); otherwise the moderation status is shown. */}
       <td className="px-4 py-3">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium ${STATUS_COLORS[product.status]}`}>
-          {STATUS_LABELS[product.status]}
-        </span>
+        {product.publish_status === 'sent' ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-emerald-500/15 text-emerald-400 border-emerald-500/25">נשלח</span>
+        ) : product.publish_status === 'pending' ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium bg-amber-500/15 text-amber-400 border-amber-500/25">ממתין</span>
+        ) : (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium ${STATUS_COLORS[product.status]}`}>
+            {STATUS_LABELS[product.status]}
+          </span>
+        )}
       </td>
 
       {/* Date */}

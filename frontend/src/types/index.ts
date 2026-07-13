@@ -401,6 +401,9 @@ export interface CatalogProduct {
   status: CatalogStatus;
   supplier: string;
   has_post: boolean;
+  /** Publishing lifecycle derived from the product's posts: 'pending' = in queue /
+   *  scheduled, 'sent' = published, null = not posted yet. */
+  publish_status?: 'pending' | 'sent' | null;
   synced_at?: string;
   created_at: string;
   updated_at: string;

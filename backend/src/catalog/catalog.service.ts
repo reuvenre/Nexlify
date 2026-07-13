@@ -61,7 +61,31 @@ export class CatalogService {
       .take(limit);
 
     const [data, total] = await qb.getManyAndCount();
-    return { data, total, page, limit };
+
+    // Derive each product's PUBLISH status from its posts so the catalog reflects the
+    // publishing lifecycle: in the queue / scheduled / pending → 'pending' (ממתין),
+    // already published → 'sent' (נשלח). Matched on product_id (which every post
+    // carries) rather than catalog_product_id, which isn't set on all publish paths.
+    // Pending wins over sent so a re-queued product shows as awaiting send again.
+    const productIds = data.map((d) => d.product_id).filter(Boolean);
+    const publishMap = new Map<string, 'pending' | 'sent'>();
+    if (productIds.length) {
+      const rows: Array<{ pid: string; has_pending: boolean; has_sent: boolean }> = await this.repo.manager.query(
+        `SELECT product_id AS pid,
+                bool_or(status IN ('queued','scheduled','pending')) AS has_pending,
+                bool_or(status = 'sent') AS has_sent
+         FROM posts
+         WHERE user_id = $1 AND product_id = ANY($2)
+         GROUP BY product_id`,
+        [userId, productIds],
+      );
+      for (const r of rows) {
+        if (r.has_pending) publishMap.set(r.pid, 'pending');
+        else if (r.has_sent) publishMap.set(r.pid, 'sent');
+      }
+    }
+    const enriched = data.map((d) => ({ ...d, publish_status: publishMap.get(d.product_id) ?? null }));
+    return { data: enriched, total, page, limit };
   }
 
   // ── Stats ─────────────────────────────────────────────────────────────────
