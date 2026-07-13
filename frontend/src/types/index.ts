@@ -454,6 +454,10 @@ export interface Post {
   scheduled_at?: string;
   queue_order?: number;
   catalog_product_id?: string;
+  /** Target Telegram group (channel_id). null = default channel. */
+  channel_override?: string | null;
+  /** JSON array of channel_ids when the post fans out to several groups at once. */
+  channel_overrides?: string | null;
   created_at: string;
 }
 

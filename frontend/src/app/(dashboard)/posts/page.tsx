@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
-  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal, Eye,
+  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal, Eye, Users,
 } from 'lucide-react';
 import Link from 'next/link';
-import { postsApi, credentialsApi } from '@/lib/api-client';
-import type { Post } from '@/types';
+import { postsApi, credentialsApi, channelsApi } from '@/lib/api-client';
+import type { Post, Channel } from '@/types';
 
 // ─── Estimated queue send times ───────────────────────────────────────────────
 // Mirrors the scheduler: one post per interval, inside the [start,end) hour window.
@@ -93,12 +93,13 @@ const LIMITS = [10, 20, 50, 100];
 // ─── Queue Item ───────────────────────────────────────────────────────────────
 
 function QueueItem({
-  post, index, sendAt, onRemove, onEdit,
+  post, index, sendAt, channels, onRemove, onEdit,
 }: {
   post: Post;
   index: number;
   /** Estimated send time (null when the queue is disabled). */
   sendAt: Date | null;
+  channels: Channel[];
   onRemove: (id: string) => Promise<void>;
   onEdit: (post: Post) => void;
 }) {
@@ -149,6 +150,7 @@ function QueueItem({
       {/* Body */}
       <div className="p-3.5">
         <p className="text-sm font-medium text-white/85 line-clamp-2 leading-snug min-h-[2.5rem]">{post.product_title}</p>
+        <div className="mt-1.5"><PostMeta post={post} channels={channels} /></div>
         <p className="text-xs text-white/35 line-clamp-2 leading-relaxed mt-1.5 min-h-[2rem]">
           {post.generated_text?.replace(/<[^>]+>/g, '').slice(0, 110)}
         </p>
@@ -184,6 +186,9 @@ function QueuePanel() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [previewPost, setPreviewPost] = useState<Post | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
+
+  useEffect(() => { channelsApi.list().then(setChannels).catch(() => {}); }, []);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -295,6 +300,7 @@ function QueuePanel() {
                   post={post}
                   index={idx}
                   sendAt={schedule?.enabled ? slots[idx] : null}
+                  channels={channels}
                   onRemove={handleRemove}
                   onEdit={setPreviewPost}
                 />
@@ -323,8 +329,45 @@ function postSource(post: Post): 'flylink' | 'aliexpress' {
   return /flylink/i.test(post.affiliate_url || '') ? 'flylink' : 'aliexpress';
 }
 
-function PostRow({ post, onRetry, onRetryFailed, onDelete, onEdit, onRepublish }: {
+// The target group(s) a post publishes to, resolved to display names. `channel_overrides`
+// (multi-group) wins over the single `channel_override`; empty = the default channel.
+function postTargets(post: Post, channels: Channel[]): string[] {
+  let ids: string[] = [];
+  try { ids = post.channel_overrides ? JSON.parse(post.channel_overrides) : []; } catch { /* ignore */ }
+  ids = ids.filter(Boolean);
+  if (!ids.length && post.channel_override) ids = [post.channel_override];
+  return ids.map((id) => channels.find((c) => c.channel_id === id)?.name || id);
+}
+
+/** Platform + target-group chips shown under a post's title. */
+function PostMeta({ post, channels }: { post: Post; channels: Channel[] }) {
+  const targets = postTargets(post, channels);
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {postSource(post) === 'flylink' ? (
+        <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25 font-medium">FLYLINK</span>
+      ) : (
+        <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 border border-orange-500/25 font-medium">AliExpress</span>
+      )}
+      {targets.length ? (
+        targets.map((name, i) => (
+          <span key={i} className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/25 font-medium max-w-[120px]">
+            <Users size={9} className="shrink-0" />
+            <span className="truncate">{name}</span>
+          </span>
+        ))
+      ) : (
+        <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/45 border border-edge font-medium">
+          <Users size={9} /> ברירת מחדל
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onRepublish }: {
   post: Post;
+  channels: Channel[];
   onRetry: (id: string) => Promise<void>;
   onRetryFailed: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -369,14 +412,8 @@ function PostRow({ post, onRetry, onRetryFailed, onDelete, onEdit, onRepublish }
           )}
           <div className="min-w-0">
             <p className="text-sm text-white truncate max-w-xs">{post.product_title}</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              {postSource(post) === 'flylink' ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25 font-medium">FLYLINK</span>
-              ) : (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 border border-orange-500/25 font-medium">AliExpress</span>
-              )}
-              {post.campaign_name && <span className="text-xs text-white/30 truncate">{post.campaign_name}</span>}
-            </div>
+            <div className="mt-1"><PostMeta post={post} channels={channels} /></div>
+            {post.campaign_name && <span className="text-xs text-white/30 truncate block mt-0.5">{post.campaign_name}</span>}
           </div>
         </div>
       </td>
@@ -613,6 +650,9 @@ export default function PostsPage() {
   const [source, setSource] = useState<'' | 'aliexpress' | 'flylink'>('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [channels, setChannels] = useState<Channel[]>([]);
+
+  useEffect(() => { channelsApi.list().then(setChannels).catch(() => {}); }, []);
 
   const isQueueTab = status === 'queued';
 
@@ -749,7 +789,7 @@ export default function PostsPage() {
             </thead>
             <tbody>
               {posts.map((p) => (
-                <PostRow key={p.id} post={p} onRetry={handleRetry} onRetryFailed={handleRetryFailed} onDelete={handleDelete} onEdit={setEditingPost} onRepublish={setRepublishingPost} />
+                <PostRow key={p.id} post={p} channels={channels} onRetry={handleRetry} onRetryFailed={handleRetryFailed} onDelete={handleDelete} onEdit={setEditingPost} onRepublish={setRepublishingPost} />
               ))}
             </tbody>
           </table>
