@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut, Tag,
   ShoppingCart, Sun, Moon, Sparkles, Package,
-  Rocket, Shield, Store,
+  Rocket, Shield,
 } from 'lucide-react';
 
 const NAV_SECTIONS = [
@@ -25,7 +25,6 @@ const NAV_SECTIONS = [
     title: 'ניהול',
     items: [
       { href: '/products',   label: 'מוצרים',     icon: Package },
-      { href: '/suppliers',  label: 'Flylink',      icon: Store },
       { href: '/templates',  label: 'תבניות',     icon: Layout },
       { href: '/categories', label: 'קטגוריות',   icon: Tag },
       { href: '/groups',     label: 'ערוצים',     icon: Users },
@@ -47,7 +46,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { theme, toggleTheme } = useTheme();
 
   const isActive = (href: string) =>
-    pathname === href || (href !== '/dashboard' && pathname.startsWith(href + '/'));
+    pathname === href ||
+    (href !== '/dashboard' && pathname.startsWith(href + '/')) ||
+    // The FLYLINK products screen lives under /suppliers but is the same "מוצרים" nav item.
+    (href === '/products' && pathname.startsWith('/suppliers'));
 
   const initials = user?.email?.[0]?.toUpperCase() ?? '?';
   const username = user?.email?.split('@')[0] ?? '';

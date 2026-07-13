@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } from '@/lib/api-client';
 import { PostPreview } from '@/components/products/PostPreview';
+import { ProductSourceTabs } from '@/components/products/ProductSourceTabs';
 import { TemplatePanel, BUILTIN as BUILTIN_BODY_TEMPLATES } from '@/components/templates/TemplatePanel';
 import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel, PostPreview as PostPreviewType, PostTemplate } from '@/types';
 
@@ -64,9 +65,10 @@ export default function SuppliersPage() {
 
   return (
     <div>
+      <ProductSourceTabs />
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Store size={22} className="text-blue-400" /> Flylink
+          <Store size={22} className="text-blue-400" /> FLYLINK
         </h1>
         <p className="text-sm text-white/40 mt-1">
           חבר מוצרי Yupoo (תוכן אמיתי) לקישורי השותפים של FLYLINK — מבודד לחלוטין מ-AliExpress

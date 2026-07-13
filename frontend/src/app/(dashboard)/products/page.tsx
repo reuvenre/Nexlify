@@ -9,6 +9,7 @@ import {
   CheckCheck, Package, ListOrdered, Clock,
 } from 'lucide-react';
 import { catalogApi, postsApi } from '@/lib/api-client';
+import { ProductSourceTabs } from '@/components/products/ProductSourceTabs';
 import type { CatalogProduct, CatalogStats } from '@/types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -632,6 +633,8 @@ export default function ProductsPage() {
           onImported={() => load(1, true)}
         />
       )}
+
+      <ProductSourceTabs />
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between mb-6">
