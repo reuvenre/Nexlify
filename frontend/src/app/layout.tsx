@@ -6,27 +6,27 @@ import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexus.app';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexlify.app';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'NEXUS — אוטומציית שיווק שותפים מבוססת AI',
-    template: '%s · NEXUS',
+    default: 'Nexlify — אוטומציית שיווק שותפים מבוססת AI',
+    template: '%s · Nexlify',
   },
   description:
-    'NEXUS — מנוע שיווק השותפים שעושה הכל: גילוי מוצרים מ-AliExpress, כתיבת קופי עם AI, פרסום רב-ערוצי (טלגרם + פייסבוק), וקידום אוטומטי לפי ROAS.',
-  applicationName: 'NEXUS',
+    'Nexlify — מנוע שיווק השותפים שעושה הכל: גילוי מוצרים מ-AliExpress, כתיבת קופי עם AI, פרסום רב-ערוצי (טלגרם + פייסבוק), וקידום אוטומטי לפי ROAS.',
+  applicationName: 'Nexlify',
   openGraph: {
     type: 'website',
-    siteName: 'NEXUS',
+    siteName: 'Nexlify',
     locale: 'he_IL',
-    title: 'NEXUS — אוטומציית שיווק שותפים מבוססת AI',
+    title: 'Nexlify — אוטומציית שיווק שותפים מבוססת AI',
     description: 'גילוי מוצרים, קופי עם AI, פרסום רב-ערוצי, וקידום אוטומטי לפי ROAS — מערכת אחת.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'NEXUS — אוטומציית שיווק שותפים מבוססת AI',
+    title: 'Nexlify — אוטומציית שיווק שותפים מבוססת AI',
     description: 'גילוי מוצרים, קופי עם AI, פרסום רב-ערוצי, וקידום אוטומטי לפי ROAS — מערכת אחת.',
   },
 };
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 const ORG_JSONLD = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'NEXUS',
+  name: 'Nexlify',
   applicationCategory: 'BusinessApplication',
   operatingSystem: 'Web',
   description:

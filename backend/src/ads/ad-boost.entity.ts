@@ -9,7 +9,7 @@ export type AdBoostStatus = 'boosted' | 'skipped' | 'failed';
 /**
  * One performance-evaluation record per published Facebook post. When ROAS (or
  * a strong organic-click signal) clears the user's threshold, a Meta Ads creative
- * is created and the row is marked 'boosted'. Ported from NEXUS's Performance agent.
+ * is created and the row is marked 'boosted'. Ported from Nexlify's Performance agent.
  */
 @Entity('ad_boosts')
 export class AdBoost {

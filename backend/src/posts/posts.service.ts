@@ -644,7 +644,7 @@ export class PostsService {
   // ── Multi-channel publisher ─────────────────────────────────────────────
   //
   // Fans a post out to every enabled channel (Telegram + Facebook). The post is
-  // marked 'sent' if AT LEAST ONE channel succeeds (matching NEXUS behaviour),
+  // marked 'sent' if AT LEAST ONE channel succeeds (matching Nexlify behaviour),
   // and 'failed' only when every attempted channel errored. The method keeps its
   // historic name so all existing call sites stay unchanged.
 

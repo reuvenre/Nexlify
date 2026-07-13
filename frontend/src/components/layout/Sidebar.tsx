@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/hooks/useAuth';
 import { useTheme } from '@/lib/hooks/useTheme';
 import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
-  Users, BarChart3, Settings, LogOut, Bot, Tag,
+  Users, BarChart3, Settings, LogOut, Tag,
   ShoppingCart, Sun, Moon, Sparkles, Package,
   Rocket, Shield, Store,
 } from 'lucide-react';
@@ -58,14 +58,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       {/* ── Logo ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 pt-5 pb-4 border-b border-edge">
         <div className="relative shrink-0">
-          <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-600/25">
-            <Bot size={15} className="text-white" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="Nexlify" className="w-8 h-8 rounded-[10px] shadow-lg shadow-blue-600/25" />
           <span className="absolute -bottom-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-surface-sidebar" />
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-body font-semibold text-white tracking-tight leading-none">NEXUS</p>
+          <p className="text-body font-semibold text-white tracking-tight leading-none">Nexlify</p>
           <p className="text-2xs text-white/30 mt-0.5 leading-none">Affiliate Automation</p>
         </div>
 

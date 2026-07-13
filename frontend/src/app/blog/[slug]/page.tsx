@@ -5,7 +5,7 @@ import { Clock, Check, ArrowLeft } from 'lucide-react';
 import { BLOG_POSTS, getBlogPost } from '@/lib/marketing-content';
 import { MarketingShell, CtaBand } from '@/components/marketing/MarketingShell';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexus.app';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexlify.app';
 
 export function generateStaticParams() {
   return BLOG_POSTS.map((p) => ({ slug: p.slug }));
@@ -34,8 +34,8 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
     description: post.metaDescription,
     datePublished: post.date,
     inLanguage: 'he-IL',
-    author: { '@type': 'Organization', name: 'NEXUS' },
-    publisher: { '@type': 'Organization', name: 'NEXUS' },
+    author: { '@type': 'Organization', name: 'Nexlify' },
+    publisher: { '@type': 'Organization', name: 'Nexlify' },
     mainEntityOfPage: `${SITE_URL}/blog/${post.slug}`,
   };
 

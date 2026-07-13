@@ -39,7 +39,7 @@ export default function ComparePage({ params }: { params: { slug: string } }) {
         <div className="bg-surface-secondary border border-edge rounded-2xl overflow-hidden">
           <div className="grid grid-cols-[1.4fr_1fr_1fr] text-sm font-semibold border-b border-edge">
             <div className="px-5 py-3.5 text-white/50">יכולת</div>
-            <div className="px-5 py-3.5 text-blue-400 border-r border-edge bg-blue-500/[0.06]">NEXUS</div>
+            <div className="px-5 py-3.5 text-blue-400 border-r border-edge bg-blue-500/[0.06]">Nexlify</div>
             <div className="px-5 py-3.5 text-white/60 border-r border-edge">{c.competitor}</div>
           </div>
           {c.rows.map((row, i) => (
@@ -61,7 +61,7 @@ export default function ComparePage({ params }: { params: { slug: string } }) {
       {/* When to choose */}
       <section className="max-w-5xl mx-auto px-6 my-10 grid md:grid-cols-2 gap-5">
         <div className="bg-surface-secondary border border-blue-500/25 rounded-2xl p-6">
-          <h2 className="font-semibold mb-4 flex items-center gap-2"><Check size={16} className="text-blue-400" /> מתי לבחור ב-NEXUS</h2>
+          <h2 className="font-semibold mb-4 flex items-center gap-2"><Check size={16} className="text-blue-400" /> מתי לבחור ב-Nexlify</h2>
           <ul className="space-y-2.5">
             {c.whenNexus.map((t) => (
               <li key={t} className="flex items-start gap-2.5 text-sm text-white/65"><Check size={14} className="text-emerald-400 mt-0.5 shrink-0" />{t}</li>
@@ -95,7 +95,7 @@ export default function ComparePage({ params }: { params: { slug: string } }) {
         </Link>
       </div>
 
-      <CtaBand text={`מוכן לנסות את NEXUS?`} />
+      <CtaBand text={`מוכן לנסות את Nexlify?`} />
     </MarketingShell>
   );
 }

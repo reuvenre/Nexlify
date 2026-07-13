@@ -27,12 +27,12 @@ export class MailService {
       },
     });
 
-    const from = this.config.get<string>('SMTP_FROM') || `"AliBot PRO" <noreply@alibotpro.com>`;
+    const from = this.config.get<string>('SMTP_FROM') || `"Nexlify PRO" <noreply@alibotpro.com>`;
 
     await transporter.sendMail({
       from,
       to: email,
-      subject: 'איפוס סיסמה — AliBot PRO',
+      subject: 'איפוס סיסמה — Nexlify PRO',
       html: `
         <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2>איפוס סיסמה</h2>

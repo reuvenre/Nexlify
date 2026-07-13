@@ -17,7 +17,7 @@ export interface PerformanceResult {
 }
 
 /**
- * Meta Ads auto-boost engine (ported from NEXUS `performance.js`).
+ * Meta Ads auto-boost engine (ported from Nexlify `performance.js`).
  *
  * Walks every published post that has a Facebook post id, reads its Graph
  * Insights, computes ROAS, and — when the user's threshold is cleared — creates
@@ -190,7 +190,7 @@ export class AdsService {
 
     // 1. Campaign — traffic objective, lifetime spend cap = hard limit.
     const campaign_id = await this.graphPost(`${adAccount}/campaigns`, {
-      name: `NEXUS — ${label}`,
+      name: `Nexlify — ${label}`,
       objective: 'OUTCOME_TRAFFIC',
       status: 'PAUSED',
       special_ad_categories: '[]',
@@ -202,7 +202,7 @@ export class AdsService {
     const countries = (creds.boost_target_countries || 'IL')
       .split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
     const adset_id = await this.graphPost(`${adAccount}/adsets`, {
-      name: `NEXUS AdSet — ${label}`,
+      name: `Nexlify AdSet — ${label}`,
       campaign_id,
       daily_budget: String(Math.round(dailyBudgetUsd * 100)),
       billing_event: 'IMPRESSIONS',
@@ -215,14 +215,14 @@ export class AdsService {
 
     // 3. Creative — reuse the existing organic post.
     const creative_id = await this.graphPost(`${adAccount}/adcreatives`, {
-      name: `NEXUS Creative — ${label}`,
+      name: `Nexlify Creative — ${label}`,
       object_story_id: post.facebook_post_id,
       access_token: token,
     });
 
     // 4. Ad — ties the creative to the adset.
     const ad_id = await this.graphPost(`${adAccount}/ads`, {
-      name: `NEXUS Ad — ${label}`,
+      name: `Nexlify Ad — ${label}`,
       adset_id,
       creative: JSON.stringify({ creative_id }),
       status: 'PAUSED',
@@ -246,7 +246,7 @@ export class AdsService {
 
   // ── ROAS ──────────────────────────────────────────────────────────────────
   // Revenue can't be attributed per-post without conversion tracking, so we use
-  // the same heuristic as NEXUS: a strong organic-click signal stands in for ROAS
+  // the same heuristic as Nexlify: a strong organic-click signal stands in for ROAS
   // until real ad spend exists. >100 organic clicks → treat as a clear winner.
   private calcROAS(clicks: number): number {
     return clicks > 100 ? 999 : 0;

@@ -62,7 +62,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="w-7 h-7 rounded-[9px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
           <Bot size={13} className="text-white" />
         </div>
-        <p className="text-sm font-semibold text-white tracking-tight">NEXUS</p>
+        <p className="text-sm font-semibold text-white tracking-tight">Nexlify</p>
       </header>
 
       {/* Mobile drawer */}

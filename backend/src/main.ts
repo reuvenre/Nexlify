@@ -59,6 +59,6 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  console.log(`AliBot PRO backend running on port ${port}`);
+  console.log(`Nexlify PRO backend running on port ${port}`);
 }
 bootstrap();

@@ -11,7 +11,7 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
             <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-600/25">
               <Bot size={16} className="text-white" />
             </div>
-            <span className="text-lg font-bold tracking-tight">NEXUS</span>
+            <span className="text-lg font-bold tracking-tight">Nexlify</span>
           </Link>
           <nav className="flex items-center gap-1 sm:gap-3 text-sm">
             <Link href="/blog" className="text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">מדריכים</Link>
@@ -28,7 +28,7 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
         <div className="max-w-5xl mx-auto px-6 py-10">
           <div className="grid sm:grid-cols-3 gap-6 mb-8 text-sm">
             <div>
-              <p className="font-semibold mb-2 text-white/80">NEXUS</p>
+              <p className="font-semibold mb-2 text-white/80">Nexlify</p>
               <p className="text-white/40 leading-relaxed">אוטומציית שיווק שותפים מקצה לקצה — גילוי, AI, פרסום רב-ערוצי וקידום.</p>
             </div>
             <div>
@@ -42,13 +42,13 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
             <div>
               <p className="font-semibold mb-2 text-white/80">השוואות</p>
               <ul className="space-y-1.5 text-white/40">
-                <li><Link href="/compare/albato" className="hover:text-blue-400">NEXUS מול Albato</Link></li>
-                <li><Link href="/compare/manychat" className="hover:text-blue-400">NEXUS מול ManyChat</Link></li>
+                <li><Link href="/compare/albato" className="hover:text-blue-400">Nexlify מול Albato</Link></li>
+                <li><Link href="/compare/manychat" className="hover:text-blue-400">Nexlify מול ManyChat</Link></li>
               </ul>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-edge text-xs text-white/30">
-            <span className="flex items-center gap-2"><Globe size={13} /> NEXUS — Affiliate Automation</span>
+            <span className="flex items-center gap-2"><Globe size={13} /> Nexlify — Affiliate Automation</span>
             <span className="flex items-center gap-2"><ShieldCheck size={13} /> סודות מוצפנים · מוכן לפרודקשן</span>
           </div>
         </div>

@@ -71,7 +71,7 @@ export default function LoginPage() {
             <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
               <Bot size={14} className="text-white" />
             </div>
-            <span className="text-sm font-semibold text-gray-900 tracking-tight">NEXUS</span>
+            <span className="text-sm font-semibold text-gray-900 tracking-tight">Nexlify</span>
           </div>
           <Link
             href="/register"
@@ -283,7 +283,7 @@ export default function LoginPage() {
             <div className="w-6 h-6 rounded-[7px] bg-white/10 flex items-center justify-center">
               <Bot size={12} className="text-white/60" />
             </div>
-            <p className="text-xs text-white/45">NEXUS · כל הזכויות שמורות 2026</p>
+            <p className="text-xs text-white/45">Nexlify · כל הזכויות שמורות 2026</p>
           </div>
         </div>
       </div>

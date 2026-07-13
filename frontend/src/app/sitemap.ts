@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { COMPARISONS, BLOG_POSTS } from '@/lib/marketing-content';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexus.app';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexlify.app';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const staticPages: MetadataRoute.Sitemap = [

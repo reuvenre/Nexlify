@@ -82,7 +82,7 @@ export class ChannelsService {
     try {
       const res = await axios.post(
         `https://api.telegram.org/bot${token}/sendMessage`,
-        { chat_id: chatId, text: '✅ AliBot Pro — test connection successful!' },
+        { chat_id: chatId, text: '✅ Nexlify — test connection successful!' },
         { timeout: 10000 },
       );
 

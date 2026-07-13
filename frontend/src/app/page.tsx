@@ -6,16 +6,16 @@ import {
 } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'NEXUS — אוטומציית שיווק שותפים מקצה לקצה',
+  title: 'Nexlify — אוטומציית שיווק שותפים מקצה לקצה',
   description:
-    'NEXUS מגלה מוצרים חמים מ-AliExpress, כותבת קופי מוכר עם AI, מפרסמת לטלגרם ופייסבוק, ומקדמת אוטומטית את המנצחים כמודעות Meta Ads לפי ROAS — הכל במערכת אחת.',
+    'Nexlify מגלה מוצרים חמים מ-AliExpress, כותבת קופי מוכר עם AI, מפרסמת לטלגרם ופייסבוק, ומקדמת אוטומטית את המנצחים כמודעות Meta Ads לפי ROAS — הכל במערכת אחת.',
   keywords: [
     'אוטומציית שיווק שותפים', 'בוט אפיליאצייט עלי אקספרס', 'ערוץ דילים אוטומטי טלגרם',
     'aliexpress affiliate telegram bot', 'affiliate marketing automation', 'multi-channel affiliate',
   ],
-  alternates: { canonical: 'https://nexus.app/' },
+  alternates: { canonical: 'https://nexlify.app/' },
   openGraph: {
-    title: 'NEXUS — אוטומציית שיווק שותפים מקצה לקצה',
+    title: 'Nexlify — אוטומציית שיווק שותפים מקצה לקצה',
     description:
       'גילוי מוצרים, כתיבת קופי עם AI, פרסום רב-ערוצי (טלגרם + פייסבוק), וקידום אוטומטי לפי ROAS — מערכת אחת.',
     type: 'website',
@@ -54,7 +54,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-600/25">
               <Bot size={16} className="text-white" />
             </div>
-            <span className="text-lg font-bold tracking-tight">NEXUS</span>
+            <span className="text-lg font-bold tracking-tight">Nexlify</span>
           </div>
           <nav className="flex items-center gap-1 sm:gap-3">
             <Link href="/blog" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">מדריכים</Link>
@@ -86,7 +86,7 @@ export default function LandingPage() {
             <span className="bg-gradient-to-l from-blue-400 to-violet-400 bg-clip-text text-transparent">— אוטומטית, במערכת אחת</span>
           </h1>
           <p className="text-lg text-white/55 max-w-2xl mx-auto mb-9 leading-relaxed">
-            NEXUS מנהלת את כל מסע שיווק השותפים: מגלה מוצרים חמים מ-AliExpress, כותבת קופי מוכר עם AI,
+            Nexlify מנהלת את כל מסע שיווק השותפים: מגלה מוצרים חמים מ-AliExpress, כותבת קופי מוכר עם AI,
             מפרסמת לטלגרם ופייסבוק, ומקדמת את המנצחים כמודעות Meta Ads לפי ROAS.
           </p>
           <div className="flex items-center justify-center gap-3">
@@ -133,13 +133,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Why NEXUS */}
+      {/* Why Nexlify */}
       <section className="max-w-6xl mx-auto px-6 py-16">
         <div className="bg-gradient-to-bl from-blue-600/10 to-violet-600/10 border border-edge rounded-3xl p-10 grid md:grid-cols-2 gap-8 items-center">
           <div>
-            <h2 className="text-3xl font-bold mb-4">למה NEXUS</h2>
+            <h2 className="text-3xl font-bold mb-4">למה Nexlify</h2>
             <p className="text-white/55 leading-relaxed mb-6">
-              במקום להדביק חמישה כלים שונים — גילוי, כתיבה, פרסום, מודעות וניתוח — NEXUS עושה את הכל
+              במקום להדביק חמישה כלים שונים — גילוי, כתיבה, פרסום, מודעות וניתוח — Nexlify עושה את הכל
               בפלטפורמה אחת, מאובטחת ומוכנה ל-SaaS.
             </p>
             <Link href="/register" className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 transition-all rounded-xl px-6 py-3 font-medium">
@@ -163,7 +163,7 @@ export default function LandingPage() {
       <footer className="border-t border-edge mt-8">
         <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-white/40 text-sm">
-            <Globe size={14} /> NEXUS — Affiliate Automation
+            <Globe size={14} /> Nexlify — Affiliate Automation
           </div>
           <div className="flex items-center gap-2 text-white/30 text-xs">
             <ShieldCheck size={13} /> סודות מוצפנים · ריבוי-משתמשים · מוכן לפרודקשן

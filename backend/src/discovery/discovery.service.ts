@@ -26,8 +26,8 @@ export interface ValidateResult {
 }
 
 /**
- * Product discovery via the Apify AliExpress scraper (ported from NEXUS `hunter.js`)
- * plus an affiliate-link health checker (ported from NEXUS `validator.js`).
+ * Product discovery via the Apify AliExpress scraper (ported from Nexlify `hunter.js`)
+ * plus an affiliate-link health checker (ported from Nexlify `validator.js`).
  *
  * Discovered products land in the user's catalog with status 'pending' so the
  * existing approve → queue → publish flow can take over.

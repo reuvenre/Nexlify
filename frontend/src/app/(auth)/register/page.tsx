@@ -55,12 +55,12 @@ export default function RegisterPage() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
               <Bot size={20} className="text-white" />
             </div>
-            <span className="text-white font-bold text-lg tracking-tight">NEXUS</span>
+            <span className="text-white font-bold text-lg tracking-tight">Nexlify</span>
           </div>
 
           <div className="mb-7">
             <h2 className="text-2xl font-bold text-white">יצירת חשבון</h2>
-            <p className="text-white/40 text-sm mt-1">הצטרף ל-NEXUS בחינם</p>
+            <p className="text-white/40 text-sm mt-1">הצטרף ל-Nexlify בחינם</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">

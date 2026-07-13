@@ -124,7 +124,7 @@ export default function ForgotPasswordPage() {
             <div className="w-7 h-7 rounded-lg bg-white/90 flex items-center justify-center">
               <Bot size={14} className="text-gray-900" />
             </div>
-            <span className="text-white font-bold text-lg tracking-tight">AliBot Pro</span>
+            <span className="text-white font-bold text-lg tracking-tight">Nexlify</span>
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center">

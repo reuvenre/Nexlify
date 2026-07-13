@@ -76,7 +76,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /** otpauth:// URI for QR provisioning. */
-export function totpUri(secret: string, account: string, issuer = 'NEXUS'): string {
+export function totpUri(secret: string, account: string, issuer = 'Nexlify'): string {
   const label = encodeURIComponent(`${issuer}:${account}`);
   const params = new URLSearchParams({
     secret,

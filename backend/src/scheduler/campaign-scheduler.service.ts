@@ -178,7 +178,7 @@ export class CampaignSchedulerService {
 
   /**
    * Runs hourly — evaluates published Facebook posts and auto-boosts the
-   * strong performers for every user who enabled auto-boost. (NEXUS Performance)
+   * strong performers for every user who enabled auto-boost. (Nexlify Performance)
    */
   @Cron(CronExpression.EVERY_HOUR)
   async runAutoBoost() {

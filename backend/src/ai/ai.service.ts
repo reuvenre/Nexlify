@@ -29,8 +29,8 @@ export interface GenerateResult {
  *
  * Routes a single prompt to Anthropic Claude, OpenAI, or Google Gemini based on
  * the user's `ai_provider` preference, falling back automatically to whichever
- * provider has a usable key. This is the merge point between AliBot's
- * Claude/OpenAI copy engine and NEXUS's Gemini copywriter.
+ * provider has a usable key. This is the merge point between Nexlify's
+ * Claude/OpenAI copy engine and Nexlify's Gemini copywriter.
  */
 @Injectable()
 export class AiService {
