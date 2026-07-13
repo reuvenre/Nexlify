@@ -439,6 +439,12 @@ export const catalogApi = {
   importProduct: (data: { url?: string; product_id?: string; category?: string }) =>
     http.post<CatalogProduct>('/catalog/import', data).then(extract),
 
+  /** Bulk-import from a parsed CSV. Returns a per-batch summary. */
+  bulkImport: (rows: { product_id: string; category?: string }[]) =>
+    http.post<{ total: number; imported: number; skipped: number; failed: number; errors: { productId: string; error: string }[] }>(
+      '/catalog/import/bulk', { rows }, { timeout: 240_000 },
+    ).then(extract),
+
   get: (id: string) => http.get<CatalogProduct>(`/catalog/${id}`).then(extract),
 
   update: (id: string, data: Partial<CatalogProduct>) =>

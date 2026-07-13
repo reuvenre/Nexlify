@@ -68,6 +68,19 @@ export class CatalogController {
     });
   }
 
+  /** Bulk-import from a parsed CSV: [{ productId, category? }, …]. */
+  @Post('import/bulk')
+  @HttpCode(200)
+  bulkImport(
+    @Req() req: Request,
+    @Body('rows') rows?: { productId?: string; product_id?: string; category?: string }[],
+  ) {
+    const normalized = (Array.isArray(rows) ? rows : [])
+      .map((r) => ({ productId: String(r.productId ?? r.product_id ?? '').trim(), category: r.category }))
+      .filter((r) => r.productId);
+    return this.svc.bulkImport(this.uid(req), normalized);
+  }
+
   // ── Get one ───────────────────────────────────────────────────────────────
 
   @Get(':id')

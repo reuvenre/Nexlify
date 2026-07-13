@@ -177,6 +177,36 @@ export class CatalogService {
     return this.repo.save(product);
   }
 
+  /**
+   * Bulk-import many products from a CSV (rows of product_id + optional category).
+   * Tolerant: a bad/duplicate row never aborts the batch — each is counted so the
+   * user gets a clear "N imported, M already existed, K failed" summary.
+   */
+  async bulkImport(
+    userId: string,
+    rows: { productId: string; category?: string }[],
+  ): Promise<{ total: number; imported: number; skipped: number; failed: number; errors: { productId: string; error: string }[] }> {
+    // Cap the batch — each row may hit AliExpress, so keep it bounded per request.
+    const capped = rows.slice(0, 100);
+    const result = { total: capped.length, imported: 0, skipped: 0, failed: 0, errors: [] as { productId: string; error: string }[] };
+    for (const row of capped) {
+      const pid = String(row.productId || '').trim();
+      if (!pid) { result.failed++; result.errors.push({ productId: '(ריק)', error: 'שורה ללא מזהה מוצר' }); continue; }
+      try {
+        await this.importProduct(userId, { productId: pid, category: row.category?.trim() || undefined });
+        result.imported++;
+      } catch (err: any) {
+        if (err instanceof ConflictException) {
+          result.skipped++;
+        } else {
+          result.failed++;
+          if (result.errors.length < 20) result.errors.push({ productId: pid, error: err?.message || 'ייבוא נכשל' });
+        }
+      }
+    }
+    return result;
+  }
+
   // ── Update ────────────────────────────────────────────────────────────────
 
   async update(userId: string, id: string, dto: Partial<{

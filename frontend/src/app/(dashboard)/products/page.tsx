@@ -55,6 +55,8 @@ function ImportModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [csvRows, setCsvRows] = useState<{ product_id: string; category?: string }[]>([]);
+  const [csvName, setCsvName] = useState('');
 
   async function handleImport() {
     if (!input.trim()) return;
@@ -74,6 +76,60 @@ function ImportModal({
     } catch (err: any) {
       const msg = err?.response?.data?.message;
       setError(msg || 'שגיאה בייבוא המוצר');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /** Parse a CSV file → rows of { product_id, category }. Tolerates a header row,
+   *  quoted values, an AliExpress URL or a bare id in the first column. */
+  function parseCsv(text: string): { product_id: string; category?: string }[] {
+    const idFromCell = (cell: string) => {
+      const v = cell.trim().replace(/^"|"$/g, '');
+      const m = v.match(/\/item\/(\d+)/) || v.match(/(\d{8,})/);
+      return m ? m[1] : '';
+    };
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const out: { product_id: string; category?: string }[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      const pid = idFromCell(cols[0] || '');
+      // Skip an obvious header row (first column has no digits).
+      if (i === 0 && !pid && /product|url|id/i.test(lines[i])) continue;
+      if (!pid) continue;
+      out.push({ product_id: pid, category: (cols[1] || '').trim().replace(/^"|"$/g, '') || undefined });
+    }
+    return out;
+  }
+
+  function handleFile(file?: File | null) {
+    setError(''); setSuccess('');
+    if (!file) return;
+    setCsvName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const rows = parseCsv(String(reader.result || ''));
+        setCsvRows(rows);
+        if (!rows.length) setError('לא נמצאו מזהי מוצר תקינים בקובץ (עמודה ראשונה: product_id או URL).');
+      } catch { setError('קריאת הקובץ נכשלה'); }
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleBulkImport() {
+    if (!csvRows.length) return;
+    setError(''); setSuccess(''); setLoading(true);
+    try {
+      const r = await catalogApi.bulkImport(csvRows);
+      const parts = [`${r.imported} יובאו`];
+      if (r.skipped) parts.push(`${r.skipped} כבר קיימים`);
+      if (r.failed) parts.push(`${r.failed} נכשלו`);
+      setSuccess(`הושלם: ${parts.join(' · ')}`);
+      onImported();
+      if (!r.failed) setTimeout(onClose, 1600);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'ייבוא מרובה נכשל');
     } finally {
       setLoading(false);
     }
@@ -144,12 +200,22 @@ function ImportModal({
               </div>
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-edge rounded-xl">
-              <Upload size={28} className="text-white/20 mb-3" />
-              <p className="text-body text-white/40 text-center">
-                CSV עם עמודות product_id, category
-              </p>
-              <p className="text-xs text-white/25 mt-1">בקרוב — תכונה זו בפיתוח</p>
+            <div className="space-y-3">
+              <label className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-edge hover:border-blue-500/40 rounded-xl cursor-pointer transition-colors">
+                <Upload size={28} className="text-white/20 mb-3" />
+                <p className="text-body text-white/40 text-center">
+                  {csvName ? `נבחר: ${csvName}` : 'בחר קובץ CSV'}
+                </p>
+                <p className="text-xs text-white/25 mt-1">עמודה ראשונה: product_id או קישור AliExpress · עמודה שנייה (אופציונלי): קטגוריה</p>
+                <input type="file" accept=".csv,text/csv" className="hidden"
+                  onChange={(e) => handleFile(e.target.files?.[0])} />
+              </label>
+              {csvRows.length > 0 && (
+                <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl px-3.5 py-2.5">
+                  <CheckCircle2 size={13} className="text-blue-400 shrink-0" />
+                  <p className="text-xs text-blue-300">זוהו {csvRows.length} מוצרים לייבוא{csvRows.length > 100 ? ' (עד 100 יעובדו בכל פעם)' : ''}.</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -176,7 +242,7 @@ function ImportModal({
           >
             ביטול
           </button>
-          {tab === 'single' && (
+          {tab === 'single' ? (
             <button
               onClick={handleImport}
               disabled={loading || !input.trim()}
@@ -185,6 +251,15 @@ function ImportModal({
               {loading && <Loader2 size={13} className="animate-spin" />}
               <Upload size={13} />
               הוסף מוצר
+            </button>
+          ) : (
+            <button
+              onClick={handleBulkImport}
+              disabled={loading || !csvRows.length}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-body font-semibold rounded-xl transition-all"
+            >
+              {loading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+              {loading ? 'מייבא…' : `ייבא ${csvRows.length || ''} מוצרים`}
             </button>
           )}
         </div>
