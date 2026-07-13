@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
-  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal, Eye, Users,
+  ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal, Eye, Users, Megaphone,
 } from 'lucide-react';
 import Link from 'next/link';
 import { postsApi, credentialsApi, channelsApi } from '@/lib/api-client';
+import { GroupMultiSelect } from '@/components/GroupMultiSelect';
 import type { Post, Channel } from '@/types';
 
 // ─── Estimated queue send times ───────────────────────────────────────────────
@@ -331,12 +332,16 @@ function postSource(post: Post): 'flylink' | 'aliexpress' {
 
 // The target group(s) a post publishes to, resolved to display names. `channel_overrides`
 // (multi-group) wins over the single `channel_override`; empty = the default channel.
-function postTargets(post: Post, channels: Channel[]): string[] {
+function postTargetIds(post: Post): string[] {
   let ids: string[] = [];
   try { ids = post.channel_overrides ? JSON.parse(post.channel_overrides) : []; } catch { /* ignore */ }
   ids = ids.filter(Boolean);
   if (!ids.length && post.channel_override) ids = [post.channel_override];
-  return ids.map((id) => channels.find((c) => c.channel_id === id)?.name || id);
+  return ids;
+}
+
+function postTargets(post: Post, channels: Channel[]): string[] {
+  return postTargetIds(post).map((id) => channels.find((c) => c.channel_id === id)?.name || id);
 }
 
 /** Platform + target-group chips shown under a post's title. */
@@ -365,7 +370,7 @@ function PostMeta({ post, channels }: { post: Post; channels: Channel[] }) {
   );
 }
 
-function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onRepublish }: {
+function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onRepublish, onPush }: {
   post: Post;
   channels: Channel[];
   onRetry: (id: string) => Promise<void>;
@@ -373,6 +378,7 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
   onDelete: (id: string) => Promise<void>;
   onEdit: (post: Post) => void;
   onRepublish: (post: Post) => void;
+  onPush: (post: Post) => void;
 }) {
   const [retrying, setRetrying] = useState(false);
   const [retryingFailed, setRetryingFailed] = useState(false);
@@ -461,6 +467,10 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
               {retryingFailed ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
             </button>
           )}
+          <button onClick={() => onPush(post)} title="דחוף לפלטפורמה/קבוצה (בלי חיוב, בלי כפילות)"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-teal-400/70 hover:text-teal-300 hover:bg-teal-500/10 transition-all">
+            <Megaphone size={13} />
+          </button>
           <button onClick={() => onRepublish(post)} title="פרסם מחדש — לתור או בתזמון"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-violet-400/70 hover:text-violet-400 hover:bg-violet-500/10 transition-all">
             <RefreshCw size={13} />
@@ -639,6 +649,93 @@ function RepublishModal({ post, onClose, onDone }: {
   );
 }
 
+// ─── Push-to-platform modal (back-fill: send to a platform/group, no re-charge) ─
+function PushModal({ post, channels, onClose, onDone }: {
+  post: Post; channels: Channel[]; onClose: () => void; onDone: () => void;
+}) {
+  const [platforms, setPlatforms] = useState<('telegram' | 'facebook' | 'instagram')[]>(['facebook']);
+  const [groupIds, setGroupIds] = useState<string[]>(() => postTargetIds(post));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState('');
+
+  const togglePlatform = (p: 'telegram' | 'facebook' | 'instagram') =>
+    setPlatforms((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]);
+
+  const submit = async () => {
+    setBusy(true); setError('');
+    try {
+      await postsApi.push(post.id, platforms, groupIds.length ? groupIds : undefined);
+      setDone('✓ נשלח');
+      setTimeout(onDone, 900);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'השליחה נכשלה');
+      setBusy(false);
+    }
+  };
+
+  const PLATFORMS: { id: 'telegram' | 'facebook' | 'instagram'; label: string }[] = [
+    { id: 'facebook', label: 'פייסבוק' },
+    { id: 'telegram', label: 'טלגרם' },
+    { id: 'instagram', label: 'אינסטגרם' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-surface-secondary border border-edge rounded-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
+          <h3 className="text-base font-semibold text-white flex items-center gap-2"><Megaphone size={17} className="text-teal-400" /> דחיפת פוסט לפלטפורמה</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-white/70 line-clamp-1">{post.product_title}</p>
+
+          <div>
+            <label className="block text-xs text-white/50 mb-1.5">פלטפורמות</label>
+            <div className="flex flex-wrap gap-2">
+              {PLATFORMS.map((p) => {
+                const on = platforms.includes(p.id);
+                return (
+                  <button key={p.id} type="button" onClick={() => togglePlatform(p.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                      on ? 'bg-teal-600/20 border-teal-500/50 text-teal-200' : 'bg-white/5 border-edge-hover text-white/50 hover:text-white/80'
+                    }`}>
+                    <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${on ? 'bg-teal-500 border-teal-500' : 'border-white/30'}`}>
+                      {on && <CheckCircle2 size={10} className="text-white" />}
+                    </span>
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-white/50 mb-1.5">קבוצות יעד</label>
+            <GroupMultiSelect channels={channels} value={groupIds} onChange={setGroupIds} disabled={busy} />
+          </div>
+
+          <p className="text-2xs text-white/30 flex items-start gap-1.5">
+            <AlertTriangle size={11} className="shrink-0 mt-0.5 text-white/25" />
+            נשלח רק לפלטפורמות ולקבוצות שבחרת — בלי חיוב קרדיט ובלי לשלוח שוב למה שכבר יצא. (טלגרם ישלח לכל הקבוצות שבחרת, כך שלמניעת כפילות בחר רק את הקבוצה החסרה.)
+          </p>
+
+          {done && <p className="text-xs text-emerald-400">{done}</p>}
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          <div className="flex gap-2">
+            <button onClick={submit} disabled={busy || !!done || !platforms.length}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-60 text-white text-sm font-medium transition-all">
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <Megaphone size={14} />} דחוף עכשיו
+            </button>
+            <button onClick={onClose} className="px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm">ביטול</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PostsPage() {
@@ -689,6 +786,7 @@ export default function PostsPage() {
 
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [republishingPost, setRepublishingPost] = useState<Post | null>(null);
+  const [pushingPost, setPushingPost] = useState<Post | null>(null);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -789,7 +887,7 @@ export default function PostsPage() {
             </thead>
             <tbody>
               {posts.map((p) => (
-                <PostRow key={p.id} post={p} channels={channels} onRetry={handleRetry} onRetryFailed={handleRetryFailed} onDelete={handleDelete} onEdit={setEditingPost} onRepublish={setRepublishingPost} />
+                <PostRow key={p.id} post={p} channels={channels} onRetry={handleRetry} onRetryFailed={handleRetryFailed} onDelete={handleDelete} onEdit={setEditingPost} onRepublish={setRepublishingPost} onPush={setPushingPost} />
               ))}
             </tbody>
           </table>
@@ -855,6 +953,15 @@ export default function PostsPage() {
           post={editingPost}
           onClose={() => setEditingPost(null)}
           onSaved={() => { setEditingPost(null); load({ silent: true }); }}
+        />
+      )}
+
+      {pushingPost && (
+        <PushModal
+          post={pushingPost}
+          channels={channels}
+          onClose={() => setPushingPost(null)}
+          onDone={() => { setPushingPost(null); load({ silent: true }); }}
         />
       )}
     </div>

@@ -382,6 +382,10 @@ export const postsApi = {
   requeue: (id: string, scheduledAt?: string) =>
     http.post<Post>(`/posts/${id}/requeue`, { scheduled_at: scheduledAt }).then(extract),
 
+  /** Push an existing post to chosen platform(s) + group(s) — no re-charge, no duplicates. */
+  push: (id: string, platforms: ('telegram' | 'facebook' | 'instagram')[], channels?: string[]) =>
+    http.post<Post>(`/posts/${id}/push`, { platforms, channels }, { timeout: AI_TIMEOUT }).then(extract),
+
   /** Full post edit: text, title, price, image, affiliate link, and/or scheduled time. */
   update: (id: string, data: {
     text?: string; scheduled_at?: string;

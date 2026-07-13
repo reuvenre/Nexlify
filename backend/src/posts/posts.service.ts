@@ -795,6 +795,86 @@ export class PostsService {
   }
 
   /**
+   * Manually PUSH an existing post to specific platform(s) and group(s) — WITHOUT charging
+   * credits and WITHOUT touching platforms/groups you didn't select (so no duplicates).
+   * Back-fill tool: e.g. push old Telegram-only posts to Facebook, or deliver a
+   * FB-only post to a Telegram group it missed. `channels` (channel_ids) overrides the
+   * post's own targets; omit to use them.
+   */
+  async pushToPlatforms(userId: string, postId: string, platforms: string[], channels?: string[]): Promise<Post> {
+    const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
+    if (!post) throw new NotFoundException('פוסט לא נמצא');
+    const creds = await this.credentials.getRaw(userId);
+    if (!creds) throw new BadRequestException('חסרים פרטי חיבור');
+
+    const want = new Set((platforms || []).map((p) => String(p).toLowerCase()));
+    if (!want.size) throw new BadRequestException('בחר לפחות פלטפורמה אחת');
+
+    const targetList: (string | undefined)[] = (channels && channels.length)
+      ? Array.from(new Set(channels.filter((c) => typeof c === 'string' && c.trim())))
+      : this.resolveTargets(post);
+    const multi = targetList.length > 1;
+    const wantMake = creds.publish_via_make === true && !!creds.make_webhook_url;
+
+    const errors: string[] = [];
+    const tasks: Promise<void>[] = [];
+    let anySuccess = false;
+
+    if (want.has('telegram')) {
+      const media = await this.prepareTelegramMedia(post, creds);
+      tasks.push((async () => {
+        for (const target of targetList) {
+          const body = await this.buildPostBody(post, creds, target);
+          const label = await this.targetLabel(userId, target, multi);
+          try { await this.sendToTelegramChannel(post, creds, body, target, media); anySuccess = true; }
+          catch (err: any) { errors.push(`Telegram: ${label}${err?.response?.data?.description || err.message}`); }
+        }
+      })());
+    }
+    if (want.has('facebook')) {
+      const pages = await this.resolvePages(userId, targetList, creds);
+      tasks.push((async () => {
+        for (const [pageId, target] of pages) {
+          const body = await this.buildPostBody(post, creds, target);
+          const label = await this.targetLabel(userId, target, multi && pages.size > 1);
+          try {
+            if (wantMake) await this.sendToMakeWebhook(post, creds, body, pageId);
+            else await this.sendToFacebook(post, creds, body, pageId);
+            anySuccess = true;
+          } catch (err: any) {
+            errors.push(`${wantMake ? 'Make' : 'Facebook'}: ${label}${err?.response?.data?.error?.message || err?.response?.data?.message || err.message}`);
+          }
+        }
+      })());
+    }
+    if (want.has('instagram')) {
+      const body = await this.buildPostBody(post, creds, targetList[0]);
+      tasks.push(this.sendToInstagram(post, creds, body)
+        .then(() => { anySuccess = true; })
+        .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }));
+    }
+    await Promise.all(tasks);
+
+    // Merge into the existing error_message: drop old lines for the platforms we just
+    // attempted (they've been re-tried now), keep unrelated ones, add fresh failures.
+    const attemptedTokens: string[] = [];
+    if (want.has('telegram')) attemptedTokens.push('Telegram');
+    if (want.has('facebook')) attemptedTokens.push('Facebook', 'Make');
+    if (want.has('instagram')) attemptedTokens.push('Instagram');
+    const kept = (post.error_message || '').split('|').map((s) => s.trim()).filter(Boolean)
+      .filter((line) => !attemptedTokens.some((tok) => new RegExp(`^${tok}:`, 'i').test(line)));
+    const merged = [...kept, ...errors].filter(Boolean);
+    post.error_message = merged.length ? merged.join(' | ') : null;
+    if (post.status !== 'sent') post.status = 'sent';
+    if (!post.sent_at) post.sent_at = new Date();
+    await this.repo.save(post);
+
+    // Nothing went out → surface the failure to the caller instead of a false success.
+    if (!anySuccess) throw new BadRequestException(errors.join(' | ') || 'השליחה נכשלה');
+    return post;
+  }
+
+  /**
    * Re-publish an existing post THROUGH THE QUEUE/SCHEDULE rather than immediately.
    * No `scheduled_at` → appended to the auto-send queue (goes out on the next slot);
    * with `scheduled_at` → scheduled for that time. Resets the publish state so it

@@ -90,6 +90,21 @@ export class PostsController {
     return this.svc.requeue(this.uid(req), id, scheduledAt);
   }
 
+  /**
+   * Push an existing post to specific platform(s) + group(s) — no re-charge, no duplicate
+   * to platforms/groups you didn't pick. Back-fill old posts to Facebook / a missed group.
+   */
+  @Post(':id/push')
+  @HttpCode(200)
+  push(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('platforms') platforms: string[],
+    @Body('channels') channels?: string[],
+  ) {
+    return this.svc.pushToPlatforms(this.uid(req), id, platforms, channels);
+  }
+
   // ── Queue ──────────────────────────────────────────────────────────────────
 
   @Get('queue')
