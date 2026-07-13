@@ -102,11 +102,25 @@ export class AdminController {
     @Body('target') target?: 'all' | 'users' | 'admins',
     @Body('channels') channels?: BroadcastChannel[],
     @Body('whatsapp_numbers') whatsappNumbers?: string,
+    @Body('whatsapp_mode') whatsappMode?: 'text' | 'template',
+    @Body('whatsapp_template_name') waTemplateName?: string,
+    @Body('whatsapp_template_lang') waTemplateLang?: string,
+    @Body('whatsapp_template_params') waTemplateParams?: string,
   ) {
-    if (!message?.trim()) throw new BadRequestException('נא למלא תוכן להודעה');
     const chans: BroadcastChannel[] = Array.isArray(channels) && channels.length ? channels : ['email'];
+    const waMode: 'text' | 'template' = whatsappMode === 'template' ? 'template' : 'text';
+
+    // The message body is needed for email/telegram and for the WhatsApp free-text mode
+    // (a WhatsApp *template* broadcast carries no free text — it uses the approved template).
+    const needsMessage = chans.includes('email') || chans.includes('telegram')
+      || (chans.includes('whatsapp') && waMode === 'text');
+    if (needsMessage && !message?.trim()) throw new BadRequestException('נא למלא תוכן להודעה');
+    if (chans.includes('whatsapp') && waMode === 'template' && !waTemplateName?.trim()) {
+      throw new BadRequestException('נא להזין שם תבנית WhatsApp מאושרת');
+    }
+
     const userId = this.uid(req);
-    const msg = message.trim();
+    const msg = (message || '').trim();
     const subj = subject?.trim() || 'הודעה מ-Nexlify';
     const result: any = {};
 
@@ -140,12 +154,20 @@ export class AdminController {
       } else if (!numbers.length) {
         result.whatsapp = { configured: true, total: 0, sent: 0, failed: 0, note: 'no_numbers' };
       } else {
+        // Free text only reaches users inside the 24h service window; a cold broadcast
+        // needs an APPROVED template (Meta rule). `waMode` picks which path.
+        const tplParams = (waTemplateParams || '').split('|').map((s) => s.trim()).filter(Boolean);
+        const lastErrors: string[] = [];
         let sent = 0, failed = 0;
         for (const to of numbers) {
-          const ok = await this.sendWhatsApp(wa.phoneNumberId, wa.token, to, msg).catch(() => false);
+          const ok = await (waMode === 'template'
+            ? this.sendWhatsAppTemplate(wa.phoneNumberId, wa.token, to, waTemplateName!.trim(), (waTemplateLang || 'he').trim(), tplParams)
+            : this.sendWhatsApp(wa.phoneNumberId, wa.token, to, msg)
+          ).catch((e: any) => { lastErrors.push(e?.response?.data?.error?.message || e.message); return false; });
           if (ok) sent++; else failed++;
         }
-        result.whatsapp = { configured: true, total: numbers.length, sent, failed };
+        result.whatsapp = { configured: true, total: numbers.length, sent, failed, mode: waMode };
+        if (failed && lastErrors.length) result.whatsapp.error = lastErrors[lastErrors.length - 1];
       }
     }
 
@@ -162,11 +184,32 @@ export class AdminController {
     ));
   }
 
-  /** Send one WhatsApp text message via the Cloud API. Throws on API error. */
+  /** Send one WhatsApp text message via the Cloud API (24h session window only). */
   private async sendWhatsApp(phoneNumberId: string, token: string, to: string, body: string): Promise<boolean> {
     const res = await axios.post(
       `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
       { messaging_product: 'whatsapp', to, type: 'text', text: { body, preview_url: false } },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 12000 },
+    );
+    if (res.data?.error) throw new Error(res.data.error.message);
+    return true;
+  }
+
+  /**
+   * Send one WhatsApp APPROVED-TEMPLATE message via the Cloud API — the only way to reach
+   * a user OUTSIDE the 24h window (cold broadcast). `params` fill the template's body
+   * variables ({{1}}, {{2}}, …) in order; omit them for a template with no variables.
+   */
+  private async sendWhatsAppTemplate(
+    phoneNumberId: string, token: string, to: string, name: string, lang: string, params: string[],
+  ): Promise<boolean> {
+    const template: any = { name, language: { code: lang || 'he' } };
+    if (params.length) {
+      template.components = [{ type: 'body', parameters: params.map((text) => ({ type: 'text', text })) }];
+    }
+    const res = await axios.post(
+      `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+      { messaging_product: 'whatsapp', to, type: 'template', template },
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 12000 },
     );
     if (res.data?.error) throw new Error(res.data.error.message);

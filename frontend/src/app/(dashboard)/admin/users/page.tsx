@@ -331,6 +331,10 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
   const [target, setTarget] = useState<'all' | 'users' | 'admins'>('all');
   const [chans, setChans] = useState<Chan[]>(['email']);
   const [waNumbers, setWaNumbers] = useState('');
+  const [waMode, setWaMode] = useState<'text' | 'template'>('text');
+  const [tplName, setTplName] = useState('');
+  const [tplLang, setTplLang] = useState('he');
+  const [tplParams, setTplParams] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<BroadcastResult | null>(null);
@@ -342,7 +346,12 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
     try {
       const r = await adminApi.broadcast({
         subject: subject.trim(), message: message.trim(), target,
-        channels: chans, whatsapp_numbers: chans.includes('whatsapp') ? waNumbers : undefined,
+        channels: chans,
+        whatsapp_numbers: chans.includes('whatsapp') ? waNumbers : undefined,
+        whatsapp_mode: chans.includes('whatsapp') ? waMode : undefined,
+        whatsapp_template_name: chans.includes('whatsapp') && waMode === 'template' ? tplName.trim() : undefined,
+        whatsapp_template_lang: chans.includes('whatsapp') && waMode === 'template' ? tplLang.trim() : undefined,
+        whatsapp_template_params: chans.includes('whatsapp') && waMode === 'template' ? tplParams : undefined,
       });
       setResult(r);
     } catch (e: any) {
@@ -358,7 +367,7 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
     { id: 'whatsapp', label: 'וואטסאפ' },
   ];
 
-  const ResultLine = ({ label, r }: { label: string; r?: { configured?: boolean; total: number; sent: number; failed: number; note?: string } }) => {
+  const ResultLine = ({ label, r }: { label: string; r?: BroadcastResult['whatsapp'] }) => {
     if (!r) return null;
     if (r.configured === false) return (
       <p className="text-xs text-amber-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {label}: לא מוגדר — לא נשלח.</p>
@@ -367,9 +376,13 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
       <p className="text-xs text-amber-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {label}: לא הוזנו מספרים.</p>
     );
     return (
-      <p className="text-xs text-white/70 flex items-center gap-1.5">
-        <CheckCircle2 size={12} className="text-green-400" /> {label}: נשלחו {r.sent}/{r.total}{r.failed ? ` · ${r.failed} נכשלו` : ''}.
-      </p>
+      <div className="text-xs">
+        <p className={`flex items-center gap-1.5 ${r.failed && !r.sent ? 'text-amber-400' : 'text-white/70'}`}>
+          {r.failed && !r.sent ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} className="text-green-400" />}
+          {label}: נשלחו {r.sent}/{r.total}{r.failed ? ` · ${r.failed} נכשלו` : ''}.
+        </p>
+        {r.error && r.failed > 0 && <p className="text-2xs text-red-400/70 mt-0.5 pr-4" dir="ltr">{r.error}</p>}
+      </div>
     );
   };
 
@@ -419,12 +432,53 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
           )}
 
           {chans.includes('whatsapp') && (
-            <div>
-              <label className={labelCls}>מספרי וואטסאפ</label>
-              <textarea value={waNumbers} onChange={(e) => setWaNumbers(e.target.value)} rows={2} dir="ltr"
-                placeholder="972501234567, 972521112233"
-                className={`${inputCls} resize-y`} />
-              <p className="text-2xs text-white/30 mt-1">מספרים בפורמט בינלאומי (ללא +), מופרדים בפסיק/רווח. דורש חשבון WhatsApp Business מוגדר בהגדרות.</p>
+            <div className="space-y-3 border border-edge rounded-lg p-3 bg-white/[0.02]">
+              <div>
+                <label className={labelCls}>מספרי וואטסאפ</label>
+                <textarea value={waNumbers} onChange={(e) => setWaNumbers(e.target.value)} rows={2} dir="ltr"
+                  placeholder="972501234567, 972521112233"
+                  className={`${inputCls} resize-y`} />
+                <p className="text-2xs text-white/30 mt-1">מספרים בפורמט בינלאומי (ללא +), מופרדים בפסיק/רווח. דורש WhatsApp Business מוגדר בהגדרות.</p>
+              </div>
+
+              <div>
+                <label className={labelCls}>סוג שליחה</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setWaMode('text')}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${waMode === 'text' ? 'bg-green-600/20 border-green-500/50 text-green-200' : 'bg-white/5 border-edge-hover text-white/50'}`}>
+                    טקסט חופשי (חלון 24ש׳)
+                  </button>
+                  <button type="button" onClick={() => setWaMode('template')}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${waMode === 'template' ? 'bg-green-600/20 border-green-500/50 text-green-200' : 'bg-white/5 border-edge-hover text-white/50'}`}>
+                    תבנית מאושרת (שליחה קרה)
+                  </button>
+                </div>
+              </div>
+
+              {waMode === 'template' ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className={labelCls}>שם התבנית</label>
+                      <input value={tplName} onChange={(e) => setTplName(e.target.value)} dir="ltr" placeholder="order_update" className={inputCls} />
+                    </div>
+                    <div className="w-28">
+                      <label className={labelCls}>שפה</label>
+                      <input value={tplLang} onChange={(e) => setTplLang(e.target.value)} dir="ltr" placeholder="he" className={inputCls} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelCls}>ערכים למשתני התבנית</label>
+                    <input value={tplParams} onChange={(e) => setTplParams(e.target.value)} placeholder="ערך1 | ערך2 | ערך3" className={inputCls} />
+                    <p className="text-2xs text-white/30 mt-1">ממלאים את {'{{1}}'}, {'{{2}}'}... בסדר, מופרדים ב-|. השם + השפה חייבים להיות זהים לתבנית שאושרה ב-Meta.</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-2xs text-amber-400/80 flex items-start gap-1.5">
+                  <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                  טקסט חופשי מגיע רק למי שכתב לך ב-24 השעות האחרונות. לשליחה קרה השתמש בתבנית מאושרת.
+                </p>
+              )}
             </div>
           )}
 
@@ -442,10 +496,17 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
           {error && <p className="text-xs text-red-400 flex items-center gap-1.5"><AlertTriangle size={12} /> {error}</p>}
 
           <div className="flex gap-2 pt-1">
-            <button onClick={send} disabled={sending || !message.trim() || !chans.length}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white text-sm font-medium transition-all">
-              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} שלח
-            </button>
+            {(() => {
+              const needsMessage = chans.includes('email') || chans.includes('telegram') || (chans.includes('whatsapp') && waMode === 'text');
+              const templateOk = !(chans.includes('whatsapp') && waMode === 'template') || tplName.trim();
+              const canSend = !!chans.length && (!needsMessage || !!message.trim()) && !!templateOk;
+              return (
+                <button onClick={send} disabled={sending || !canSend}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white text-sm font-medium transition-all">
+                  {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} שלח
+                </button>
+              );
+            })()}
             <button onClick={onClose} className="px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm transition-all">ביטול</button>
           </div>
         </div>

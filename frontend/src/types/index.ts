@@ -37,6 +37,8 @@ export interface BroadcastChannelResult {
   sent: number;
   failed: number;
   note?: string;
+  mode?: 'text' | 'template';
+  error?: string;
 }
 
 export interface BroadcastResult {

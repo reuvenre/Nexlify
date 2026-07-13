@@ -262,6 +262,8 @@ export const adminApi = {
   broadcast: (data: {
     subject: string; message: string; target?: 'all' | 'users' | 'admins';
     channels?: ('email' | 'telegram' | 'whatsapp')[]; whatsapp_numbers?: string;
+    whatsapp_mode?: 'text' | 'template';
+    whatsapp_template_name?: string; whatsapp_template_lang?: string; whatsapp_template_params?: string;
   }) => http.post<BroadcastResult>('/admin/broadcast', data, { timeout: 120000 }).then(extract),
 };
 
