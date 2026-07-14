@@ -94,14 +94,17 @@ export default function DashboardPage() {
       setEarnings(earn);
 
       const aliOk = !!(creds?.aliexpress_app_key);
-      const openaiOk = !!(creds?.openai_api_key);
+      // ANY configured AI provider satisfies this step — the engine is multi-provider
+      // (Claude / OpenAI / Gemini), so checking only openai_api_key left the step stuck
+      // forever for anyone using a different one.
+      const aiOk = !!(creds?.openai_api_key || creds?.gemini_api_key || creds?.anthropic_api_key);
       const channelOk = channels.length > 0;
       const campaignOk = camps.total > 0;
       const postOk = posts.total > 0;
 
       setSteps([
         { id: 'ali',      label: 'חבר את AliExpress',     desc: 'הגדר App Key ו-App Secret',     href: '/settings',         done: aliOk },
-        { id: 'openai',   label: 'חבר את OpenAI',          desc: 'הוסף מפתח API ליצירת תוכן',     href: '/settings',         done: openaiOk },
+        { id: 'ai',       label: 'חבר מנוע AI',            desc: 'מפתח API ליצירת תוכן — Gemini / OpenAI / Claude', href: '/settings', done: aiOk },
         { id: 'channel',  label: 'הוסף ערוץ טלגרם',        desc: 'חבר ערוץ לפרסום אוטומטי',       href: '/groups',           done: channelOk },
         { id: 'campaign', label: 'צור קמפיין',              desc: 'הפעל פרסום אוטומטי של מוצרים', href: '/campaigns/new',    done: campaignOk },
         { id: 'post',     label: 'שלח פוסט ראשון',         desc: 'פרסם מוצר לטלגרם',             href: '/quick-post',       done: postOk },
