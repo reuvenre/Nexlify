@@ -30,6 +30,8 @@ import type {
   ValidateResult,
   AdminUser,
   AdminStats,
+  Coupon,
+  ParsedCoupon,
   BroadcastResult,
   SubscriptionStatus,
   PlanDef,
@@ -265,6 +267,28 @@ export const adminApi = {
     whatsapp_mode?: 'text' | 'template';
     whatsapp_template_name?: string; whatsapp_template_lang?: string; whatsapp_template_params?: string;
   }) => http.post<BroadcastResult>('/admin/broadcast', data, { timeout: 120000 }).then(extract),
+};
+
+// ─── Coupons API ─────────────────────────────────────────────────────────────
+
+export const couponsApi = {
+  list: () => http.get<Coupon[]>('/coupons').then(extract),
+  /** Parse a pasted block without saving — for the import preview. */
+  preview: (text: string) =>
+    http.post<{ coupons: ParsedCoupon[] }>('/coupons/preview', { text }).then(extract),
+  import: (data: { text: string; campaign?: string; starts_at?: string; ends_at?: string }) =>
+    http.post<{ imported: number; coupons: Coupon[] }>('/coupons/import', data).then(extract),
+  /** Manual add — the fallback when AliExpress wording defeats the parser. */
+  add: (data: {
+    code: string; discount_usd: number; min_spend_usd: number;
+    campaign?: string; starts_at?: string; ends_at?: string;
+  }) => http.post<Coupon>('/coupons', data).then(extract),
+  /** Which coupon a product at this USD price would get. */
+  best: (priceUsd: number) =>
+    http.get<{ coupon: Coupon | null }>('/coupons/best', { params: { price_usd: priceUsd } }).then(extract),
+  setActive: (id: string, isActive: boolean) =>
+    http.patch<Coupon>(`/coupons/${id}`, { is_active: isActive }).then(extract),
+  remove: (id: string) => http.delete(`/coupons/${id}`).then(extract),
 };
 
 // ─── Subscription API ────────────────────────────────────────────────────────

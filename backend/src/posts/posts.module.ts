@@ -5,6 +5,7 @@ import { Template } from '../templates/template.entity';
 import { PostsService } from './posts.service';
 import { PostsController } from './posts.controller';
 import { CredentialsModule } from '../credentials/credentials.module';
+import { CouponsModule } from '../coupons/coupons.module';
 import { RatesModule } from '../rates/rates.module';
 import { AiModule } from '../ai/ai.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
@@ -15,6 +16,7 @@ import { CollageModule } from '../collage/collage.module';
   imports: [
     TypeOrmModule.forFeature([Post, Template]),
     CredentialsModule,
+    CouponsModule,
     RatesModule,
     AiModule,
     SubscriptionModule,

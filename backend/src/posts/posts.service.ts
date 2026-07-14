@@ -13,6 +13,7 @@ import { RatesService } from '../rates/rates.service';
 import { AiService, GenerateImage } from '../ai/ai.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ChannelsService } from '../channels/channels.service';
+import { CouponsService } from '../coupons/coupons.service';
 import { CollageService } from '../collage/collage.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
@@ -94,6 +95,7 @@ export class PostsService {
     private readonly subscription: SubscriptionService,
     private readonly channels: ChannelsService,
     private readonly collage: CollageService,
+    private readonly coupons: CouponsService,
   ) {}
 
   /**
@@ -724,6 +726,16 @@ export class PostsService {
     let body = (post.affiliate_url && !linkAlreadyInText)
       ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
       : post.generated_text;
+
+    // Best matching AliExpress coupon for THIS product's price, resolved at SEND time so a
+    // queued/scheduled post never goes out with a coupon that expired while it waited.
+    // Priced in USD because the coupon tiers are ($7 OFF $55+); a post with no USD price
+    // (e.g. FLYLINK) yields no coupon.
+    const coupon = await this.coupons.bestFor(post.user_id, post.sale_price_usd).catch(() => null);
+    if (coupon && !body.includes(coupon.code)) {
+      body = `${body}\n\n🎟️ קוד קופון: ${coupon.code} — $${coupon.discount_usd} הנחה בקנייה מעל $${coupon.min_spend_usd}`;
+    }
+
     const footer = await this.resolveFooterText(post.user_id, creds, channelOverride);
     if (footer && !body.includes(footer)) body = `${body}\n\n${footer}`;
     return mdBoldToHtml(body);

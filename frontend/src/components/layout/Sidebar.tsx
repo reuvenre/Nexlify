@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut, Tag,
   ShoppingCart, Sun, Moon, Sparkles, Package,
-  Rocket, Shield,
+  Rocket, Shield, Ticket,
 } from 'lucide-react';
 
 const NAV_SECTIONS = [
@@ -28,6 +28,7 @@ const NAV_SECTIONS = [
       { href: '/templates',  label: 'תבניות',     icon: Layout },
       { href: '/categories', label: 'קטגוריות',   icon: Tag },
       { href: '/groups',     label: 'ערוצים',     icon: Users },
+      { href: '/coupons',    label: 'קופונים',    icon: Ticket },
     ],
   },
   {

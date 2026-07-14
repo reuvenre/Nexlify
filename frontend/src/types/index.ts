@@ -560,6 +560,27 @@ export interface Channel {
   updated_at: string;
 }
 
+// ─── Coupons ──────────────────────────────────────────────────────────────────
+
+export interface Coupon {
+  id: string;
+  code: string;
+  discount_usd: number;
+  min_spend_usd: number;
+  campaign: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+/** A coupon row detected in a pasted block, before saving. */
+export interface ParsedCoupon {
+  code: string;
+  discount_usd: number;
+  min_spend_usd: number;
+}
+
 export interface CreateChannelInput {
   name: string;
   platform?: ChannelPlatform;

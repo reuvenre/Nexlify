@@ -15,6 +15,7 @@ import { EarningsModule } from './earnings/earnings.module';
 import { RatesModule } from './rates/rates.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { ChannelsModule } from './channels/channels.module';
+import { CouponsModule } from './coupons/coupons.module';
 import { TemplatesModule } from './templates/templates.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { MailModule } from './mail/mail.module';
@@ -67,6 +68,7 @@ import { HealthController } from './health.controller';
     AuthModule,
     UsersModule,
     CredentialsModule,
+    CouponsModule,
     CampaignsModule,
     ProductsModule,
     PostsModule,
