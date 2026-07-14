@@ -174,6 +174,17 @@ export class AdminController {
     return result;
   }
 
+  /**
+   * SMTP diagnostics: verifies the connection + credentials WITHOUT sending mail, and
+   * returns the real provider error. Without this a bad SMTP setup only ever surfaces as
+   * a generic "something went wrong" on the forgot-password screen.
+   */
+  @Post('smtp-test')
+  @HttpCode(200)
+  smtpTest() {
+    return this.mail.verify();
+  }
+
   /** Parse a pasted list of phone numbers (comma/space/newline separated) → E.164 digits. */
   private parseNumbers(raw?: string): string[] {
     if (!raw) return [];

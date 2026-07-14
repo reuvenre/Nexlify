@@ -13,16 +13,49 @@ export class MailService {
     return !!this.config.get<string>('SMTP_HOST');
   }
 
+  /**
+   * SMTP port as a NUMBER. ConfigService returns env vars as strings, so the old
+   * `config.get<number>('SMTP_PORT') === 465` was string-vs-number and ALWAYS false —
+   * on port 465 (implicit TLS) that left `secure:false`, so we opened a plaintext socket
+   * to a TLS-only port and the connection hung until the request timed out.
+   */
+  private smtpPort(): number {
+    return Number(this.config.get('SMTP_PORT')) || 587;
+  }
+
   private transporter() {
+    const port = this.smtpPort();
     return nodemailer.createTransport({
       host: this.config.get<string>('SMTP_HOST'),
-      port: this.config.get<number>('SMTP_PORT') || 587,
-      secure: this.config.get<number>('SMTP_PORT') === 465,
+      port,
+      secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS (secure:false)
       auth: {
         user: this.config.get<string>('SMTP_USER'),
         pass: this.config.get<string>('SMTP_PASS'),
       },
+      // Never hang a request on a blocked/unreachable SMTP port — fail fast and loudly.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     });
+  }
+
+  /**
+   * Check the SMTP connection + credentials WITHOUT sending mail (admin diagnostics).
+   * Returns the real provider error so a misconfiguration is visible in the UI instead
+   * of surfacing as a generic "something went wrong".
+   */
+  async verify(): Promise<{ ok: boolean; error?: string; host?: string; port?: number; secure?: boolean }> {
+    const host = this.config.get<string>('SMTP_HOST');
+    const port = this.smtpPort();
+    if (!host) return { ok: false, error: 'SMTP_HOST not configured' };
+    try {
+      await this.transporter().verify();
+      return { ok: true, host, port, secure: port === 465 };
+    } catch (err: any) {
+      this.logger.error(`SMTP verify failed (${host}:${port}): ${err?.message}`);
+      return { ok: false, error: `${err?.code || ''} ${err?.message || err}`.trim(), host, port, secure: port === 465 };
+    }
   }
 
   /**
@@ -64,15 +97,8 @@ export class MailService {
       return;
     }
 
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: this.config.get<number>('SMTP_PORT') || 587,
-      secure: this.config.get<number>('SMTP_PORT') === 465,
-      auth: {
-        user: this.config.get<string>('SMTP_USER'),
-        pass: this.config.get<string>('SMTP_PASS'),
-      },
-    });
+    // Shared transporter — carries the port/secure fix and the fail-fast timeouts.
+    const transporter = this.transporter();
 
     const from = this.config.get<string>('SMTP_FROM') || `"Nexlify PRO" <noreply@alibotpro.com>`;
 
