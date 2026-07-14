@@ -4,6 +4,7 @@ import axios from 'axios';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { PostsService } from '../posts/posts.service';
 import { CredentialsService } from '../credentials/credentials.service';
+import { ChannelsService } from '../channels/channels.service';
 import { OrchestratorAgent } from '../agents/orchestrator.agent';
 import { AdsService } from '../ads/ads.service';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
@@ -21,6 +22,7 @@ export class CampaignSchedulerService {
     private readonly campaigns: CampaignsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
+    private readonly channels: ChannelsService,
     @Optional() private readonly orchestrator: OrchestratorAgent,
     @Optional() private readonly ads: AdsService,
     @Optional() private readonly supplierProducts: SupplierProductsService,
@@ -100,10 +102,15 @@ export class CampaignSchedulerService {
 
   /**
    * Runs every minute — processes the smart scheduling queue.
-   * For each user who has schedule_enabled=true:
-   *  • Checks if current time is within their configured send window
-   *  • Checks if the interval since the last sent queued post has elapsed
-   *  • If both conditions pass, sends the next post from the queue
+   *
+   * Each GROUP has its own queue and its own interval clock, so one group's backlog can
+   * never eat another's send slots. Previously a single user-wide queue + a single
+   * `schedule_last_sent_at` meant an interval of 60min produced one post per hour ACROSS
+   * ALL groups combined, and any post reset the clock for every group.
+   *
+   * Per user we now run one bucket per group (settings inherit from the user's global
+   * schedule when the group leaves them null), plus a "default" bucket for posts that
+   * carry no group (`channel_override IS NULL`), which keeps the original behaviour.
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async processQueue() {
@@ -125,39 +132,52 @@ export class CampaignSchedulerService {
     // 9am–10pm for the user, not UTC. Intl handles DST automatically.
     const nowHour = this.hourInZone(now, process.env.SCHEDULER_TZ || 'Asia/Jerusalem');
 
+    /** Window + interval gate shared by every bucket. */
+    const due = (startHour: number, endHour: number, interval: number, lastSentAt: Date | null) => {
+      if (nowHour < startHour || nowHour >= endHour) return false;
+      if (!lastSentAt) return true;
+      return (now.getTime() - new Date(lastSentAt).getTime()) / 60_000 >= interval;
+    };
+
     try {
-    for (const cred of credentialSets) {
-      try {
-        const startHour = cred.schedule_start_hour ?? 9;
-        const endHour   = cred.schedule_end_hour   ?? 22;
-        const interval  = cred.schedule_interval_minutes ?? 60;
+      for (const cred of credentialSets) {
+        try {
+          const gStart = cred.schedule_start_hour ?? 9;
+          const gEnd = cred.schedule_end_hour ?? 22;
+          const gInterval = cred.schedule_interval_minutes ?? 60;
 
-        // Skip if outside the allowed time window
-        if (nowHour < startHour || nowHour >= endHour) continue;
+          // ── One bucket per GROUP (own window/interval/clock; null = inherit global) ──
+          const channels = await this.channels.listForSchedule(cred.user_id).catch(() => []);
+          for (const ch of channels) {
+            if (!ch.channel_id) continue;
+            if ((ch.schedule_enabled ?? true) === false) continue; // group opted out
+            const startHour = ch.schedule_start_hour ?? gStart;
+            const endHour = ch.schedule_end_hour ?? gEnd;
+            const interval = ch.schedule_interval_minutes ?? gInterval;
+            if (!due(startHour, endHour, interval, ch.schedule_last_sent_at)) continue;
 
-        // Skip if the interval since last send hasn't elapsed
-        if (cred.schedule_last_sent_at) {
-          const minsSinceLast =
-            (now.getTime() - new Date(cred.schedule_last_sent_at).getTime()) / 60_000;
-          if (minsSinceLast < interval) continue;
-        }
-
-        // Try to send the next queued post. Advance the interval whenever a post was
-        // CONSUMED (success or failure) so a broken post can't burst-drain the queue at
-        // 1/min — but log failures distinctly instead of silently reporting success.
-        const res = await this.posts.processNextQueuedPost(cred.user_id);
-        if (res.sent) {
-          await this.credentials.updateLastSent(cred.user_id, now);
-          if (res.ok) {
-            this.logger.log(`Queue: sent post for user ${cred.user_id}`);
-          } else {
-            this.logger.warn(`Queue: post for user ${cred.user_id} failed to publish: ${res.error || 'unknown error'}`);
+            const res = await this.posts.processNextQueuedPost(cred.user_id, ch.channel_id);
+            if (!res.sent) continue;
+            // Advance the clock of EVERY group the post reached (a multi-group post must
+            // not hand the other groups a free extra slot), and of this group regardless.
+            await this.channels.markSent(cred.user_id, [ch.channel_id, ...(res.targets || [])], now);
+            if (res.ok) this.logger.log(`Queue: sent post to group ${ch.name} (user ${cred.user_id})`);
+            else this.logger.warn(`Queue: post to group ${ch.name} failed: ${res.error || 'unknown error'}`);
           }
+
+          // ── Default bucket: posts with no group — uses the user's global schedule ──
+          if (due(gStart, gEnd, gInterval, cred.schedule_last_sent_at)) {
+            const res = await this.posts.processNextQueuedPost(cred.user_id, null);
+            if (res.sent) {
+              await this.credentials.updateLastSent(cred.user_id, now);
+              if (res.ok) this.logger.log(`Queue: sent default-channel post for user ${cred.user_id}`);
+              else this.logger.warn(`Queue: default-channel post for user ${cred.user_id} failed: ${res.error || 'unknown error'}`);
+            }
+          }
+        } catch (err: any) {
+          this.logger.error(`Queue tick failed for user ${cred.user_id}: ${err.message}`);
         }
-      } catch (err: any) {
-        this.logger.error(`Queue tick failed for user ${cred.user_id}: ${err.message}`);
       }
-    }
     } finally {
       this.processingQueue = false;
     }

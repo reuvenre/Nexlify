@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsIn, IsInt, Min, Max, ValidateIf } from 'class-validator';
 
 export class CreateChannelDto {
   @IsString()
@@ -65,4 +65,31 @@ export class UpdateChannelDto {
   @IsOptional()
   @IsString()
   facebook_page_id?: string;
+
+  // ── Per-group send queue (explicit null = inherit the user's global schedule) ──
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsBoolean()
+  schedule_enabled?: boolean | null;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  schedule_interval_minutes?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  schedule_start_hour?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  schedule_end_hour?: number | null;
 }

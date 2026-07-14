@@ -224,6 +224,19 @@ function EditChannelModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // ── Per-group send queue ──────────────────────────────────────────────────
+  // This group has its OWN queue + clock. Leaving "custom" off inherits the global
+  // schedule (הגדרות ← תזמון אוטומטי) — which is the default for every group.
+  const [inQueue, setInQueue] = useState(channel.schedule_enabled !== false);
+  const [customSched, setCustomSched] = useState(
+    channel.schedule_interval_minutes != null ||
+    channel.schedule_start_hour != null ||
+    channel.schedule_end_hour != null,
+  );
+  const [interval, setIntervalMin] = useState(String(channel.schedule_interval_minutes ?? 60));
+  const [startHour, setStartHour] = useState(String(channel.schedule_start_hour ?? 9));
+  const [endHour, setEndHour] = useState(String(channel.schedule_end_hour ?? 22));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { setError('שם ערוץ נדרש'); return; }
@@ -236,6 +249,12 @@ function EditChannelModal({
         description,
         footer_template_id: footerTemplateId,
         facebook_page_id: facebookPageId,
+        // null = inherit the global schedule; false on schedule_enabled = skip this
+        // group's auto-queue entirely.
+        schedule_enabled: inQueue ? null : false,
+        schedule_interval_minutes: customSched ? Number(interval) || 60 : null,
+        schedule_start_hour: customSched ? Number(startHour) || 0 : null,
+        schedule_end_hour: customSched ? Number(endHour) || 24 : null,
       };
       if (botToken.trim()) dto.bot_token = botToken.trim();
       const updated = await channelsApi.update(channel.id, dto);
@@ -280,6 +299,50 @@ function EditChannelModal({
             facebookPageId={facebookPageId} setFacebookPageId={setFacebookPageId}
             isEdit
           />
+
+          {/* Per-group send queue — this group has its own queue and its own clock */}
+          <div className="border border-edge rounded-xl p-3 space-y-3 bg-white/[0.02]">
+            <p className="text-xs text-white/50 font-medium">תור שליחה של הקבוצה</p>
+            <p className="text-2xs text-white/30 leading-relaxed">
+              לקבוצה הזו יש תור משלה ושעון משלה — פוסטים של קבוצות אחרות לא גוזלים לה מקום.
+            </p>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={inQueue} onChange={(e) => setInQueue(e.target.checked)}
+                className="w-4 h-4 rounded accent-blue-500" />
+              <span className="text-xs text-white/70">כלול בתור השליחה האוטומטי</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={customSched} disabled={!inQueue}
+                onChange={(e) => setCustomSched(e.target.checked)}
+                className="w-4 h-4 rounded accent-blue-500 disabled:opacity-40" />
+              <span className={`text-xs ${inQueue ? 'text-white/70' : 'text-white/30'}`}>
+                תזמון מותאם לקבוצה (אחרת יורש מההגדרה הכללית)
+              </span>
+            </label>
+
+            {inQueue && customSched && (
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-2xs text-white/40 mb-1">כל (דק׳)</label>
+                  <input type="number" min={1} max={1440} value={interval} onChange={(e) => setIntervalMin(e.target.value)}
+                    className="w-full bg-white/5 border border-edge-hover rounded-lg px-2 py-1.5 text-sm text-white/80 outline-none focus:border-blue-500/50" />
+                </div>
+                <div>
+                  <label className="block text-2xs text-white/40 mb-1">משעה</label>
+                  <input type="number" min={0} max={23} value={startHour} onChange={(e) => setStartHour(e.target.value)}
+                    className="w-full bg-white/5 border border-edge-hover rounded-lg px-2 py-1.5 text-sm text-white/80 outline-none focus:border-blue-500/50" />
+                </div>
+                <div>
+                  <label className="block text-2xs text-white/40 mb-1">עד שעה</label>
+                  <input type="number" min={1} max={24} value={endHour} onChange={(e) => setEndHour(e.target.value)}
+                    className="w-full bg-white/5 border border-edge-hover rounded-lg px-2 py-1.5 text-sm text-white/80 outline-none focus:border-blue-500/50" />
+                </div>
+              </div>
+            )}
+          </div>
+
           {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose}

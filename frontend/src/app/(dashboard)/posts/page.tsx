@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
@@ -191,6 +191,40 @@ function QueuePanel() {
 
   useEffect(() => { channelsApi.list().then(setChannels).catch(() => {}); }, []);
 
+  /**
+   * Estimated send time per post. Each GROUP has its own queue and its own clock, so
+   * slots are computed per bucket (group, or "default" for posts with no group) using
+   * that group's schedule — falling back to the global one for any field it inherits.
+   * Computing one global sequence would show times that no longer match the scheduler.
+   */
+  const slotByPost = useMemo(() => {
+    const map = new Map<string, Date>();
+    if (!schedule?.enabled) return map;
+    const buckets = new Map<string, Post[]>();
+    for (const p of queue) {
+      const key = p.channel_override || '';
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(p);
+    }
+    for (const [key, posts] of buckets) {
+      const ch = key ? channels.find((c) => c.channel_id === key) : undefined;
+      const enabled = ch?.schedule_enabled ?? schedule.enabled;
+      if (!enabled) continue;
+      const eff: ScheduleInfo = {
+        enabled: true,
+        startHour: ch?.schedule_start_hour ?? schedule.startHour,
+        endHour: ch?.schedule_end_hour ?? schedule.endHour,
+        intervalMin: ch?.schedule_interval_minutes ?? schedule.intervalMin,
+        lastSentAt: ch
+          ? (ch.schedule_last_sent_at ? new Date(ch.schedule_last_sent_at) : null)
+          : schedule.lastSentAt,
+      };
+      const slots = computeSendSlots(posts.length, eff);
+      posts.forEach((p, i) => { if (slots[i]) map.set(p.id, slots[i]); });
+    }
+    return map;
+  }, [queue, schedule, channels]);
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
@@ -293,20 +327,17 @@ function QueuePanel() {
 
           {/* Card grid ("windows" style) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {(() => {
-              const slots = schedule?.enabled ? computeSendSlots(queue.length, schedule) : [];
-              return queue.map((post, idx) => (
-                <QueueItem
-                  key={post.id}
-                  post={post}
-                  index={idx}
-                  sendAt={schedule?.enabled ? slots[idx] : null}
-                  channels={channels}
-                  onRemove={handleRemove}
-                  onEdit={setPreviewPost}
-                />
-              ));
-            })()}
+            {queue.map((post, idx) => (
+              <QueueItem
+                key={post.id}
+                post={post}
+                index={idx}
+                sendAt={slotByPost.get(post.id) ?? null}
+                channels={channels}
+                onRemove={handleRemove}
+                onEdit={setPreviewPost}
+              />
+            ))}
           </div>
         </>
       )}

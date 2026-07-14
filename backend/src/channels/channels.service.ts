@@ -64,6 +64,11 @@ export class ChannelsService {
     if (dto.footer_template_id !== undefined) channel.footer_template_id = dto.footer_template_id || null;
     if (dto.facebook_page_id !== undefined) channel.facebook_page_id = dto.facebook_page_id?.trim() || null;
     if (dto.bot_token?.trim()) channel.bot_token_enc = encrypt(dto.bot_token.trim());
+    // Per-group queue overrides — an explicit null clears the override (back to inherit).
+    if (dto.schedule_enabled !== undefined) channel.schedule_enabled = dto.schedule_enabled;
+    if (dto.schedule_interval_minutes !== undefined) channel.schedule_interval_minutes = dto.schedule_interval_minutes;
+    if (dto.schedule_start_hour !== undefined) channel.schedule_start_hour = dto.schedule_start_hour;
+    if (dto.schedule_end_hour !== undefined) channel.schedule_end_hour = dto.schedule_end_hour;
     await this.repo.save(channel);
     return this.toPublic(channel);
   }
@@ -171,6 +176,26 @@ export class ChannelsService {
     return c?.facebook_page_id || null;
   }
 
+  /** Every group of a user, for the per-group queue cron. */
+  async listForSchedule(userId: string): Promise<Channel[]> {
+    return this.repo.find({ where: { user_id: userId }, order: { created_at: 'ASC' } });
+  }
+
+  /**
+   * Stamp the per-group send clock for each of `channelIds`. A post that fanned out to
+   * several groups advances ALL of their clocks, so no group gets an extra free slot.
+   */
+  async markSent(userId: string, channelIds: string[], at: Date): Promise<void> {
+    const ids = Array.from(new Set((channelIds || []).filter(Boolean)));
+    if (!ids.length) return;
+    await this.repo
+      .createQueryBuilder()
+      .update(Channel)
+      .set({ schedule_last_sent_at: at })
+      .where('user_id = :userId AND channel_id IN (:...ids)', { userId, ids })
+      .execute();
+  }
+
   /** The saved channel's display name (for multi-group error labels). Null if unknown. */
   async getName(userId: string, channelId: string): Promise<string | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
@@ -222,6 +247,12 @@ export class ChannelsService {
       body_template_id: c.body_template_id || null,
       footer_template_id: c.footer_template_id || null,
       facebook_page_id: c.facebook_page_id || '',
+      // Per-group queue settings — null means "inherit the global schedule".
+      schedule_enabled: c.schedule_enabled ?? null,
+      schedule_interval_minutes: c.schedule_interval_minutes ?? null,
+      schedule_start_hour: c.schedule_start_hour ?? null,
+      schedule_end_hour: c.schedule_end_hour ?? null,
+      schedule_last_sent_at: c.schedule_last_sent_at ?? null,
       members_count: c.members_count || 0,
       created_at: c.created_at,
       updated_at: c.updated_at,

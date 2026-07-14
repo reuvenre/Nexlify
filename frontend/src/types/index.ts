@@ -549,6 +549,12 @@ export interface Channel {
   body_template_id: string | null;
   footer_template_id: string | null;
   facebook_page_id: string;
+  /** Per-group send queue. null on any field = inherit the global schedule setting. */
+  schedule_enabled: boolean | null;
+  schedule_interval_minutes: number | null;
+  schedule_start_hour: number | null;
+  schedule_end_hour: number | null;
+  schedule_last_sent_at: string | null;
   members_count: number;
   created_at: string;
   updated_at: string;
@@ -573,6 +579,11 @@ export interface UpdateChannelInput {
   body_template_id?: string;
   footer_template_id?: string;
   facebook_page_id?: string;
+  /** Per-group send queue. Send null to clear an override (back to the global schedule). */
+  schedule_enabled?: boolean | null;
+  schedule_interval_minutes?: number | null;
+  schedule_start_hour?: number | null;
+  schedule_end_hour?: number | null;
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────

@@ -469,15 +469,33 @@ export class PostsService {
    * sendToTelegram swallows channel errors and marks the post 'failed', so we surface
    * that outcome here instead of always reporting success.
    */
-  async processNextQueuedPost(userId: string): Promise<{ sent: boolean; ok?: boolean; error?: string }> {
-    const next = await this.repo
+  async processNextQueuedPost(
+    userId: string,
+    /**
+     * Which queue bucket to pull from — each GROUP has its own queue so one group's
+     * backlog can't consume another's send slots:
+     *  • a channel_id → only posts routed to that group
+     *  • null         → only posts with no group (the default-channel queue)
+     *  • undefined    → any post (legacy/global behaviour)
+     */
+    bucket?: string | null,
+  ): Promise<{ sent: boolean; ok?: boolean; error?: string; targets?: string[] }> {
+    const qb = this.repo
       .createQueryBuilder('p')
-      .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
+      .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' });
+    if (bucket === null) qb.andWhere('p.channel_override IS NULL');
+    else if (typeof bucket === 'string') qb.andWhere('p.channel_override = :bucket', { bucket });
+
+    const next = await qb
       .orderBy('p.queue_order', 'ASC')
       .addOrderBy('p.created_at', 'ASC')
       .getOne();
 
     if (!next) return { sent: false };
+
+    // Every group this post actually reaches — a multi-group post must advance the clock
+    // of ALL of them, or the other groups would get it for free and still keep their slot.
+    const targets = this.resolveTargets(next).filter((t): t is string => !!t);
 
     const creds = await this.credentials.getRaw(userId);
     next.status = 'pending';
@@ -486,7 +504,7 @@ export class PostsService {
     await this.sendToTelegram(next, creds, next.channel_override || undefined);
     // sendToTelegram mutates next.status in place ('sent' | 'failed'); TS still sees the
     // 'pending' we assigned above, so compare via a widened string.
-    return { sent: true, ok: (next.status as string) === 'sent', error: next.error_message || undefined };
+    return { sent: true, ok: (next.status as string) === 'sent', error: next.error_message || undefined, targets };
   }
 
   /**

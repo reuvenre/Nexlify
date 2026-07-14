@@ -48,6 +48,30 @@ export class Channel {
   @Column({ default: true })
   is_active: boolean;
 
+  // ── Per-group send queue ───────────────────────────────────────────────────
+  // Each group has its OWN queue and its OWN clock, so one group's posts can't eat
+  // another's slots. Every field is nullable = "inherit the user's global schedule".
+
+  /** null → inherit the user's global schedule_enabled. */
+  @Column({ type: 'boolean', nullable: true })
+  schedule_enabled: boolean | null;
+
+  /** Minutes between posts for THIS group. null → inherit global. */
+  @Column({ type: 'int', nullable: true })
+  schedule_interval_minutes: number | null;
+
+  /** Send-window start hour (Asia/Jerusalem). null → inherit global. */
+  @Column({ type: 'int', nullable: true })
+  schedule_start_hour: number | null;
+
+  /** Send-window end hour (exclusive). null → inherit global. */
+  @Column({ type: 'int', nullable: true })
+  schedule_end_hour: number | null;
+
+  /** When this group last received a queued post — its own interval clock. */
+  @Column({ type: 'timestamp', nullable: true })
+  schedule_last_sent_at: Date | null;
+
   @Column({ type: 'int', default: 0, nullable: true })
   members_count: number;
 
