@@ -283,7 +283,12 @@ export default function LoginPage() {
             <div className="w-6 h-6 rounded-[7px] bg-white/10 flex items-center justify-center">
               <Bot size={12} className="text-white/60" />
             </div>
-            <p className="text-xs text-white/45">Nexlify · כל הזכויות שמורות 2026</p>
+            <p className="text-xs text-white/45">
+              Nexlify · מבית{' '}
+              <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"
+                className="text-white/70 hover:text-white underline-offset-2 hover:underline">Win Solutions</a>
+              {' '}· כל הזכויות שמורות 2026
+            </p>
           </div>
         </div>
       </div>

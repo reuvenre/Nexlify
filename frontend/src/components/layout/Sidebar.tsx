@@ -67,7 +67,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         <div className="flex-1 min-w-0">
           <p className="text-body font-semibold text-white tracking-tight leading-none">Nexlify</p>
-          <p className="text-2xs text-white/30 mt-0.5 leading-none">Affiliate Automation</p>
+          <p className="text-2xs text-white/30 mt-0.5 leading-none">מבית Win Solutions</p>
         </div>
 
         <button
