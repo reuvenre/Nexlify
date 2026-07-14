@@ -280,7 +280,15 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
       {catalogs.length === 0 && <p className="text-xs text-amber-400 mb-4">צור קודם קטלוג ספק בטאב &quot;קטלוגים&quot;</p>}
 
       {mode === 'browse' ? (
-        <StoreBrowser catalogs={catalogs} channels={channels} onLinked={() => { setMode('mine'); load(); }} />
+        <StoreBrowser
+          catalogs={catalogs}
+          channels={channels}
+          // Linking a product must NOT switch tabs: that unmounts this browser (and the
+          // composer modal inside it), which is what used to dump the user back on the
+          // products list instead of the post screen. Refresh quietly instead.
+          onRefresh={load}
+          onFinished={() => { setMode('mine'); load(); }}
+        />
       ) : loading ? (
         <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
       ) : (
@@ -299,7 +307,13 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
 }
 
 // ─── In-system Yupoo store browser ────────────────────────────────────────────
-function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCatalog[]; channels: Channel[]; onLinked: () => void }) {
+function StoreBrowser({ catalogs, channels, onRefresh, onFinished }: {
+  catalogs: SupplierCatalog[]; channels: Channel[];
+  /** Background refresh of "My Products" — keeps this tab (and the open composer) mounted. */
+  onRefresh: () => void;
+  /** Post sent — safe to leave the browser and land on "My Products". */
+  onFinished: () => void;
+}) {
   const [catalogId, setCatalogId] = useState(catalogs[0]?.id || '');
   const [opened, setOpened] = useState<string | null>(null); // album_url of the product modal
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
@@ -391,7 +405,8 @@ function StoreBrowser({ catalogs, channels, onLinked }: { catalogs: SupplierCata
           channels={channels}
           defaultChannel={catalogs.find((c) => c.id === catalogId)?.target_channel_id || ''}
           onClose={() => setOpened(null)}
-          onLinked={() => { setOpened(null); onLinked(); }}
+          onLinked={onRefresh}
+          onSent={() => { setOpened(null); onFinished(); }}
         />
       )}
     </div>
@@ -730,9 +745,14 @@ function ImageLightbox({ images, index, selected, maxAlbum, onIndex, onToggle, o
 }
 
 // ─── Browse → open product (all images) → create post ──────────────────────────
-function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onClose, onLinked }: {
+function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onClose, onLinked, onSent }: {
   catalogId: string; albumUrl: string; channels: Channel[]; defaultChannel?: string;
-  onClose: () => void; onLinked: () => void;
+  onClose: () => void;
+  /** Product was linked — refresh lists in the BACKGROUND only. Must not close this modal
+   *  or switch tabs, or the composer that just opened would be unmounted. */
+  onLinked: () => void;
+  /** The post actually went out — now it's safe to close and move on. */
+  onSent: () => void;
 }) {
   const [album, setAlbum] = useState<Awaited<ReturnType<typeof suppliersApi.previewAlbum>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -768,8 +788,10 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
           album_url: album.album_url,
         } : undefined,
       });
+      // Go STRAIGHT to the composer in this same modal — the product is linked, so the
+      // post screen opens on the spot instead of bouncing the user to the products list.
       setProductId(linked.id); // composer self-generates the post text
-      onLinked(); // refresh "My Products" in the background — modal stays open on the composer
+      onLinked(); // background refresh only — must not close the modal / switch tabs
     } catch (e: any) { setError(e?.response?.data?.message || 'החיבור נכשל'); }
     finally { setLinking(false); }
   };
@@ -790,7 +812,7 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
         ) : error && !album ? (
           <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
         ) : productId ? (
-          <PostComposer productId={productId} channels={channels} defaultChannel={defaultChannel} onSent={onLinked} />
+          <PostComposer productId={productId} channels={channels} defaultChannel={defaultChannel} onSent={onSent} />
         ) : album ? (
           <div className="space-y-4">
             {/* All product images */}
