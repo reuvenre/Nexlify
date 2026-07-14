@@ -1,7 +1,8 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/lib/hooks/useAuth';
 import { ThemeProvider } from '@/lib/hooks/useTheme';
+import { PwaRegister } from '@/components/PwaRegister';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -35,6 +36,26 @@ export const metadata: Metadata = {
     title: 'Nexlify — אוטומציית שיווק שותפים מבוססת AI | מבית Win Solutions',
     description: 'גילוי מוצרים, קופי עם AI, פרסום רב-ערוצי, וקידום אוטומטי לפי ROAS — מערכת אחת. מבית Win Solutions.',
   },
+  manifest: '/manifest.webmanifest',
+  // iOS ignores the manifest's display mode — these are what make "Add to Home Screen"
+  // launch full-screen instead of reopening a Safari tab.
+  appleWebApp: {
+    capable: true,
+    title: 'Nexlify',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/apple-touch-icon.png',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#3B82F6',
+  width: 'device-width',
+  initialScale: 1,
+  // Let the app paint under the notch/home indicator once installed standalone.
+  viewportFit: 'cover',
 };
 
 const ORG_JSONLD = {
@@ -58,6 +79,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSONLD) }}
         />
+        <PwaRegister />
         <ThemeProvider>
           <AuthProvider>
             {children}
