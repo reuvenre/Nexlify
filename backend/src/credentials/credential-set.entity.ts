@@ -149,6 +149,10 @@ export class CredentialSet {
   @Column({ default: 200 })
   boost_hard_limit_usd: number;
 
+  /** Minimum REAL organic commission (USD) a post must earn before we boost it. */
+  @Column({ type: 'float', nullable: true })
+  boost_min_revenue_usd: number;
+
   /** Comma-separated ISO country codes for boosted-ad targeting (e.g. "IL,US") */
   @Column({ default: 'IL' })
   boost_target_countries: string;

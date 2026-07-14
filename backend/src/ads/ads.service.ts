@@ -6,6 +6,7 @@ import { AdBoost } from './ad-boost.entity';
 import { Post } from '../posts/post.entity';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
+import { EarningsService } from '../earnings/earnings.service';
 
 const GRAPH = 'https://graph.facebook.com/v19.0';
 
@@ -13,7 +14,7 @@ export interface PerformanceResult {
   evaluated: number;
   boosted: number;
   skipped: number;
-  details: { title: string; clicks: number; roas: number; status: string }[];
+  details: { title: string; clicks: number; roas: number; revenue_usd: number; status: string }[];
 }
 
 /**
@@ -35,6 +36,7 @@ export class AdsService {
     private readonly posts: Repository<Post>,
     private readonly credentials: CredentialsService,
     private readonly rates: RatesService,
+    private readonly earnings: EarningsService,
   ) {}
 
   // ── Public API ──────────────────────────────────────────────────────────
@@ -47,6 +49,7 @@ export class AdsService {
     const rows = await this.boosts.find({ where: { user_id: userId } });
     const boosted = rows.filter((r) => r.status === 'boosted');
     const totalSpend = boosted.reduce((s, r) => s + (r.ad_spend || 0), 0);
+    const totalRevenue = boosted.reduce((s, r) => s + (r.revenue_usd || 0), 0);
     const totalClicks = rows.reduce((s, r) => s + (r.clicks || 0), 0);
     const publishedCount = await this.posts.count({
       where: { user_id: userId, facebook_post_id: Not(IsNull()) },
@@ -56,9 +59,9 @@ export class AdsService {
       published: publishedCount,
       total_clicks: totalClicks,
       total_ad_spend: +totalSpend.toFixed(2),
-      avg_roas: boosted.length
-        ? +(boosted.reduce((s, r) => s + (r.roas || 0), 0) / boosted.length).toFixed(2)
-        : 0,
+      total_revenue: +totalRevenue.toFixed(2),
+      // Real blended ROAS: revenue / spend across delivered ads. 0 while nothing spent.
+      avg_roas: totalSpend > 0 ? +(totalRevenue / totalSpend).toFixed(2) : 0,
     };
   }
 
@@ -72,10 +75,17 @@ export class AdsService {
       return result;
     }
 
-    const threshold = creds.boost_roas_threshold ?? 2.0;
     const hardLimitUsd = creds.boost_hard_limit_usd ?? 200;
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     const dailyBudgetUsd = Math.max(1, Math.round((creds.boost_daily_budget ?? 50) / rate));
+    // The bar a post must clear organically before we put money behind it: real
+    // commissions AliExpress reported for that product since the post went out.
+    const minRevenueUsd = creds.boost_min_revenue_usd ?? 5;
+
+    // Refresh live boosts with REAL spend + revenue first, so the dashboard reflects
+    // what actually happened before we decide anything new.
+    await this.refreshBoostedRoas(userId, creds).catch((e) =>
+      this.logger.warn(`[Ads] ROAS refresh failed for ${userId}: ${e.message}`));
 
     // Published posts on Facebook that we haven't boosted yet
     const published = await this.posts.find({
@@ -96,7 +106,12 @@ export class AdsService {
       const insights = await this.getPostInsights(post.facebook_post_id, creds.facebook_page_token);
       const clicks = insights?.post_clicks ?? 0;
       const impressions = insights?.post_impressions ?? 0;
-      const roas = this.calcROAS(clicks);
+      // REAL organic earnings for this product since the post went out. This — not a
+      // stand-in — is the proof that the post is worth spending money on. ROAS itself is
+      // meaningless here: nothing has been spent yet, so there is nothing to divide by.
+      const organicRevenue = await this.earnings
+        .revenueForProduct(userId, post.product_id, post.sent_at)
+        .catch(() => 0);
 
       const boost = this.boosts.create({
         user_id: userId,
@@ -105,11 +120,12 @@ export class AdsService {
         product_title: post.product_title,
         clicks,
         impressions,
-        roas,
+        revenue_usd: organicRevenue,
+        roas: 0, // no spend yet → no ROAS. Filled in by refreshBoostedRoas once it runs.
         daily_budget: creds.boost_daily_budget ?? 50,
       });
 
-      if (roas >= threshold || clicks >= 200) {
+      if (organicRevenue >= minRevenueUsd) {
         try {
           const ids = await this.createBoostAd(post, creds, dailyBudgetUsd, hardLimitUsd);
           boost.status = 'boosted';
@@ -126,12 +142,15 @@ export class AdsService {
         }
       } else {
         boost.status = 'skipped';
-        boost.note = `ROAS ${roas.toFixed(1)} < ${threshold}`;
+        boost.note = `עמלות אורגניות $${organicRevenue.toFixed(2)} < סף $${minRevenueUsd}`;
         result.skipped++;
       }
 
       await this.boosts.save(boost);
-      result.details.push({ title: post.product_title, clicks, roas: +roas.toFixed(1), status: boost.status });
+      result.details.push({
+        title: post.product_title, clicks, roas: boost.roas,
+        revenue_usd: organicRevenue, status: boost.status,
+      });
     }
 
     return result;
@@ -245,10 +264,64 @@ export class AdsService {
   }
 
   // ── ROAS ──────────────────────────────────────────────────────────────────
-  // Revenue can't be attributed per-post without conversion tracking, so we use
-  // the same heuristic as Nexlify: a strong organic-click signal stands in for ROAS
-  // until real ad spend exists. >100 organic clicks → treat as a clear winner.
-  private calcROAS(clicks: number): number {
-    return clicks > 100 ? 999 : 0;
+
+  /**
+   * REAL ad spend for a boost, straight from Meta Insights on the campaign we created.
+   * Returns null when the campaign has no delivery yet (a paused ad has never spent),
+   * which the caller must treat as "no ROAS yet" rather than as zero spend.
+   */
+  private async getCampaignSpend(
+    campaignId: string,
+    token: string,
+  ): Promise<{ spend: number; clicks: number; impressions: number } | null> {
+    try {
+      const res = await axios.get(`${GRAPH}/${campaignId}/insights`, {
+        params: { fields: 'spend,clicks,impressions', date_preset: 'maximum', access_token: token },
+        timeout: 10_000,
+      });
+      if (res.data?.error) return null;
+      const row = res.data?.data?.[0];
+      if (!row) return null; // never delivered → no spend row at all
+      return {
+        spend: parseFloat(row.spend) || 0,
+        clicks: parseInt(row.clicks, 10) || 0,
+        impressions: parseInt(row.impressions, 10) || 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Refresh every boosted ad with REAL numbers: spend from Meta, revenue from the
+   * commissions AliExpress reported for that product since the boost started, and
+   * ROAS = revenue / spend. Runs before new boost decisions so the dashboard shows
+   * what actually happened rather than an estimate.
+   *
+   * ROAS stays 0 while spend is 0 — a paused or undelivered ad has no return to measure,
+   * and dividing by zero would manufacture a number that means nothing.
+   */
+  private async refreshBoostedRoas(userId: string, creds: DecryptedCredentials): Promise<void> {
+    const token = creds.facebook_page_token;
+    if (!token) return;
+    const live = await this.boosts.find({ where: { user_id: userId, status: 'boosted' } });
+    for (const boost of live) {
+      if (!boost.campaign_id) continue;
+      const stats = await this.getCampaignSpend(boost.campaign_id, token);
+      if (!stats) continue;
+      const post = boost.post_id
+        ? await this.posts.findOne({ where: { id: boost.post_id, user_id: userId } })
+        : null;
+      const revenue = post?.product_id
+        ? await this.earnings.revenueForProduct(userId, post.product_id, boost.created_at)
+        : 0;
+
+      boost.ad_spend = +stats.spend.toFixed(2);
+      boost.clicks = stats.clicks || boost.clicks;
+      boost.impressions = stats.impressions || boost.impressions;
+      boost.revenue_usd = revenue;
+      boost.roas = stats.spend > 0 ? +(revenue / stats.spend).toFixed(2) : 0;
+      await this.boosts.save(boost);
+    }
   }
 }

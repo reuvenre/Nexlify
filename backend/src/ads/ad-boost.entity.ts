@@ -44,6 +44,10 @@ export class AdBoost {
   @Column('float', { default: 0 })
   ad_spend: number;
 
+  /** REAL commissions attributed to this product since the boost started (USD). */
+  @Column('float', { default: 0 })
+  revenue_usd: number;
+
   @Column('float', { default: 0 })
   daily_budget: number;
 

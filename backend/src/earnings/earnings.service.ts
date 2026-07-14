@@ -104,6 +104,27 @@ export class EarningsService {
   }
 
   /**
+   * REAL revenue attributed to a product: the commissions AliExpress actually reported
+   * for orders of `productId` placed AFTER `since` (i.e. after the post went out).
+   *
+   * Attribution grain is the product, not the individual post — AliExpress reports a
+   * product_id per order but nothing that identifies which of our links drove it, so a
+   * product posted twice shares one revenue pool. Cancelled orders are excluded; they're
+   * not money. This is what makes ROAS real instead of a stand-in.
+   */
+  async revenueForProduct(userId: string, productId: string, since?: Date | null): Promise<number> {
+    if (!productId) return 0;
+    const qb = this.repo
+      .createQueryBuilder('e')
+      .select('COALESCE(SUM(e.commission_usd), 0)', 'total')
+      .where('e.user_id = :userId AND e.product_id = :productId', { userId, productId })
+      .andWhere("e.status <> 'cancelled'");
+    if (since) qb.andWhere('e.order_date >= :since', { since });
+    const row = await qb.getRawOne();
+    return +(parseFloat(row?.total) || 0).toFixed(2);
+  }
+
+  /**
    * Pulls real orders from aliexpress.affiliate.order.list (SIGNED — the previous
    * implementation sent an unsigned request, so every call failed and the silent
    * catch made it look like "0 earnings" forever).

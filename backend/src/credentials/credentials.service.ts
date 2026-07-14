@@ -45,6 +45,7 @@ export interface DecryptedCredentials {
   boost_roas_threshold?: number;
   boost_daily_budget?: number;
   boost_hard_limit_usd?: number;
+  boost_min_revenue_usd?: number;
   boost_target_countries?: string;
   default_body_template_id?: string;
   default_footer_template_id?: string;
@@ -116,6 +117,7 @@ export class CredentialsService {
     if (dto.boost_roas_threshold !== undefined)  cred.boost_roas_threshold = dto.boost_roas_threshold;
     if (dto.boost_daily_budget !== undefined)    cred.boost_daily_budget = dto.boost_daily_budget;
     if (dto.boost_hard_limit_usd !== undefined)  cred.boost_hard_limit_usd = dto.boost_hard_limit_usd;
+    if (dto.boost_min_revenue_usd !== undefined) cred.boost_min_revenue_usd = dto.boost_min_revenue_usd;
     if (dto.boost_target_countries?.trim())      cred.boost_target_countries = dto.boost_target_countries.trim();
 
     // Default templates — allow clearing (empty → null to deselect)
@@ -355,6 +357,7 @@ export class CredentialsService {
       boost_roas_threshold: cred.boost_roas_threshold,
       boost_daily_budget: cred.boost_daily_budget,
       boost_hard_limit_usd: cred.boost_hard_limit_usd,
+      boost_min_revenue_usd: cred.boost_min_revenue_usd,
       boost_target_countries: cred.boost_target_countries,
       default_body_template_id: cred.default_body_template_id,
       default_footer_template_id: cred.default_footer_template_id,

@@ -70,9 +70,20 @@ export default function AdsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard label="פוסטים שקודמו" value={summary?.boosted ?? 0} icon={Rocket} accent="green" />
         <StatCard label="פורסמו בפייסבוק" value={summary?.published ?? 0} icon={Megaphone} accent="blue" />
-        <StatCard label="סך קליקים" value={summary?.total_clicks ?? 0} icon={MousePointerClick} accent="violet" />
-        <StatCard label="ROAS ממוצע" value={summary?.avg_roas ?? 0} icon={TrendingUp} accent="amber" />
+        <StatCard label="עמלות שיוחסו" value={`$${(summary?.total_revenue ?? 0).toFixed(2)}`} icon={MousePointerClick} accent="violet" />
+        <StatCard
+          label="ROAS"
+          value={summary?.avg_roas ? `${summary.avg_roas}x` : '—'}
+          sub={summary?.total_ad_spend ? `$${summary.total_revenue?.toFixed(2)} עמלות ÷ $${summary.total_ad_spend.toFixed(2)} פרסום` : 'אין הוצאת פרסום עדיין'}
+          icon={TrendingUp}
+          accent="amber"
+        />
       </div>
+
+      <p className="text-2xs text-white/30 mb-5 leading-relaxed">
+        ROAS מחושב מנתונים אמיתיים: עמלות שדווחו ב-AliExpress עבור המוצר מאז תחילת הקידום, חלקי ההוצאה
+        בפועל מ-Meta. מודעה שטרם הוציאה כסף מציגה &quot;—&quot; — אין מה לחלק.
+      </p>
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3 mb-5">{error}</div>

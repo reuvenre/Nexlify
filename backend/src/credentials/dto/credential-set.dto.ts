@@ -131,6 +131,12 @@ export class CredentialSetDto {
   @Min(1)
   boost_hard_limit_usd?: number;
 
+  /** Minimum real organic commission (USD) before a post is boosted. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  boost_min_revenue_usd?: number;
+
   @IsOptional()
   @IsString()
   boost_target_countries?: string;

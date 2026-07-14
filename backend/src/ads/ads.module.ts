@@ -6,12 +6,14 @@ import { AdsService } from './ads.service';
 import { AdsController } from './ads.controller';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { RatesModule } from '../rates/rates.module';
+import { EarningsModule } from '../earnings/earnings.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([AdBoost, Post]),
     CredentialsModule,
     RatesModule,
+    EarningsModule,
   ],
   providers: [AdsService],
   controllers: [AdsController],

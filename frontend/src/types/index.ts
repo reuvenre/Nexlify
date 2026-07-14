@@ -148,6 +148,7 @@ export interface CredentialSet {
   // Auto-boost
   boost_enabled: boolean;
   boost_roas_threshold: number;
+  boost_min_revenue_usd: number;
   boost_daily_budget: number;
   boost_hard_limit_usd: number;
   boost_target_countries: string;
@@ -208,6 +209,7 @@ export interface CredentialSetInput {
   // Auto-boost
   boost_enabled?: boolean;
   boost_roas_threshold?: number;
+  boost_min_revenue_usd?: number;
   boost_daily_budget?: number;
   boost_hard_limit_usd?: number;
   // Default templates
@@ -307,6 +309,7 @@ export interface AdsSummary {
   total_clicks: number;
   total_ad_spend: number;
   avg_roas: number;
+  total_revenue: number;
 }
 
 export interface PerformanceRunResult {
