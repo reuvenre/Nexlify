@@ -202,7 +202,7 @@ export default function CategoriesPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {[
           { label: 'סה״כ קטגוריות', value: total,       icon: Tag },
           { label: 'קטגוריות פעילות', value: activeCount, icon: ToggleRight },

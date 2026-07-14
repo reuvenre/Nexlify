@@ -76,7 +76,7 @@ export default function EarningsPage() {
       ) : summary ? (
         <div className="space-y-6">
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <StatCard
               label="מוסדר"
               value={`₪${summary.total_settled.toFixed(2)}`}

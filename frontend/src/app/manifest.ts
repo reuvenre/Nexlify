@@ -16,7 +16,8 @@ export default function manifest(): MetadataRoute.Manifest {
     // Launching straight into the app shell; the dashboard is what you actually open.
     scope: '/',
     display: 'standalone',
-    orientation: 'portrait',
+    // No orientation lock: data tables (products, posts) are genuinely easier to read in
+    // landscape, and pinning 'portrait' stopped the installed app from rotating at all.
     background_color: '#0b0f1a', // splash screen while the app boots
     theme_color: '#3B82F6',      // Android status-bar tint
     categories: ['business', 'productivity'],

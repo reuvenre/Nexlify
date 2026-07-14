@@ -727,12 +727,14 @@ export default function ProductsPage() {
       <ProductSourceTabs />
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between mb-6">
+      {/* Stacks on phones: four side-by-side buttons overflowed the viewport and pushed
+          "ייבא מוצרים" off-screen. */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-[22px] font-bold text-white tracking-tight">מוצרים</h1>
           <p className="text-body text-white/35 mt-1">נהל את קטלוג המוצרים שלך</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => router.push('/products/discover')}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-blue-500/30 bg-blue-500/[0.08] hover:bg-blue-500/[0.14] text-xs text-blue-400 hover:text-blue-300 font-medium transition-all"
@@ -775,7 +777,8 @@ export default function ProductsPage() {
       )}
 
       {/* ── Stats Bar ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      {/* 2-up on phones — four fixed columns squeezed each card below a readable width. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
           {
             label: 'סה"כ מוצרים',
@@ -831,8 +834,8 @@ export default function ProductsPage() {
             />
           </div>
 
-          {/* Status Tabs */}
-          <div className="flex items-center gap-1.5">
+          {/* Status Tabs — wrap on phones instead of running off the edge. */}
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-xs text-white/30 ml-2">סטטוס:</span>
             {STATUS_TABS.map((tab) => {
               const colorMap: Record<string, string> = {
