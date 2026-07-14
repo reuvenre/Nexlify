@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Search, Loader2, Zap, ChevronDown, TrendingUp,
   Percent, Globe, Languages, Tag, ArrowRight,
@@ -118,6 +118,9 @@ export default function QuickPostPage() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [posted, setPosted] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const router = useRouter();
+  /** Arrived from the /products catalog — governs where "back" returns to. */
+  const [fromCatalog, setFromCatalog] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [channelIds, setChannelIds] = useState<string[]>([]); // target groups (empty = default channel)
 
@@ -149,6 +152,7 @@ export default function QuickPostPage() {
   // ── Pre-load catalog product (from /products page "צור פוסט")
   useEffect(() => {
     if (searchParams.get('from_catalog') !== '1') return;
+    setFromCatalog(true);
     try {
       const raw = sessionStorage.getItem('quick_post_catalog_product');
       if (!raw) return;
@@ -334,7 +338,17 @@ export default function QuickPostPage() {
     }
   };
 
+  /**
+   * "Back to products" must land where the user actually came FROM. Arriving via the
+   * catalog's "צור פוסט" (?from_catalog=1) means /products — switching to this page's own
+   * internal product browser instead just dumped them back on quick-post, which is not
+   * where they were. Only the in-page browsing flow returns to the internal list.
+   */
   const handleBackToProducts = () => {
+    if (fromCatalog) {
+      router.push('/products');
+      return;
+    }
     setView('products');
     setSelected(null);
     setPreview(null);
@@ -487,21 +501,23 @@ export default function QuickPostPage() {
     return (
       <div>
         {/* Header */}
-        <div className="mb-6 flex items-center gap-4">
+        {/* min-w-0 + shrink-0 are load-bearing: without them a long product title can't
+            truncate inside a flex row and drags the whole page sideways. */}
+        <div className="mb-6 flex items-center gap-3 sm:gap-4 min-w-0">
           <button
             onClick={handleBackToProducts}
-            className="flex items-center gap-2 text-white/50 hover:text-white/90 text-sm transition-colors"
+            className="flex items-center gap-2 text-white/50 hover:text-white/90 text-sm transition-colors shrink-0"
           >
             <ArrowRight size={16} />
-            חזרה למוצרים
+            <span className="hidden sm:inline">חזרה למוצרים</span>
           </button>
-          <div className="h-4 w-px bg-white/10" />
-          <div>
+          <div className="h-4 w-px bg-white/10 shrink-0" />
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 text-white/30 text-xs mb-0.5">
-              <Zap size={12} />
-              <span>פוסט מהיר › בדיקה ועריכה</span>
+              <Zap size={12} className="shrink-0" />
+              <span className="truncate">פוסט מהיר › בדיקה ועריכה</span>
             </div>
-            <h1 className="text-xl font-bold text-white truncate max-w-xl">{selected.title}</h1>
+            <h1 className="text-base sm:text-xl font-bold text-white truncate">{selected.title}</h1>
           </div>
         </div>
 

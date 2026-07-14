@@ -41,6 +41,13 @@
 
 html { scroll-behavior: smooth; }
 
+/* Never let a single wide element (a long product title, a table) make the whole
+   document scroll sideways. On mobile that doesn't just look bad: once the document is
+   wider than the viewport, `position: fixed; right: 0` anchors to the DOCUMENT's right
+   edge instead of the screen — which threw the RTL nav drawer to the wrong side.
+   Wide content must scroll inside its own container, not drag the page with it. */
+html, body { overflow-x: hidden; max-width: 100%; }
+
 body {
   background-color: var(--bg-primary);
   color: var(--text);
