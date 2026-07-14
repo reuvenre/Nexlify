@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import {
   Radar, Sparkles, Send, Rocket, ArrowLeft, Check,
-  Bot, Globe, ShieldCheck, Zap,
+  Bot, Globe, Zap,
 } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -166,7 +166,10 @@ export default function LandingPage() {
             <Globe size={14} /> Nexlify — Affiliate Automation
           </div>
           <div className="flex items-center gap-2 text-white/30 text-xs">
-            <ShieldCheck size={13} /> סודות מוצפנים · ריבוי-משתמשים · מוכן לפרודקשן
+            מבית{' '}
+            <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"
+              className="text-white/50 hover:text-white/80 underline-offset-2 hover:underline">Win Solutions</a>
+            {' '}— בניית אתרים ואוטומציות 2026
           </div>
         </div>
       </footer>

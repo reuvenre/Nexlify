@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Bot, ArrowLeft, Globe, ShieldCheck } from 'lucide-react';
+import { Bot, ArrowLeft, Globe } from 'lucide-react';
 
 /** Shared chrome for public marketing pages (landing, compare, blog). */
 export function MarketingShell({ children }: { children: React.ReactNode }) {
@@ -49,7 +49,12 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-edge text-xs text-white/30">
             <span className="flex items-center gap-2"><Globe size={13} /> Nexlify — Affiliate Automation</span>
-            <span className="flex items-center gap-2"><ShieldCheck size={13} /> סודות מוצפנים · מוכן לפרודקשן</span>
+            <span className="flex items-center gap-2">
+              מבית{' '}
+              <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"
+                className="text-white/50 hover:text-white/80 underline-offset-2 hover:underline">Win Solutions</a>
+              {' '}— בניית אתרים ואוטומציות 2026
+            </span>
           </div>
         </div>
       </footer>
