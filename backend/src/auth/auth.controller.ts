@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthDto } from './dto/auth.dto';
 import { UsersService } from '../users/users.service';
+import { primaryUrl } from '../common/urls';
 
 // Brute-force / enumeration protection on unauthenticated auth endpoints.
 @UseGuards(ThrottlerGuard)
@@ -135,7 +136,8 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Req() req: Request, @Res() res: Response) {
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    // FRONTEND_URL may list several domains (CORS) — redirect to the canonical first one.
+    const frontendUrl = primaryUrl(this.config.get<string>('FRONTEND_URL'));
     try {
       // Sets the HttpOnly refresh cookie AND returns the tokens. Since the frontend is
       // on a different domain (the cookie is third-party there and gets blocked), we

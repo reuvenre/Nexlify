@@ -9,6 +9,7 @@ import { MailService } from '../mail/mail.service';
 import { User } from '../users/user.entity';
 import { encrypt, decrypt } from '../common/crypto';
 import { generateTotpSecret, verifyTotp, totpUri } from '../common/totp';
+import { primaryUrl } from '../common/urls';
 import * as QRCode from 'qrcode';
 
 const REFRESH_COOKIE = 'refresh_token';
@@ -163,7 +164,8 @@ export class AuthService {
     const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await this.users.saveResetToken(user.id, token, expires);
 
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    // FRONTEND_URL may list several domains (CORS) — email the canonical first one.
+    const frontendUrl = primaryUrl(this.config.get<string>('FRONTEND_URL'));
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
     await this.mail.sendPasswordReset(email, resetUrl);
