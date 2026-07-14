@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Coupon } from './coupon.entity';
+import { AiService } from '../ai/ai.service';
+import { DecryptedCredentials } from '../credentials/credentials.service';
 
 export interface ParsedCoupon {
   code: string;
@@ -13,6 +15,7 @@ export interface ParsedCoupon {
 export class CouponsService {
   constructor(
     @InjectRepository(Coupon) private readonly repo: Repository<Coupon>,
+    private readonly ai: AiService,
   ) {}
 
   /**
@@ -114,6 +117,64 @@ export class CouponsService {
   /** Preview only — parse without saving, so the UI can show what it found. */
   preview(text: string): ParsedCoupon[] {
     return this.parse(text);
+  }
+
+  /**
+   * Validate + normalise coupon rows from an UNTRUSTED source (the AI). Applies exactly
+   * the same invariants as the regex parser, so a hallucinated or malformed row is dropped
+   * rather than saved. Never trust model output straight into the DB.
+   */
+  private sanitize(rows: any[]): ParsedCoupon[] {
+    const out: ParsedCoupon[] = [];
+    const seen = new Set<string>();
+    for (const r of Array.isArray(rows) ? rows : []) {
+      const code = String(r?.code ?? '').trim().toUpperCase();
+      const discount = Number(r?.discount_usd);
+      const min = Number(r?.min_spend_usd);
+      if (!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(code)) continue;   // plausible code shape only
+      if (!Number.isFinite(discount) || !Number.isFinite(min)) continue;
+      if (discount <= 0 || min <= 0) continue;
+      if (discount >= min) continue;                            // a discount is below its threshold
+      if (seen.has(code)) continue;
+      seen.add(code);
+      out.push({ code, discount_usd: discount, min_spend_usd: min });
+    }
+    return out;
+  }
+
+  /**
+   * AI fallback for text the regex can't crack (AliExpress rewords campaigns freely, and
+   * some arrive as prose or a table dump). Costs one AI generation, so the UI only calls
+   * this on demand. Output is schema-checked by sanitize() before it can be saved.
+   */
+  async parseWithAi(creds: DecryptedCredentials | null, text: string): Promise<ParsedCoupon[]> {
+    const body = (text || '').trim();
+    if (!body) return [];
+    const result = await this.ai.generate(creds, {
+      system:
+        'You extract discount coupon tiers from marketing text. Reply with JSON ONLY — no prose, ' +
+        'no markdown fence. Schema: {"coupons":[{"code":string,"discount_usd":number,"min_spend_usd":number}]}. ' +
+        'code = the literal code the buyer types at checkout. discount_usd = money taken off. ' +
+        'min_spend_usd = the minimum order value that unlocks it. Convert every amount to a plain ' +
+        'USD number (strip $, US$, USD). A discount is always smaller than its own minimum spend. ' +
+        'Ignore percentage-only offers and any line without both a code and two amounts. ' +
+        'If none are present return {"coupons":[]}.',
+      prompt: body.slice(0, 6000),
+      maxTokens: 700,
+      temperature: 0, // extraction, not creativity
+    });
+    if (!result?.text) return [];
+    // Models still occasionally wrap JSON in a fence or add a sentence — grab the object.
+    const raw = result.text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start === -1 || end === -1) return [];
+    try {
+      const parsed = JSON.parse(raw.slice(start, end + 1));
+      return this.sanitize(parsed?.coupons);
+    } catch {
+      return [];
+    }
   }
 
   /**

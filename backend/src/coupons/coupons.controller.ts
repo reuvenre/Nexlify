@@ -4,11 +4,15 @@ import {
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CouponsService } from './coupons.service';
+import { CredentialsService } from '../credentials/credentials.service';
 
 @Controller('coupons')
 @UseGuards(JwtAuthGuard)
 export class CouponsController {
-  constructor(private readonly svc: CouponsService) {}
+  constructor(
+    private readonly svc: CouponsService,
+    private readonly credentials: CredentialsService,
+  ) {}
 
   private uid(req: Request) { return (req.user as any).id; }
 
@@ -22,6 +26,18 @@ export class CouponsController {
   @HttpCode(200)
   preview(@Body('text') text: string) {
     return { coupons: this.svc.preview(text || '') };
+  }
+
+  /**
+   * AI fallback for wording the regex can't parse. Costs one AI generation, so it's a
+   * separate on-demand call rather than part of the live preview. Still returns only
+   * schema-validated rows.
+   */
+  @Post('preview-ai')
+  @HttpCode(200)
+  async previewAi(@Req() req: Request, @Body('text') text: string) {
+    const creds = await this.credentials.getRaw(this.uid(req));
+    return { coupons: await this.svc.parseWithAi(creds, text || '') };
   }
 
   /** Import a pasted coupon block. Re-importing the same code refreshes it. */

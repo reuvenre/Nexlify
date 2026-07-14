@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Ticket, Loader2, Trash2, RefreshCw, Sparkles, AlertTriangle, CheckCircle2, Clock, Power, Plus,
+  Ticket, Loader2, Trash2, RefreshCw, Sparkles, AlertTriangle, CheckCircle2, Clock, Power, Plus, Wand2,
 } from 'lucide-react';
 import { couponsApi } from '@/lib/api-client';
 import type { Coupon, ParsedCoupon } from '@/types';
@@ -39,6 +39,8 @@ export default function CouponsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiUsed, setAiUsed] = useState(false);
   // Manual fallback
   const [manual, setManual] = useState(false);
   const [mCode, setMCode] = useState('');
@@ -52,8 +54,10 @@ export default function CouponsPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // Live parse preview — shows what was detected before anything is saved.
+  // Live parse preview — shows what was detected before anything is saved. Editing the
+  // text supersedes any earlier AI result, so the regex verdict takes over again.
   useEffect(() => {
+    setAiUsed(false);
     if (!text.trim()) { setParsed(null); return; }
     let alive = true;
     couponsApi.preview(text)
@@ -78,6 +82,21 @@ export default function CouponsPage() {
       setError(e?.response?.data?.message || 'הייבוא נכשל');
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** On-demand AI extraction — replaces the regex preview with what the model found. */
+  const parseAi = async () => {
+    setAiBusy(true); setError('');
+    try {
+      const r = await couponsApi.previewAi(text);
+      setParsed(r.coupons);
+      setAiUsed(true);
+      if (!r.coupons.length) setError('גם ה-AI לא זיהה קודים — נסה הוספה ידנית.');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'הניתוח עם AI נכשל');
+    } finally {
+      setAiBusy(false);
     }
   };
 
@@ -167,11 +186,30 @@ export default function CouponsPage() {
                 </div>
               </>
             ) : (
-              <p className="text-xs text-amber-400 flex items-center gap-1.5">
-                <AlertTriangle size={12} /> לא זוהו קודים בטקסט
+              <div>
+                <p className="text-xs text-amber-400 flex items-center gap-1.5">
+                  <AlertTriangle size={12} /> לא זוהו קודים בטקסט
+                </p>
+                <p className="text-2xs text-white/40 mt-1.5">
+                  אלי אקספרס כנראה שינתה ניסוח. נסה ניתוח עם AI, או הוסף ידנית.
+                </p>
+              </div>
+            )}
+            {aiUsed && parsed.length > 0 && (
+              <p className="text-2xs text-violet-300/70 mt-2 flex items-center gap-1">
+                <Wand2 size={10} /> נותח עם AI — ודא שהערכים נכונים לפני שמירה
               </p>
             )}
           </div>
+        )}
+
+        {/* AI fallback — on demand (costs a generation), for wording the parser can't read */}
+        {text.trim() && (
+          <button onClick={parseAi} disabled={aiBusy}
+            className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/30 disabled:opacity-50 text-violet-200 text-xs rounded-lg transition-all">
+            {aiBusy ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+            {parsed && parsed.length === 0 ? 'נתח עם AI' : 'לא זוהה נכון? נתח עם AI'}
+          </button>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">

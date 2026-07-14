@@ -276,6 +276,9 @@ export const couponsApi = {
   /** Parse a pasted block without saving — for the import preview. */
   preview: (text: string) =>
     http.post<{ coupons: ParsedCoupon[] }>('/coupons/preview', { text }).then(extract),
+  /** AI fallback for wording the parser can't read. Costs one AI generation. */
+  previewAi: (text: string) =>
+    http.post<{ coupons: ParsedCoupon[] }>('/coupons/preview-ai', { text }, { timeout: AI_TIMEOUT }).then(extract),
   import: (data: { text: string; campaign?: string; starts_at?: string; ends_at?: string }) =>
     http.post<{ imported: number; coupons: Coupon[] }>('/coupons/import', data).then(extract),
   /** Manual add — the fallback when AliExpress wording defeats the parser. */
