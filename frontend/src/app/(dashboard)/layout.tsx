@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { Loader2, Menu, X, Bot } from 'lucide-react';
+import { Loader2, Menu, X } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -59,10 +59,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         >
           <Menu size={19} />
         </button>
-        <div className="w-7 h-7 rounded-[9px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
-          <Bot size={13} className="text-white" />
+        {/* Same treatment as the sidebar: the real mark on a white plate, because the mark
+            is a mid-blue gradient and vanishes against this dark bar. */}
+        <div className="shrink-0 bg-white rounded-[9px] p-1 shadow-md shadow-black/20">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-mark.png" alt="Nexlify" className="w-7 h-7 object-contain" />
         </div>
-        <p className="text-sm font-semibold text-white tracking-tight">Nexlify</p>
+        <div className="min-w-0">
+          <p className="text-base font-bold text-white tracking-tight leading-none">Nexlify</p>
+          <p className="text-[11px] text-white/35 mt-0.5 leading-none whitespace-nowrap">מבית Win Solutions</p>
+        </div>
       </header>
 
       {/* Mobile drawer */}
