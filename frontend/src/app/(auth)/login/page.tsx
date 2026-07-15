@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { Bot, Loader2, AlertCircle, ArrowLeft, CheckCheck } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowLeft, CheckCheck } from 'lucide-react';
 
 const FEATURES = [
   'פרסום אוטומטי לטלגרם ב-AI',
@@ -68,9 +68,8 @@ export default function LoginPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
-              <Bot size={14} className="text-white" />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.png" alt="" className="w-7 h-7 object-contain" />
             <span className="text-sm font-semibold text-gray-900 tracking-tight">Nexlify</span>
           </div>
           <Link
@@ -247,6 +246,11 @@ export default function LoginPage() {
 
         {/* Content */}
         <div className="relative z-10 flex-1 flex flex-col justify-center px-14">
+          {/* The full lockup lives here and nowhere else: this panel is always dark and
+              wide enough for the frame, tagline and all to actually be legible. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-full.png" alt="Nexlify — Affiliate Marketing System" className="w-[130px] h-auto mb-8" />
+
           {/* Badge */}
           <div className="inline-flex items-center gap-2 bg-white/8 border border-edge-hover rounded-full px-3 py-1.5 w-fit mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -280,9 +284,8 @@ export default function LoginPage() {
         {/* Bottom bar */}
         <div className="relative z-10 px-14 pb-8">
           <div className="flex items-center gap-3 pt-6 border-t border-edge">
-            <div className="w-6 h-6 rounded-[7px] bg-white/10 flex items-center justify-center">
-              <Bot size={12} className="text-white/60" />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.png" alt="" className="w-6 h-6 object-contain opacity-80" />
             <p className="text-xs text-white/45">
               Nexlify · מבית{' '}
               <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"
