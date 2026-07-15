@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/hooks/useAuth';
 import { useTheme } from '@/lib/hooks/useTheme';
 import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
-  Users, BarChart3, Settings, LogOut, Tag,
+  Users, BarChart3, Settings, LogOut,
   ShoppingCart, Sun, Moon, Sparkles, Package,
   Rocket, Shield, Ticket,
 } from 'lucide-react';
@@ -26,7 +26,6 @@ const NAV_SECTIONS = [
     items: [
       { href: '/products',   label: 'מוצרים',     icon: Package },
       { href: '/templates',  label: 'תבניות',     icon: Layout },
-      { href: '/categories', label: 'קטגוריות',   icon: Tag },
       { href: '/groups',     label: 'ערוצים',     icon: Users },
       { href: '/coupons',    label: 'קופונים',    icon: Ticket },
     ],

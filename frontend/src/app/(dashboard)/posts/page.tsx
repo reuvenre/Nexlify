@@ -832,7 +832,7 @@ export default function PostsPage() {
           <h1 className="text-2xl font-bold text-white">ניהול פוסטים</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/posts/settings"
+          <Link href="/settings"
             className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl transition-all">
             <Settings2 size={13} />
             הגדרות

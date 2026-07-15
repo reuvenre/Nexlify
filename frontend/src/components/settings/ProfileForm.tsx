@@ -19,7 +19,6 @@ export function ProfileForm() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [currency, setCurrency] = useState('USD_ILS');
-  const [language, setLanguage] = useState('he');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
@@ -33,7 +32,6 @@ export function ProfileForm() {
         if (p.firstName) setFirstName(p.firstName);
         if (p.lastName)  setLastName(p.lastName);
         if (p.phone)     setPhone(p.phone);
-        if (p.language)  setLanguage(p.language);
       }
     } catch {}
 
@@ -49,7 +47,7 @@ export function ProfileForm() {
     setSaving(true);
     try {
       // Persist profile fields locally (no dedicated profile API endpoint yet)
-      localStorage.setItem(PROFILE_KEY, JSON.stringify({ firstName, lastName, phone, language }));
+      localStorage.setItem(PROFILE_KEY, JSON.stringify({ firstName, lastName, phone }));
       // Save currency preference to credentials
       await credentialsApi.upsert({ currency_pair: currency } as any);
       setSaved(true);
@@ -113,6 +111,12 @@ export function ProfileForm() {
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               {saved ? 'נשמר ✓' : saving ? 'שומר...' : 'שמור שינויים'}
             </button>
+            {/* These fields have no column on the user record — they live in this browser
+                only. Saying so beats implying they follow the account. */}
+            <p className="text-2xs text-white/30 mt-2 leading-relaxed">
+              השם והטלפון נשמרים בדפדפן הזה בלבד (אין להם עדיין שדה בחשבון) — לא יופיעו במכשיר אחר.
+              כתובת המייל היא מזהה החשבון ומנוהלת בטאב &quot;אבטחה&quot;.
+            </p>
           </div>
         </form>
       </section>
@@ -122,19 +126,6 @@ export function ProfileForm() {
           <span className="text-lg">🌍</span> העדפות
         </h3>
         <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5">שפה</label>
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
-            >
-              <option value="he">עברית</option>
-              <option value="en">English</option>
-              <option value="ar">العربية</option>
-            </select>
-          </div>
-
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">מטבע תצוגה</label>
             <div className="grid grid-cols-2 gap-2">

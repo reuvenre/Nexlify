@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Zap, Loader2, CheckCircle2 } from 'lucide-react';
+import { Check, Zap, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { subscriptionApi } from '@/lib/api-client';
 import type { BillingCycle, PlanDef, SubscriptionStatus } from '@/types';
 
@@ -165,6 +165,19 @@ export function SubscriptionForm() {
         )}
       </div>
 
+      {/* No payment gateway is wired yet — switching a plan only grants credits. Saying so
+          outright beats a pricing grid that implies a charge that never happens. */}
+      <div className="flex items-start gap-2.5 bg-amber-500/[0.07] border border-amber-500/20 rounded-xl px-4 py-3">
+        <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs text-amber-400 font-medium">מצב הדגמה — אין חיוב</p>
+          <p className="text-2xs text-white/40 mt-0.5 leading-relaxed">
+            המחירים להצגה בלבד. הפעלת תוכנית מעניקה את הקרדיטים מיידית ולא גובה כסף —
+            שער תשלום עדיין לא מחובר.
+          </p>
+        </div>
+      </div>
+
       {/* Plans grid (catalog from backend) */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {plans.map((plan) => {
@@ -198,7 +211,7 @@ export function SubscriptionForm() {
                   <span className="text-xs text-white/40">לחודש</span>
                 </div>
                 <p className="text-2xs text-white/30 mt-0.5">
-                  {billing === 'annual' ? 'בחיוב שנתי' : 'מתחדש מדי חודש'}
+                  {billing === 'annual' ? 'מחיר בחיוב שנתי' : 'מחיר לחודש'}
                 </p>
               </div>
 
@@ -224,10 +237,10 @@ export function SubscriptionForm() {
                       : 'bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white'}`}
               >
                 {isSwitching ? <Loader2 size={14} className="animate-spin" /> : justSwitched ? <CheckCircle2 size={14} /> : null}
-                {isCurrent ? 'התוכנית הנוכחית' : isSwitching ? 'מפעיל...' : justSwitched ? 'הופעל!' : 'לרכישה'}
+                {isCurrent ? 'התוכנית הנוכחית' : isSwitching ? 'מפעיל...' : justSwitched ? 'הופעל!' : 'הפעל תוכנית'}
               </button>
               {!isCurrent && !isSwitching && (
-                <p className="text-[9px] text-white/25 text-center -mt-3 mb-3">ניתן לבטל בכל עת, ללא התחייבות</p>
+                <p className="text-[9px] text-white/25 text-center -mt-3 mb-3">מופעל מיידית · ללא חיוב</p>
               )}
 
               <div className="border-t border-edge pt-3 mt-auto">
