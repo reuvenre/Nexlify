@@ -42,26 +42,6 @@ function transparentMaster() {
 }
 
 /**
- * Recolour the tagline ("AFFILIATE MARKETING SYSTEM") to white for dark surfaces.
- * Keyed on desaturation, not brightness: the tagline is pure grey (spread < 30) while the
- * darkest ink in the mark is rgb(4,80,176) — dark (luminance 68) but heavily saturated
- * (spread 172). A brightness threshold would have bleached the L. Verified by census:
- * the mark and the NEXLIFY wordmark contain zero desaturated-dark pixels.
- */
-async function taglineToWhite(buf) {
-  const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  for (let i = 0; i < data.length; i += info.channels) {
-    const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
-    if (a === 0) continue;
-    const spread = Math.max(r, g, b) - Math.min(r, g, b);
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (spread < 30 && lum < 120) { data[i] = 255; data[i + 1] = 255; data[i + 2] = 255; }
-  }
-  return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } })
-    .png().toBuffer();
-}
-
-/**
  * Square canvas with the art centred and `pad` fraction of breathing room each side.
  * The trailing edges take the rounding remainder so the result is EXACTLY `size` —
  * rounding each side independently produced 513px files, which contradicts the sizes
@@ -96,12 +76,15 @@ async function square(buf, size, pad, background) {
     .png().toBuffer();
 
   const mark = await crop(MONOGRAM);
-  const lockup = await taglineToWhite(await crop(ART));
+  const lockup = await crop(ART);
 
-  // ── In-app + browser: transparent, so the mark sits on any surface, dark or light ──
+  // Every surface draws the logo on a white plate, so the artwork keeps its ORIGINAL
+  // colours — including the black tagline. (An earlier revision whitened the tagline for
+  // dark backgrounds; on a white plate that would render it invisible.) The PNGs stay
+  // transparent so the plate is CSS, which keeps the corner radius and padding tunable.
   fs.writeFileSync(path.join(PUBLIC, 'logo-mark.png'), await square(mark, 512, 0.04));
-  // The lockup renders at ~130px on the login hero. Shipping the full 2062px crop meant a
-  // 252KB download for it; 900px is still 3.5x the largest display size (retina + growth).
+  // The lockup renders at ~200px on the login hero. Shipping the full 2062px crop meant a
+  // 252KB download for it; 900px is still 2x the largest display size (retina + growth).
   fs.writeFileSync(path.join(PUBLIC, 'logo-full.png'), await sharp(lockup)
     .resize({ height: 900 }).png({ compressionLevel: 9, palette: true }).toBuffer());
   fs.writeFileSync(path.join(APP, 'icon.png'), await square(mark, 256, 0.04));

@@ -59,12 +59,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* ── Logo ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 pt-5 pb-4 border-b border-edge">
-        <div className="relative shrink-0">
+        {/* White plate: the mark is a mid-blue gradient and simply disappeared against the
+            dark sidebar. Every surface in the app gives it the same white backing. */}
+        <div className="relative shrink-0 bg-white rounded-[11px] p-1.5 shadow-md shadow-black/20">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* The NL mark only — the full lockup's frame and tagline are an unreadable
-              smudge at 32px. Generated transparent, so it sits on the dark sidebar. */}
-          <img src="/logo-mark.png" alt="Nexlify" className="w-8 h-8 object-contain" />
-          <span className="absolute -bottom-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-surface-sidebar" />
+              smudge at this size. */}
+          <img src="/logo-mark.png" alt="Nexlify" className="w-9 h-9 object-contain" />
+          <span className="absolute -bottom-1 -left-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-surface-sidebar" />
         </div>
 
         <div className="flex-1 min-w-0">

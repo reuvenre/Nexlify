@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Bot, ArrowLeft, Globe } from 'lucide-react';
+import { ArrowLeft, Globe } from 'lucide-react';
 
 /** Shared chrome for public marketing pages (landing, compare, blog). */
 export function MarketingShell({ children }: { children: React.ReactNode }) {
@@ -8,8 +8,9 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-surface-primary/70 border-b border-edge">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-600/25">
-              <Bot size={16} className="text-white" />
+            <div className="w-10 h-10 rounded-[10px] bg-white p-1 flex items-center justify-center shadow-lg shadow-black/20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-mark.png" alt="Nexlify" className="w-full h-full object-contain" />
             </div>
             <span className="text-lg font-bold tracking-tight">Nexlify</span>
           </Link>

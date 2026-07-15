@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { Bot, Loader2, AlertCircle, CheckCircle2, Zap, TrendingUp, Globe } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Zap, TrendingUp, Globe } from 'lucide-react';
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -52,8 +52,9 @@ export default function RegisterPage() {
 
           {/* Logo */}
           <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <Bot size={20} className="text-white" />
+            <div className="w-12 h-12 rounded-xl bg-white p-1.5 flex items-center justify-center shadow-lg shadow-black/20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-mark.png" alt="Nexlify" className="w-full h-full object-contain" />
             </div>
             <span className="text-white font-bold text-lg tracking-tight">Nexlify</span>
           </div>

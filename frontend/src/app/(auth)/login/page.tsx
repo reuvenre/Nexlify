@@ -68,8 +68,9 @@ export default function LoginPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
           <div className="flex items-center gap-2">
+            {/* This panel is already white, so the mark needs no plate of its own. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-mark.png" alt="" className="w-7 h-7 object-contain" />
+            <img src="/logo-mark.png" alt="" className="w-8 h-8 object-contain" />
             <span className="text-sm font-semibold text-gray-900 tracking-tight">Nexlify</span>
           </div>
           <Link
@@ -246,10 +247,14 @@ export default function LoginPage() {
 
         {/* Content */}
         <div className="relative z-10 flex-1 flex flex-col justify-center px-14">
-          {/* The full lockup lives here and nowhere else: this panel is always dark and
-              wide enough for the frame, tagline and all to actually be legible. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-full.png" alt="Nexlify — Affiliate Marketing System" className="w-[130px] h-auto mb-8" />
+          {/* The full lockup, on a white card. Against the dark hero the artwork was
+              swallowed — the mark is mid-blue and the brush frame is a thin turquoise
+              hairline. The card is what makes it read; the size is what makes it the
+              first thing you see. */}
+          <div className="bg-white rounded-2xl px-7 py-6 mb-9 w-fit shadow-2xl shadow-black/40">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-full.png" alt="Nexlify — Affiliate Marketing System" className="w-[190px] h-auto" />
+          </div>
 
           {/* Badge */}
           <div className="inline-flex items-center gap-2 bg-white/8 border border-edge-hover rounded-full px-3 py-1.5 w-fit mb-8">
@@ -284,8 +289,10 @@ export default function LoginPage() {
         {/* Bottom bar */}
         <div className="relative z-10 px-14 pb-8">
           <div className="flex items-center gap-3 pt-6 border-t border-edge">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-mark.png" alt="" className="w-6 h-6 object-contain opacity-80" />
+            <div className="bg-white rounded-lg p-1 shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-mark.png" alt="" className="w-5 h-5 object-contain" />
+            </div>
             <p className="text-xs text-white/45">
               Nexlify · מבית{' '}
               <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Bot, Loader2, AlertCircle, CheckCircle2, Mail, Copy, Check } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Mail, Copy, Check } from 'lucide-react';
 import { authApi } from '@/lib/api-client';
 
 export default function ForgotPasswordPage() {
@@ -121,8 +121,9 @@ export default function ForgotPasswordPage() {
         <div className="absolute top-1/4 right-1/4 w-[28rem] h-[28rem] rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.18) 0%, transparent 70%)' }} />
         <div className="relative z-10 flex justify-start p-6">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-white/90 flex items-center justify-center">
-              <Bot size={14} className="text-gray-900" />
+            <div className="w-9 h-9 rounded-lg bg-white p-1 flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-mark.png" alt="Nexlify" className="w-full h-full object-contain" />
             </div>
             <span className="text-white font-bold text-lg tracking-tight">Nexlify</span>
           </div>
