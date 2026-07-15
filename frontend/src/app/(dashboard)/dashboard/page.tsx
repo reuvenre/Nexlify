@@ -94,10 +94,10 @@ export default function DashboardPage() {
       setEarnings(earn);
 
       const aliOk = !!(creds?.aliexpress_app_key);
-      // ANY configured AI provider satisfies this step — the engine is multi-provider
-      // (Claude / OpenAI / Gemini), so checking only openai_api_key left the step stuck
-      // forever for anyone using a different one.
-      const aiOk = !!(creds?.openai_api_key || creds?.gemini_api_key || creds?.anthropic_api_key);
+      // The server reports whether AI generation actually works — including via the
+      // shared server key. Reading the key fields instead kept the step marked incomplete
+      // for users whose AI was working fine, with no way to ever tick it off.
+      const aiOk = !!creds?.ai_ready;
       const channelOk = channels.length > 0;
       const campaignOk = camps.total > 0;
       const postOk = posts.total > 0;

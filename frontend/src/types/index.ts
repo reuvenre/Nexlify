@@ -124,6 +124,8 @@ export interface CredentialSet {
   gemini_api_key: string;         // masked
   gemini_model: string;
   ai_monthly_token_budget: number | null;
+  /** AI generation is usable — a per-user key OR the server's shared key. Read-only. */
+  ai_ready: boolean;
   // Facebook / Meta
   facebook_page_id: string;
   facebook_page_token: string;    // masked
@@ -371,6 +373,16 @@ export interface CampaignInput {
   language?: 'he' | 'en' | 'ar';
   markup_percent?: number;
   post_template?: string;
+}
+
+/** What a "run now" actually did. `searched` differs from `keyword` when a Hebrew
+ *  keyword was translated to English for the AliExpress query. */
+export interface CampaignRunResult {
+  created: number;
+  failed: number;
+  keyword: string;
+  searched: string;
+  errors: string[];
 }
 
 // ─── Products ────────────────────────────────────────────────────────────────

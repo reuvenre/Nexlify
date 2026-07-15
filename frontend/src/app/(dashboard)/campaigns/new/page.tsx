@@ -114,7 +114,10 @@ export default function NewCampaignPage() {
 
         {/* Keywords */}
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">
-          <h2 className="text-sm font-semibold text-white mb-4">מילות מפתח לחיפוש</h2>
+          <h2 className="text-sm font-semibold text-white mb-1">מילות מפתח לחיפוש</h2>
+          <p className="text-2xs text-white/35 mb-4">
+            אפשר לכתוב בעברית — הקטלוג של AliExpress מאונדקס באנגלית, ולכן המערכת מתרגמת את מילת המפתח לאנגלית לפני החיפוש.
+          </p>
           <div className="flex gap-2 mb-3">
             <input
               value={kwInput}

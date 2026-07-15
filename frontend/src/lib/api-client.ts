@@ -5,6 +5,7 @@ import type {
   CredentialSet,
   CredentialSetInput,
   Campaign,
+  CampaignRunResult,
   CampaignInput,
   AliProduct,
   AliCategory,
@@ -347,7 +348,10 @@ export const campaignsApi = {
 
   resume: (id: string) => http.post<Campaign>(`/campaigns/${id}/resume`).then(extract),
 
-  runNow: (id: string) => http.post<{ queued: boolean; jobId: string }>(`/campaigns/${id}/run`).then(extract),
+  /** Runs the campaign and waits for the real outcome — a search + an AI generation per
+   *  post, so it needs far more than the 15s global timeout. */
+  runNow: (id: string) =>
+    http.post<CampaignRunResult>(`/campaigns/${id}/run`, {}, { timeout: 180_000 }).then(extract),
 
   posts: (id: string, params?: { page?: number; limit?: number }) =>
     http.get<PaginatedResponse<Post>>(`/campaigns/${id}/posts`, { params }).then(extract),

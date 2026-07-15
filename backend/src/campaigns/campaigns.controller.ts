@@ -60,13 +60,18 @@ export class CampaignsController {
     return this.svc.resume(this.uid(req), id);
   }
 
+  /**
+   * Run the campaign NOW and report what actually happened. This used to be
+   * fire-and-forget with `.catch(() => {})`, so the UI reported "queued — posts will go
+   * out shortly" even when the run threw immediately and published nothing. The run takes
+   * seconds (one AliExpress query + one AI generation per post), so we await it and
+   * return the real outcome; any error propagates as a normal HTTP error.
+   */
   @Post(':id/run')
   @HttpCode(200)
   async runNow(@Req() req: Request, @Param('id') id: string) {
     const campaign = await this.svc.get(this.uid(req), id);
-    // Fire-and-forget
-    this.posts.runCampaign(campaign, this.uid(req)).catch(() => {});
-    return { queued: true, jobId: `manual-${id}-${Date.now()}` };
+    return this.posts.runCampaign(campaign, this.uid(req));
   }
 
   @Get(':id/posts')

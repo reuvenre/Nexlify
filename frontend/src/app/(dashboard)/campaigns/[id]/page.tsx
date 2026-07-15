@@ -47,14 +47,25 @@ export default function CampaignDetailPage() {
     setCampaign(updated);
   };
 
+  /**
+   * Reports what the run actually produced. It used to print "queued — posts will go out
+   * shortly" unconditionally, including when the run failed instantly and published
+   * nothing, so a broken campaign looked healthy indefinitely.
+   */
   const handleRunNow = async () => {
     setIsRunning(true);
     setRunResult(null);
     try {
-      await campaignsApi.runNow(id);
-      setRunResult('הקמפיין נכנס לתור! הפוסטים יישלחו בדקות הקרובות.');
-    } catch {
-      setRunResult('שגיאה בהרצת הקמפיין');
+      const r = await campaignsApi.runNow(id);
+      const via = r.searched !== r.keyword ? ` (חיפוש: "${r.searched}")` : '';
+      const failed = r.failed ? ` · ${r.failed} נכשלו` : '';
+      setRunResult(`נשלחו ${r.created} פוסטים עבור "${r.keyword}"${via}${failed}`);
+      // The run just created posts and bumped posts_count — refetch instead of guessing.
+      const [c, p] = await Promise.all([campaignsApi.get(id), campaignsApi.posts(id, { limit: 20 })]);
+      setCampaign(c);
+      setPosts(p.data);
+    } catch (e: any) {
+      setRunResult(`שגיאה: ${e?.response?.data?.message || 'הרצת הקמפיין נכשלה'}`);
     } finally {
       setIsRunning(false);
     }

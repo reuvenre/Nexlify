@@ -20,6 +20,28 @@ import { normalizeTelegramChatId } from '../common/crypto';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
 
+const UUID_RE = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+/** Outcome of one campaign cycle — reported to the user instead of a blind "queued". */
+export interface CampaignRunResult {
+  created: number;
+  failed: number;
+  /** The keyword as the user typed it. */
+  keyword: string;
+  /** What was actually sent to AliExpress (translated when the keyword wasn't Latin). */
+  searched: string;
+  errors: string[];
+}
+
+/**
+ * Hebrew or Arabic in a search keyword. AliExpress indexes its catalog in English and
+ * does NOT fail on a Hebrew keyword — it ignores it and returns arbitrary popular items,
+ * which is the worst case: the campaign looks like it worked. Measured against the live
+ * API: "חגורה טקטית" (tactical belt) returns kitchen scouring pads, while "tactical belt"
+ * returns actual belts. Keywords matching this are translated before the query.
+ */
+const NON_LATIN_RE = /[\u0590-\u05FF\u0600-\u06FF]/;
+
 /**
  * Convert Markdown bold (**x** / __x__) to Telegram HTML (<b>x</b>). Models often
  * emit Markdown even when asked for HTML; Telegram with parse_mode=HTML renders the
@@ -85,12 +107,16 @@ type TgMedia =
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger(PostsService.name);
+  /** Hebrew keyword → English search phrase. Deterministic, so one lookup per keyword. */
+  private readonly keywordCache = new Map<string, string>();
 
   constructor(
     @InjectRepository(Post)
     private readonly repo: Repository<Post>,
     @InjectRepository(Template)
     private readonly templateRepo: Repository<Template>,
+    @InjectRepository(Campaign)
+    private readonly campaignRepo: Repository<Campaign>,
     private readonly credentials: CredentialsService,
     private readonly rates: RatesService,
     private readonly ai: AiService,
@@ -144,12 +170,29 @@ export class PostsService {
     };
   }
 
-  /** Resolve the user's default footer template content (appended to every post). */
-  private async getFooterText(userId: string, creds: DecryptedCredentials): Promise<string> {
-    const id = creds?.default_footer_template_id;
-    if (!id) return '';
+  /**
+   * Template content by id, scoped to the owner. Ids are only looked up when they are
+   * UUID-shaped: `default_body_template_id` may hold the sentinel 'builtin_default',
+   * and Postgres throws on a non-uuid literal compared against a uuid column.
+   */
+  private async templateContent(userId: string, id?: string | null): Promise<string> {
+    if (!id || !UUID_RE.test(id)) return '';
     const t = await this.templateRepo.findOne({ where: { id, user_id: userId } });
     return t?.content?.trim() || '';
+  }
+
+  /** Resolve the user's default footer template content (appended to every post). */
+  private getFooterText(userId: string, creds: DecryptedCredentials): Promise<string> {
+    return this.templateContent(userId, creds?.default_footer_template_id);
+  }
+
+  /**
+   * The user's default BODY template — the writing style their hand-published posts use.
+   * The composer sends the template down with each request; a campaign runs headless and
+   * has no composer, so without this it silently fell back to the generic built-in voice.
+   */
+  private getBodyText(userId: string, creds: DecryptedCredentials): Promise<string> {
+    return this.templateContent(userId, creds?.default_body_template_id);
   }
 
   /**
@@ -159,10 +202,7 @@ export class PostsService {
   private async resolveFooterText(userId: string, creds: DecryptedCredentials, channelOverride?: string): Promise<string> {
     if (channelOverride) {
       const id = await this.channels.getFooterTemplateId(userId, channelOverride);
-      if (id) {
-        const t = await this.templateRepo.findOne({ where: { id, user_id: userId } });
-        return t?.content?.trim() || '';
-      }
+      if (id) return this.templateContent(userId, id);
     }
     return this.getFooterText(userId, creds);
   }
@@ -617,15 +657,26 @@ export class PostsService {
 
   // ── Run campaign ──────────────────────────────────────────────────────────
 
-  async runCampaign(campaign: Campaign, userId: string) {
+  /**
+   * Run one campaign cycle: pick a keyword → find products → write → publish.
+   *
+   * Throws on every condition that yields no post (no credentials, no keywords, no
+   * matching products). The caller decides what to do with that: the scheduler logs it
+   * and emails the owner, "run now" shows it. It must never resolve quietly on failure —
+   * a campaign that publishes nothing has to say so.
+   */
+  async runCampaign(campaign: Campaign, userId: string): Promise<CampaignRunResult> {
     const creds = await this.credentials.getRaw(userId);
-    if (!creds) return;
+    if (!creds) throw new BadRequestException('חסרים פרטי חיבור — הגדר אותם במסך ההגדרות');
 
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     const keyword = campaign.keywords[Math.floor(Math.random() * campaign.keywords.length)];
+    if (!keyword?.trim()) throw new BadRequestException('לקמפיין אין מילות מפתח');
+
+    const searched = await this.searchKeyword(keyword, creds);
 
     const products = await this.searchProducts({
-      keyword,
+      keyword: searched,
       category_id: campaign.category_id,
       min_price: campaign.min_price,
       max_price: campaign.max_price,
@@ -633,32 +684,96 @@ export class PostsService {
       limit: campaign.posts_per_run * 3,
     }, creds);
 
+    if (!products.length) {
+      const via = searched !== keyword ? ` (חיפוש באנגלית: "${searched}")` : '';
+      throw new BadRequestException(
+        `לא נמצאו מוצרים עבור "${keyword}"${via}. נסה מילת מפתח אחרת או הרחב את טווח המחירים (${campaign.min_price ?? 0}–${campaign.max_price ?? '∞'}).`,
+      );
+    }
+
+    // A campaign runs headless — nothing hands it a template the way the composer does.
+    // Fall back to the user's default body template so campaign posts are written in the
+    // same voice as the ones they publish by hand, instead of the generic built-in one.
+    const template = campaign.post_template?.trim() || await this.getBodyText(userId, creds);
+
     const toPost = products.slice(0, campaign.posts_per_run);
+    const result: CampaignRunResult = { created: 0, failed: 0, keyword, searched, errors: [] };
 
     for (const product of toPost) {
-      const affiliateUrl = product.affiliate_url || await this.getAffiliateLink(product.product_id, creds);
-      const parts = this.priceParts(product, rate);
-      const text = await this.generateText(product, campaign.language, rate, creds, campaign.post_template, parts.localOverride);
+      try {
+        const affiliateUrl = product.affiliate_url || await this.getAffiliateLink(product.product_id, creds);
+        const parts = this.priceParts(product, rate);
+        const text = await this.generateText(product, campaign.language, rate, creds, template || undefined, parts.localOverride);
 
-      const post = this.repo.create({
-        user_id: userId,
-        campaign_id: campaign.id,
-        product_id: product.product_id,
-        product_title: product.title,
-        product_image: product.image_url,
-        affiliate_url: affiliateUrl,
-        original_price_usd: parts.origUsd,
-        sale_price_usd: parts.saleUsd,
-        price_ils: parts.priceIls,
-        generated_text: text,
-        status: 'pending',
-      });
+        const post = this.repo.create({
+          user_id: userId,
+          campaign_id: campaign.id,
+          product_id: product.product_id,
+          product_title: product.title,
+          product_image: product.image_url,
+          affiliate_url: affiliateUrl,
+          original_price_usd: parts.origUsd,
+          sale_price_usd: parts.saleUsd,
+          price_ils: parts.priceIls,
+          generated_text: text,
+          status: 'pending',
+        });
 
-      await this.repo.save(post);
-      await this.sendToTelegram(post, creds);
+        await this.repo.save(post);
+        await this.sendToTelegram(post, creds);
+        result.created++;
+        // posts_count drives the "N פוסטים" figure on the campaign screen. Nothing ever
+        // incremented it, so it read 0 forever no matter how much a campaign published.
+        await this.campaignRepo.increment({ id: campaign.id }, 'posts_count', 1);
+      } catch (err: any) {
+        // One product failing (dead link, AI hiccup) must not abort the rest of the run.
+        result.failed++;
+        result.errors.push(`${product.title?.slice(0, 40) || product.product_id}: ${err.message}`);
+        this.logger.warn(`Campaign ${campaign.id} product ${product.product_id} failed: ${err.message}`);
+      }
 
       // Small delay between posts
       await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    // Every product failed → the run produced nothing. Surface it rather than return 0.
+    if (!result.created) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
+    return result;
+  }
+
+  /**
+   * The keyword to actually send to AliExpress. Hebrew/Arabic keywords are translated to
+   * English first — see NON_LATIN_RE: the API silently returns unrelated products for
+   * them rather than erroring. Cached per process; the translation is deterministic and
+   * campaigns reuse the same handful of keywords. Falls back to the original keyword
+   * whenever AI is unavailable or misbehaves — no worse than today's behaviour.
+   */
+  private async searchKeyword(keyword: string, creds: DecryptedCredentials): Promise<string> {
+    const kw = keyword.trim();
+    if (!NON_LATIN_RE.test(kw)) return kw;
+
+    const cached = this.keywordCache.get(kw);
+    if (cached) return cached;
+    if (!this.ai.hasAnyKey(creds)) return kw;
+
+    try {
+      const res = await this.ai.generate(creds, {
+        system: 'You convert a shopping keyword into the English search phrase AliExpress would index it under. '
+          + 'Reply with ONLY that phrase: 2-4 words, lowercase, no quotes, no punctuation, no explanation.',
+        prompt: `Keyword: ${kw}`,
+        maxTokens: 24,
+        temperature: 0,
+      });
+      const out = res?.text?.trim().split('\n')[0].replace(/["'.]/g, '').trim().slice(0, 60);
+      // A reply that is empty, or still non-Latin, means the model didn't translate —
+      // using it would be worse than the original.
+      if (!out || NON_LATIN_RE.test(out)) return kw;
+      this.keywordCache.set(kw, out);
+      this.logger.log(`Campaign keyword translated: "${kw}" → "${out}"`);
+      return out;
+    } catch (err: any) {
+      this.logger.warn(`Keyword translation failed for "${kw}": ${err.message}`);
+      return kw;
     }
   }
 

@@ -421,6 +421,17 @@ export class CredentialsService {
       gemini_api_key: cred.gemini_api_key_enc ? mask(decrypt(cred.gemini_api_key_enc)) : '',
       gemini_model: cred.gemini_model || 'gemini-2.5-flash',
       ai_monthly_token_budget: cred.ai_monthly_token_budget ?? null,
+      // Whether AI generation actually WORKS, which is not the same question as "did the
+      // user paste a key here": getRaw() falls back to the server's ANTHROPIC_API_KEY, so
+      // the engine can be fully operational while every key field above reads empty. The
+      // onboarding checklist asks this, not the key fields — otherwise it told users to
+      // complete a step that was already done and could not be dismissed.
+      ai_ready: !!(
+        cred.anthropic_api_key_enc
+        || cred.openai_api_key_enc
+        || cred.gemini_api_key_enc
+        || process.env.ANTHROPIC_API_KEY
+      ),
       // Facebook / Meta
       facebook_page_id: cred.facebook_page_id || '',
       facebook_page_token: cred.facebook_page_token_enc ? mask(decrypt(cred.facebook_page_token_enc)) : '',
