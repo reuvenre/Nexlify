@@ -487,6 +487,12 @@ export interface PostPreview {
   generated_text: string;
   price_ils: number;
   exchange_rate: number;
+  /**
+   * The coupon line that will be appended when the post is sent, or null if no coupon
+   * applies. Kept out of generated_text on purpose — the coupon is re-resolved at send
+   * time so a code that expires while the post waits in the queue never goes out.
+   */
+  coupon_line?: string | null;
 }
 
 // ─── Templates ───────────────────────────────────────────────────────────────

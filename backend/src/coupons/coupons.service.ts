@@ -228,23 +228,48 @@ export class CouponsService {
   }
 
   /**
-   * The single best coupon for a product priced `priceUsd`: among coupons that are active,
-   * inside their validity window, and whose minimum spend the price meets, return the one
-   * with the LARGEST discount. Returns null when nothing qualifies (which is also what
-   * makes non-AliExpress posts — priceUsd 0 — get no coupon).
+   * The coupon to show for a product priced `priceUsd`.
+   *
+   * AliExpress coupons apply to the CART TOTAL, not to a single item — so a product below
+   * every tier is not "no coupon", it's "not there yet". Two outcomes:
+   *  • qualifies:true  — the price already clears a tier; return the biggest discount.
+   *  • qualifies:false — nothing clears yet; return the CHEAPEST tier as an incentive to
+   *    add another item (which is also what grows the commission).
+   *
+   * priceUsd <= 0 still returns null — that's what keeps AliExpress coupons off FLYLINK
+   * posts, which carry no USD price.
    */
-  async bestFor(userId: string, priceUsd: number, at: Date = new Date()): Promise<Coupon | null> {
+  async bestFor(
+    userId: string,
+    priceUsd: number,
+    at: Date = new Date(),
+  ): Promise<{ coupon: Coupon; qualifies: boolean } | null> {
     if (!priceUsd || priceUsd <= 0) return null;
-    const rows = await this.repo
+    const valid = await this.repo
       .createQueryBuilder('c')
       .where('c.user_id = :userId', { userId })
       .andWhere('c.is_active = true')
-      .andWhere('c.min_spend_usd <= :price', { price: priceUsd })
       .andWhere('(c.starts_at IS NULL OR c.starts_at <= :at)', { at })
       .andWhere('(c.ends_at IS NULL OR c.ends_at >= :at)', { at })
-      .orderBy('c.discount_usd', 'DESC')
-      .addOrderBy('c.min_spend_usd', 'DESC')
       .getMany();
-    return rows[0] || null;
+    if (!valid.length) return null;
+
+    const qualified = valid
+      .filter((c) => c.min_spend_usd <= priceUsd)
+      .sort((a, b) => b.discount_usd - a.discount_usd || b.min_spend_usd - a.min_spend_usd);
+    if (qualified.length) return { coupon: qualified[0], qualifies: true };
+
+    // Below every tier → the entry tier, framed as "add one more item".
+    const cheapest = valid.slice().sort((a, b) => a.min_spend_usd - b.min_spend_usd)[0];
+    return { coupon: cheapest, qualifies: false };
+  }
+
+  /**
+   * The exact line appended to a post. Kept here so the send path and the composer
+   * preview can never drift apart and show the user something different from what ships.
+   */
+  couponLine(coupon: Coupon, qualifies: boolean): string {
+    const base = `🎟️ קוד קופון: ${coupon.code} — $${coupon.discount_usd} הנחה בקנייה מעל $${coupon.min_spend_usd}`;
+    return qualifies ? base : `${base}\n💡 הוסף עוד פריט לסל כדי לנצל את ההנחה`;
   }
 }

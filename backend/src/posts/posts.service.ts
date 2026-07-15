@@ -208,11 +208,21 @@ export class PostsService {
       hint,
     );
 
+    // The coupon line the send path WOULD append, so the composer shows what actually
+    // ships. Returned separately rather than baked into generated_text on purpose: the
+    // coupon is re-resolved at send time, so a code that expires while the post waits in
+    // the queue is never delivered. Baking it into the text would freeze a stale code.
+    const priceUsd = priceAlreadyConverted && rate > 0
+      ? +(product.sale_price / rate).toFixed(2)
+      : product.sale_price;
+    const match = await this.coupons.bestFor(userId, priceUsd).catch(() => null);
+
     return {
       product,
       generated_text: text,
       price_ils: customProduct?.price_ils ?? priceLocal,
       exchange_rate: priceAlreadyConverted ? 1 : rate,
+      coupon_line: match ? this.coupons.couponLine(match.coupon, match.qualifies) : null,
     };
   }
 
@@ -731,9 +741,9 @@ export class PostsService {
     // queued/scheduled post never goes out with a coupon that expired while it waited.
     // Priced in USD because the coupon tiers are ($7 OFF $55+); a post with no USD price
     // (e.g. FLYLINK) yields no coupon.
-    const coupon = await this.coupons.bestFor(post.user_id, post.sale_price_usd).catch(() => null);
-    if (coupon && !body.includes(coupon.code)) {
-      body = `${body}\n\n🎟️ קוד קופון: ${coupon.code} — $${coupon.discount_usd} הנחה בקנייה מעל $${coupon.min_spend_usd}`;
+    const match = await this.coupons.bestFor(post.user_id, post.sale_price_usd).catch(() => null);
+    if (match && !body.includes(match.coupon.code)) {
+      body = `${body}\n\n${this.coupons.couponLine(match.coupon, match.qualifies)}`;
     }
 
     const footer = await this.resolveFooterText(post.user_id, creds, channelOverride);

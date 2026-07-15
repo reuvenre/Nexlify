@@ -124,6 +124,17 @@ export function PostPreview({
           dir="rtl"
         />
 
+        {/* Auto-appended coupon. Shown read-only rather than merged into the editable text
+            because it is resolved again at send time — editing it here would be a lie. */}
+        {preview.coupon_line && (
+          <div className="mt-2 rounded-lg border border-pink-500/25 bg-pink-500/[0.06] px-3 py-2">
+            <p className="text-2xs text-pink-300/70 mb-1">נוסף אוטומטית בשליחה:</p>
+            <p className="text-xs text-pink-200 whitespace-pre-line leading-relaxed" dir="rtl">
+              {preview.coupon_line}
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-edge text-2xs text-white/30">
           <span>{sym}{preview.price_ils.toLocaleString('he-IL')}</span>
           <span>·</span>

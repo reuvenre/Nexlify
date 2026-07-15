@@ -65,8 +65,14 @@ export class CouponsController {
 
   /** Which coupon a given product price would get — used for the live preview. */
   @Get('best')
-  best(@Req() req: Request, @Query('price_usd') priceUsd: string) {
-    return this.svc.bestFor(this.uid(req), Number(priceUsd) || 0).then((c) => ({ coupon: c }));
+  async best(@Req() req: Request, @Query('price_usd') priceUsd: string) {
+    const match = await this.svc.bestFor(this.uid(req), Number(priceUsd) || 0);
+    return {
+      coupon: match?.coupon ?? null,
+      // false = the price is below every tier, so this is the "add another item" nudge.
+      qualifies: match?.qualifies ?? false,
+      line: match ? this.svc.couponLine(match.coupon, match.qualifies) : null,
+    };
   }
 
   @Patch(':id')
