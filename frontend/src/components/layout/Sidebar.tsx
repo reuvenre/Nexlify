@@ -69,9 +69,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <span className="absolute -bottom-1 -left-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-surface-sidebar" />
         </div>
 
+        {/* Sized against the 48px plate beside it — at the old 13px/10px the wordmark read
+            as a caption next to the mark rather than as part of one lockup. */}
         <div className="flex-1 min-w-0">
-          <p className="text-body font-semibold text-white tracking-tight leading-none">Nexlify</p>
-          <p className="text-2xs text-white/30 mt-0.5 leading-none">מבית Win Solutions</p>
+          <p className="text-lg font-bold text-white tracking-tight leading-none">Nexlify</p>
+          <p className="text-xs text-white/35 mt-1 leading-none">מבית Win Solutions</p>
         </div>
 
         <button
