@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import axios from 'axios';
@@ -84,6 +84,8 @@ type TgMedia =
 
 @Injectable()
 export class PostsService {
+  private readonly logger = new Logger(PostsService.name);
+
   constructor(
     @InjectRepository(Post)
     private readonly repo: Repository<Post>,
@@ -1433,10 +1435,12 @@ export class PostsService {
     try {
       const results = await this.searchProducts({ keyword: productId, limit: 1 }, creds);
       if (results.length > 0) return results[0];
-    } catch {}
-
-    // Mock product for dev / when API not configured
-    return this.mockProduct(productId);
+    } catch (err: any) {
+      this.logger.warn(`searchProduct(${productId}) failed: ${err?.message}`);
+    }
+    // No invented fallback: a made-up product would get AI copy written about it and be
+    // published to a real channel. Callers treat null as "couldn't resolve".
+    return null;
   }
 
   private async searchProducts(params: {
@@ -1448,7 +1452,7 @@ export class PostsService {
     limit?: number;
   }, creds: DecryptedCredentials): Promise<any[]> {
     if (!creds?.aliexpress_app_key) {
-      return this.mockProducts(params.keyword || 'product', params.limit || 5);
+      throw new BadRequestException('AliExpress affiliate credentials not configured');
     }
 
     try {
@@ -1507,8 +1511,11 @@ export class PostsService {
           currency: targetSale > 0 ? (p.target_sale_price_currency || targetCcy) : 'USD',
         };
       });
-    } catch {
-      return this.mockProducts(params.keyword || 'product', params.limit || 5);
+    } catch (err: any) {
+      // Campaigns run unattended — inventing products here would publish fabricated
+      // deals to the user's real audience. Fail the run instead; the scheduler logs it.
+      this.logger.error(`searchProducts failed: ${err?.message}`);
+      throw err;
     }
   }
 
@@ -1803,39 +1810,5 @@ Instructions:
       return `🔥 <b>عرض حصري — لا تفوّتوه!</b>\n\n${product.title}\n\n💸 <b>فقط ${symbol}${priceLocal}</b> بدلاً من ~~${symbol}${originalLocal}~~ (توفير ${discount}%!)\n\n⭐ التقييم: ${product.rating?.toFixed(1) || 'N/A'}/5 | 🛒 ${(product.orders_count || 0).toLocaleString()} عميل راضٍ\n\n⚡ هذا السعر لن يبقى — تصرفوا الآن!\n👇 اضغطوا على الرابط للشراء`;
     }
     return `🔥 <b>Hot Deal — Don't Miss Out!</b>\n\n${product.title}\n\n💸 <b>Only ${symbol}${priceLocal}</b> instead of ${symbol}${originalLocal} (save ${discount}%!)\n\n⭐ Rating: ${product.rating?.toFixed(1) || 'N/A'}/5 | 🛒 ${(product.orders_count || 0).toLocaleString()} happy customers\n\n⚡ This price won't last — act now!\n👇 Tap the link to buy`;
-  }
-
-  // ── Mock data for dev ─────────────────────────────────────────────────────
-
-  private mockProduct(productId: string) {
-    return {
-      product_id: productId,
-      title: `Demo Product ${productId}`,
-      original_price: 29.99,
-      sale_price: 14.99,
-      discount_percent: 50,
-      image_url: 'https://ae01.alicdn.com/kf/placeholder.jpg',
-      product_url: `https://www.aliexpress.com/item/${productId}.html`,
-      category: 'Electronics',
-      orders_count: 1200,
-      rating: 4.7,
-      currency: 'USD',
-    };
-  }
-
-  private mockProducts(keyword: string, limit: number) {
-    return Array.from({ length: limit }, (_, i) => ({
-      product_id: `mock-${Date.now()}-${i}`,
-      title: `${keyword} Product ${i + 1}`,
-      original_price: 19.99 + i * 5,
-      sale_price: 9.99 + i * 3,
-      discount_percent: 45,
-      image_url: 'https://ae01.alicdn.com/kf/placeholder.jpg',
-      product_url: `https://www.aliexpress.com/item/mock${i}.html`,
-      category: 'General',
-      orders_count: 500 + i * 100,
-      rating: 4.5,
-      currency: 'USD',
-    }));
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import axios from 'axios';
@@ -139,10 +139,7 @@ export class ProductsService {
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
 
     if (!creds?.aliexpress_app_key) {
-      if (params.strict) throw new Error('AliExpress affiliate credentials not configured');
-      this.logger.warn(`search: no AliExpress credentials for user ${userId} — returning mock data`);
-      const data = this.mockProducts(params.keyword, limit, currency, rate);
-      return { data, total: data.length, page, limit };
+      throw new BadRequestException('AliExpress affiliate credentials not configured — הגדר App Key ו-App Secret בהגדרות');
     }
 
     try {
@@ -198,9 +195,9 @@ export class ProductsService {
       return { data: filtered, total, page, limit };
     } catch (err: any) {
       this.logger.error(`AliExpress search failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
-      if (params.strict) throw err;
-      const data = this.mockProducts(params.keyword, limit, currency, rate);
-      return { data, total: data.length, page, limit };
+      // Never invent products on failure: these get AI copy written about them and are
+      // published to the user's real channels under their affiliate identity.
+      throw err;
     }
   }
 
@@ -230,10 +227,7 @@ export class ProductsService {
     const minDiscount = params.sort === 'most_discounted' ? 30 : undefined;
 
     if (!creds?.aliexpress_app_key) {
-      this.logger.warn(`getFeatured: no AliExpress credentials for user ${userId} — returning mock data`);
-      const label = params.sort === 'most_discounted' ? 'deal' : 'trending';
-      const data = this.mockProducts(label, limit, currency, rate);
-      return { data, total: data.length, page, limit };
+      throw new BadRequestException('AliExpress affiliate credentials not configured — הגדר App Key ו-App Secret בהגדרות');
     }
 
     try {
@@ -271,9 +265,7 @@ export class ProductsService {
       return { data, total, page, limit };
     } catch (err: any) {
       this.logger.error(`AliExpress featured failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
-      const label = params.sort === 'most_discounted' ? 'deal' : 'trending';
-      const data = this.mockProducts(label, limit, currency, rate);
-      return { data, total: data.length, page, limit };
+      throw err;
     }
   }
 
@@ -297,10 +289,7 @@ export class ProductsService {
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
 
     if (!creds?.aliexpress_app_key) {
-      if (params.strict) throw new Error('AliExpress affiliate credentials not configured');
-      this.logger.warn(`getPromotional: no AliExpress credentials for user ${userId} — returning mock data`);
-      const data = this.mockProducts('promotion', limit, currency, rate);
-      return { data, total: data.length, page, limit };
+      throw new BadRequestException('AliExpress affiliate credentials not configured — הגדר App Key ו-App Secret בהגדרות');
     }
 
     try {
@@ -336,9 +325,7 @@ export class ProductsService {
       return { data, total, page, limit };
     } catch (err: any) {
       this.logger.error(`AliExpress promotional failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
-      if (params.strict) throw err;
-      const data = this.mockProducts('promotion', limit, currency, rate);
-      return { data, total: data.length, page, limit };
+      throw err;
     }
   }
 
@@ -351,7 +338,9 @@ export class ProductsService {
 
     const creds = await this.credentials.getRaw(userId);
     if (!creds?.aliexpress_app_key) {
-      return this.mockCategories();
+      // An invented taxonomy filters against real AliExpress ids and silently returns
+      // wrong/empty results — an empty list is the honest answer.
+      return [];
     }
 
     try {
@@ -377,7 +366,7 @@ export class ProductsService {
       return categories;
     } catch (err: any) {
       this.logger.error(`AliExpress categories failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
-      return this.mockCategories();
+      return [];
     }
   }
 
@@ -585,47 +574,6 @@ export class ProductsService {
         orders_count: ordersCount,
         rating,
         currency: resolvedCurrency,
-        sale_price_usd: +usdSale.toFixed(2),
-      };
-    });
-  }
-
-  private mockCategories() {
-    return [
-      { id: '44', name: 'Electronics', parent_id: null },
-      { id: '3', name: 'Phones & Accessories', parent_id: null },
-      { id: '6', name: 'Computer & Networking', parent_id: null },
-      { id: '13', name: 'Fashion', parent_id: null },
-      { id: '15', name: "Women's Clothing", parent_id: null },
-      { id: '11', name: "Men's Clothing", parent_id: null },
-      { id: '66', name: 'Jewelry & Watches', parent_id: null },
-      { id: '1501', name: 'Home & Garden', parent_id: null },
-      { id: '34', name: 'Consumer Electronics', parent_id: null },
-      { id: '36', name: 'Sports & Entertainment', parent_id: null },
-      { id: '18', name: 'Beauty & Health', parent_id: null },
-      { id: '39', name: 'Bags & Shoes', parent_id: null },
-      { id: '26', name: 'Toys & Hobbies', parent_id: null },
-      { id: '7', name: 'Office & School Supplies', parent_id: null },
-      { id: '100003070', name: 'Automobiles & Motorcycles', parent_id: null },
-    ];
-  }
-
-  private mockProducts(keyword: string, limit: number, currency = 'USD', rate = 1) {
-    return Array.from({ length: limit }, (_, i) => {
-      const usdSale = 9.99 + i * 1.5;
-      const usdOrig = 19.99 + i * 3;
-      return {
-        product_id: `mock-${Date.now()}-${i}`,
-        title: `${keyword} Item ${i + 1} — Premium Quality`,
-        original_price: +(usdOrig * rate).toFixed(2),
-        sale_price: +(usdSale * rate).toFixed(2),
-        discount_percent: Math.floor(30 + (i % 5) * 8),
-        image_url: `https://ae01.alicdn.com/kf/placeholder${i % 5}.jpg`,
-        product_url: `https://www.aliexpress.com/item/mock${i}.html`,
-        category: 'General',
-        orders_count: 500 + i * 120,
-        rating: +(4.2 + (i % 5) * 0.15).toFixed(1),
-        currency,
         sale_price_usd: +usdSale.toFixed(2),
       };
     });
