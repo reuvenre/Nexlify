@@ -1,89 +1,122 @@
 'use client';
 
-import { useState } from 'react';
-import { ShoppingCart, TrendingUp, DollarSign, Package, RefreshCw, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  ShoppingCart, TrendingUp, DollarSign, CheckCircle2, Clock, XCircle,
+  Loader2, AlertTriangle, Download,
+} from 'lucide-react';
+import { earningsApi } from '@/lib/api-client';
+import type { Earning, EarningStatus } from '@/types';
 
-type OrderStatus = 'completed' | 'pending' | 'cancelled';
+/**
+ * Real orders from AliExpress (aliexpress.affiliate.order.list, via the earnings sync).
+ * Every figure on this screen comes from AliExpress — nothing is invented locally, and an
+ * empty table means there genuinely are no commissionable orders yet.
+ */
 
-interface Order {
-  id: string;
-  orderId: string;
-  product: { title: string; image: string };
-  platform: 'aliexpress' | 'amazon';
-  amount: number;
-  commission: number;
-  commissionStatus: 'confirmed' | 'estimated' | 'cancelled';
-  status: OrderStatus;
-  date: string;
-  date_iso: string;
-}
+const STATUS_CFG: Record<EarningStatus, { label: string; cls: string; icon: React.ElementType }> = {
+  settled: { label: 'שולם', cls: 'bg-emerald-500/10 text-emerald-400', icon: CheckCircle2 },
+  estimated: { label: 'משוער', cls: 'bg-blue-500/10 text-blue-400', icon: Clock },
+  cancelled: { label: 'בוטל', cls: 'bg-red-500/10 text-red-400', icon: XCircle },
+};
 
-const DEMO_ORDERS: Order[] = [
-  { id: '1', orderId: '8155340294738', product: { title: 'Universal Automotive Windshield Wiper Kit 12V', image: 'https://ae01.alicdn.com/kf/S1a2b3c.jpg' }, platform: 'aliexpress', amount: 23.50, commission: 0.94, commissionStatus: 'confirmed', status: 'completed', date: 'אפר׳ 19, 2026, 20:17', date_iso: '2026-04-19' },
-  { id: '2', orderId: '8155340294739', product: { title: 'Wireless Bluetooth Earbuds Pro ANC', image: 'https://ae01.alicdn.com/kf/S4d5e6f.jpg' }, platform: 'aliexpress', amount: 15.99, commission: 0.64, commissionStatus: 'estimated', status: 'pending', date: 'אפר׳ 18, 2026, 15:30', date_iso: '2026-04-18' },
-  { id: '3', orderId: '8155340294740', product: { title: 'Grill LED Light Drive Red Blue Emergency Remote', image: 'https://ae01.alicdn.com/kf/S7g8h9i.jpg' }, platform: 'aliexpress', amount: 8.75, commission: 0.35, commissionStatus: 'estimated', status: 'completed', date: 'אפר׳ 18, 2026, 09:11', date_iso: '2026-04-18' },
-  { id: '4', orderId: '8155340294741', product: { title: '2Pcs Full Cover Tempered Glass Screen Protector', image: 'https://ae01.alicdn.com/kf/Sj0k1l2.jpg' }, platform: 'aliexpress', amount: 4.30, commission: 0.17, commissionStatus: 'confirmed', status: 'completed', date: 'אפר׳ 15, 2026, 07:22', date_iso: '2026-04-15' },
+const FILTERS: { key: 'all' | EarningStatus; label: string }[] = [
+  { key: 'all', label: 'הכל' },
+  { key: 'estimated', label: 'משוער' },
+  { key: 'settled', label: 'שולם' },
+  { key: 'cancelled', label: 'בוטל' },
 ];
 
-const STATUS_CFG: Record<OrderStatus, { label: string; cls: string; icon: React.ElementType }> = {
-  completed: { label: 'הושלם',  cls: 'bg-emerald-500/10 text-emerald-400', icon: CheckCircle2 },
-  pending:   { label: 'ממתין',  cls: 'bg-amber-500/10 text-amber-400',     icon: Clock },
-  cancelled: { label: 'בוטל',   cls: 'bg-red-500/10 text-red-400',         icon: XCircle },
-};
-
-const COMM_CFG = {
-  confirmed: { label: 'מאושר',  cls: 'bg-emerald-500/10 text-emerald-400' },
-  estimated: { label: 'משוער',  cls: 'bg-blue-500/10 text-blue-400' },
-  cancelled: { label: 'בוטל',   cls: 'bg-red-500/10 text-red-400' },
-};
+const LIMIT = 20;
 
 export default function OrdersPage() {
-  const [orders] = useState<Order[]>(DEMO_ORDERS);
-  const [filter, setFilter] = useState<'all' | OrderStatus>('all');
-  const [refreshing, setRefreshing] = useState(false);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [orders, setOrders] = useState<Earning[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState<'all' | EarningStatus>('all');
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState('');
+  const [syncMsg, setSyncMsg] = useState('');
 
-  const filtered = orders.filter((o) => {
-    if (filter !== 'all' && o.status !== filter) return false;
-    if (dateFrom && o.date_iso < dateFrom) return false;
-    if (dateTo && o.date_iso > dateTo) return false;
-    return true;
-  });
-  const totalAmount = orders.reduce((s, o) => s + o.amount, 0);
-  const totalComm   = orders.reduce((s, o) => s + o.commission, 0);
-  const commRate    = totalAmount > 0 ? (totalComm / totalAmount) * 100 : 0;
+  const load = useCallback(async (p = 1) => {
+    setLoading(true); setError('');
+    try {
+      const res = await earningsApi.list({
+        page: p, limit: LIMIT,
+        status: filter === 'all' ? undefined : filter,
+      });
+      setOrders(res.data);
+      setTotal(res.total);
+      setPage(p);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'טעינת ההזמנות נכשלה');
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setRefreshing(false);
+  useEffect(() => { load(1); }, [load]);
+
+  /** Pulls fresh orders from AliExpress — this is what actually populates the screen. */
+  const handleSync = async () => {
+    setSyncing(true); setError(''); setSyncMsg('');
+    try {
+      const r = await earningsApi.sync();
+      setSyncMsg(`✓ ${r.synced} הזמנות חדשות · ${r.updated} עודכנו`);
+      load(1);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'הסנכרון נכשל — בדוק את פרטי ה-AliExpress בהגדרות');
+    } finally {
+      setSyncing(false);
+    }
   };
+
+  // Totals for the orders in view. Cancelled orders are excluded — they aren't money.
+  const live = orders.filter((o) => o.status !== 'cancelled');
+  const totalAmount = live.reduce((s, o) => s + (o.order_amount_usd || 0), 0);
+  const totalComm = live.reduce((s, o) => s + (o.commission_usd || 0), 0);
+  const commRate = totalAmount > 0 ? (totalComm / totalAmount) * 100 : 0;
+  const pages = Math.max(1, Math.ceil(total / LIMIT));
+
+  const fmtDate = (d: string) =>
+    new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">הזמנות</h1>
-          <p className="text-sm text-white/40 mt-1">מעקב אחר הזמנות ועמלות שותפים</p>
+          <p className="text-sm text-white/40 mt-1">הזמנות ועמלות אמיתיות מ-AliExpress</p>
         </div>
-        <button onClick={handleRefresh} disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-60 text-white/60 text-sm rounded-xl transition-all">
-          <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-          רענן
+        <button onClick={handleSync} disabled={syncing}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl transition-all">
+          {syncing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          {syncing ? 'מסנכרן מ-AliExpress...' : 'סנכרן הזמנות'}
         </button>
       </div>
+
+      {syncMsg && <p className="text-xs text-emerald-400 mb-4">{syncMsg}</p>}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/25 rounded-xl px-3.5 py-2.5 mb-4">
+          <AlertTriangle size={13} className="text-red-400 shrink-0" />
+          <p className="text-xs text-red-300">{error}</p>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'עמלה ממוצעת',   value: `${commRate.toFixed(1)}%`,            icon: TrendingUp,  accent: 'blue' },
-          { label: 'סה״כ סכום',      value: `$${totalAmount.toFixed(2)}`,          icon: DollarSign,  accent: 'green' },
-          { label: 'סה״כ עמלה',      value: `$${totalComm.toFixed(2)}`,            icon: DollarSign,  accent: 'violet' },
-          { label: 'סה״כ הזמנות',    value: orders.length,                         icon: ShoppingCart, accent: 'amber' },
+          { label: 'אחוז עמלה', value: totalAmount > 0 ? `${commRate.toFixed(1)}%` : '—', icon: TrendingUp, accent: 'blue' },
+          { label: 'סך הזמנות', value: `$${totalAmount.toFixed(2)}`, icon: DollarSign, accent: 'green' },
+          { label: 'סך עמלות', value: `$${totalComm.toFixed(2)}`, icon: DollarSign, accent: 'violet' },
+          { label: 'מספר הזמנות', value: total, icon: ShoppingCart, accent: 'amber' },
         ].map(({ label, value, icon: Icon, accent }) => {
-          const map: Record<string, string> = { blue: 'text-blue-400 bg-blue-500/10', green: 'text-emerald-400 bg-emerald-500/10', violet: 'text-violet-400 bg-violet-500/10', amber: 'text-amber-400 bg-amber-500/10' };
+          const map: Record<string, string> = {
+            blue: 'text-blue-400 bg-blue-500/10', green: 'text-emerald-400 bg-emerald-500/10',
+            violet: 'text-violet-400 bg-violet-500/10', amber: 'text-amber-400 bg-amber-500/10',
+          };
           return (
             <div key={label} className="bg-surface-secondary border border-edge rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
@@ -98,117 +131,90 @@ export default function OrdersPage() {
         })}
       </div>
 
-      {/* Date range filter */}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-white/40">מ:</span>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="bg-surface-secondary border border-edge rounded-xl px-3 py-1.5 text-white/70 text-xs outline-none focus:border-blue-500/50 transition-colors"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-white/40">עד:</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="bg-surface-secondary border border-edge rounded-xl px-3 py-1.5 text-white/70 text-xs outline-none focus:border-blue-500/50 transition-colors"
-          />
-        </div>
-        {(dateFrom || dateTo) && (
-          <button
-            onClick={() => { setDateFrom(''); setDateTo(''); }}
-            className="px-3 py-1.5 text-xs text-white/50 hover:text-white/80 bg-white/5 hover:bg-white/10 rounded-xl transition-all"
-          >
-            נקה תאריכים
-          </button>
-        )}
-      </div>
-
-      {/* Filters */}
-      <div className="flex bg-surface-secondary border border-edge rounded-xl p-1 gap-1 mb-5 w-fit">
-        {[{ v: 'all' as const, l: 'הכל' }, { v: 'completed' as const, l: 'הושלם' }, { v: 'pending' as const, l: 'ממתין' }, { v: 'cancelled' as const, l: 'בוטל' }].map(({ v, l }) => (
-          <button key={v} onClick={() => setFilter(v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all
-              ${filter === v ? 'bg-blue-600/20 text-blue-400' : 'text-white/40 hover:text-white/70'}`}>
-            {l}
+      {/* Status filter */}
+      <div className="flex bg-surface-secondary border border-edge rounded-xl p-1 gap-1 mb-5 w-fit flex-wrap">
+        {FILTERS.map((f) => (
+          <button key={f.key} onClick={() => setFilter(f.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filter === f.key ? 'bg-blue-600/20 text-blue-400' : 'text-white/40 hover:text-white/70'
+            }`}>
+            {f.label}
           </button>
         ))}
       </div>
 
       {/* Table */}
       <div className="bg-surface-secondary border border-edge rounded-xl overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-edge">
-              <th className="text-right px-4 py-3 text-xs font-semibold text-white/30 uppercase tracking-wider">סטטוס</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-white/30 uppercase tracking-wider">מוצר</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-white/30 uppercase tracking-wider hidden md:table-cell">סכום</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-white/30 uppercase tracking-wider hidden md:table-cell">עמלה</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-white/30 uppercase tracking-wider hidden lg:table-cell">מזהה הזמנה</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-white/30 uppercase tracking-wider hidden lg:table-cell">תאריך</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="py-16 text-center">
-                  <Package size={32} className="text-white/15 mx-auto mb-3" />
-                  <p className="text-sm text-white/30">אין הזמנות עדיין</p>
-                  <p className="text-xs text-white/20 mt-1">הזמנות יופיעו כאן כשלקוחות ירכשו דרך קישורי השותפים שלך</p>
-                </td>
-              </tr>
-            ) : filtered.map((order) => {
-              const sc = STATUS_CFG[order.status];
-              const cc = COMM_CFG[order.commissionStatus];
-              const StatusIcon = sc.icon;
-              return (
-                <tr key={order.id} className="border-b border-edge last:border-0 hover:bg-white/2 transition-colors">
-                  <td className="px-4 py-3.5">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${sc.cls}`}>
-                      <StatusIcon size={10} />
-                      {sc.label}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-white/5 border border-edge flex items-center justify-center shrink-0 overflow-hidden">
-                        <Package size={14} className="text-white/20" />
-                      </div>
-                      <p className="text-sm text-white/80 truncate max-w-[200px]">{order.product.title}</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 hidden md:table-cell">
-                    <span className="text-sm font-semibold text-white">${order.amount.toFixed(2)}</span>
-                  </td>
-                  <td className="px-4 py-3.5 hidden md:table-cell">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cc.cls}`}>
-                      ${order.commission.toFixed(2)} · {cc.label}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5 hidden lg:table-cell">
-                    <span className="text-xs text-white/30 font-mono">{order.orderId}</span>
-                  </td>
-                  <td className="px-4 py-3.5 hidden lg:table-cell">
-                    <span className="text-xs text-white/35">{order.date}</span>
-                  </td>
+        {loading ? (
+          <div className="py-16 flex justify-center"><Loader2 size={22} className="animate-spin text-blue-400" /></div>
+        ) : orders.length === 0 ? (
+          <div className="py-16 text-center px-6">
+            <ShoppingCart size={32} className="text-white/15 mx-auto mb-3" />
+            <p className="text-sm font-medium text-white/50 mb-1">
+              {filter === 'all' ? 'אין עדיין הזמנות' : 'אין הזמנות בסטטוס הזה'}
+            </p>
+            <p className="text-xs text-white/30 max-w-md mx-auto leading-relaxed">
+              {filter === 'all'
+                ? 'הזמנות מופיעות כאן אחרי שמישהו קונה דרך קישור השותפים שלך. לחץ "סנכרן הזמנות" כדי למשוך את הנתונים העדכניים מ-AliExpress.'
+                : 'נסה סינון אחר.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-edge text-right text-2xs text-white/35">
+                  <th className="px-4 py-3 font-medium">סטטוס</th>
+                  <th className="px-4 py-3 font-medium">מזהה מוצר</th>
+                  <th className="px-4 py-3 font-medium">סכום</th>
+                  <th className="px-4 py-3 font-medium">עמלה</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell">מזהה הזמנה</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell">תאריך</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {/* Pagination hint */}
-        {filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-edge flex items-center justify-between">
-            <p className="text-xs text-white/30">{filtered.length} הזמנות</p>
-            <p className="text-xs text-white/20">עמוד 1 מתוך 1</p>
+              </thead>
+              <tbody>
+                {orders.map((o) => {
+                  const cfg = STATUS_CFG[o.status] || STATUS_CFG.estimated;
+                  const StatusIcon = cfg.icon;
+                  return (
+                    <tr key={o.id} className="border-b border-edge last:border-0 hover:bg-white/[0.02] transition-colors">
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1.5 text-2xs px-2 py-0.5 rounded-full ${cfg.cls}`}>
+                          <StatusIcon size={10} /> {cfg.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-white/45 font-mono text-xs" dir="ltr">{o.product_id}</td>
+                      <td className="px-4 py-3 text-white/70 text-sm" dir="ltr">${(o.order_amount_usd || 0).toFixed(2)}</td>
+                      <td className="px-4 py-3">
+                        <span className="text-emerald-400 font-medium text-sm" dir="ltr">${(o.commission_usd || 0).toFixed(2)}</span>
+                        <span className="text-2xs text-white/30 block" dir="ltr">₪{(o.commission_ils || 0).toFixed(2)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-white/45 font-mono text-xs hidden md:table-cell" dir="ltr">{o.order_id}</td>
+                      <td className="px-4 py-3 text-2xs text-white/45 hidden md:table-cell">{fmtDate(o.order_date)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+
+      {/* Pagination */}
+      {pages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-5">
+          <button disabled={page <= 1} onClick={() => load(page - 1)}
+            className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הקודם</button>
+          <span className="text-xs text-white/40">עמוד {page} מתוך {pages}</span>
+          <button disabled={page >= pages} onClick={() => load(page + 1)}
+            className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הבא</button>
+        </div>
+      )}
+
+      <p className="text-2xs text-white/25 mt-5 leading-relaxed">
+        הנתונים נמשכים ישירות מדוח ההזמנות של AliExpress. &quot;משוער&quot; = העמלה טרם אושרה סופית ·
+        &quot;שולם&quot; = הועברה בפועל. הזמנות שבוטלו לא נספרות בסכומים.
+      </p>
     </div>
   );
 }
