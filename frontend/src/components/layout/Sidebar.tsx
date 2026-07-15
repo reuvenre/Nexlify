@@ -58,7 +58,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     <aside className="sidebar-root fixed right-0 top-0 h-full w-[220px] bg-surface-sidebar border-l border-edge flex flex-col z-40 select-none">
 
       {/* ── Logo ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 pt-5 pb-4 border-b border-edge">
+      {/* px-3 (matching the nav below) and a tighter gap buy back the 12px the wordmark
+          needs: the sidebar is 220px, and plate + gaps + theme toggle left only 92px for
+          text — 9px short of "מבית Win Solutions", so it wrapped onto a second line. */}
+      <div className="flex items-center gap-2.5 px-3 pt-5 pb-4 border-b border-edge">
         {/* White plate: the mark is a mid-blue gradient and simply disappeared against the
             dark sidebar. Every surface in the app gives it the same white backing. */}
         <div className="relative shrink-0 bg-white rounded-[11px] p-1.5 shadow-md shadow-black/20">
@@ -73,7 +76,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             as a caption next to the mark rather than as part of one lockup. */}
         <div className="flex-1 min-w-0">
           <p className="text-lg font-bold text-white tracking-tight leading-none">Nexlify</p>
-          <p className="text-xs text-white/35 mt-1 leading-none">מבית Win Solutions</p>
+          {/* 11px, not 12px: it must stay on ONE line, and 12px needs 101px against a
+              104px budget — too thin a margin to survive a different Hebrew fallback font
+              on another machine. nowrap makes a regression visible instead of silent. */}
+          <p className="text-[11px] text-white/35 mt-1 leading-none whitespace-nowrap">מבית Win Solutions</p>
         </div>
 
         <button
