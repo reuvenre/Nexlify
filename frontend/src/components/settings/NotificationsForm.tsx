@@ -1,121 +1,156 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, Loader2, AlertCircle } from 'lucide-react';
+import { Save, Loader2, AlertCircle, Send, CheckCircle2 } from 'lucide-react';
+import { notificationsApi } from '@/lib/api-client';
+import type { NotificationPrefs } from '@/types';
 
-interface NotifToggle {
-  id: string;
-  group: string;
-  label: string;
-  desc: string;
-  enabled: boolean;
-}
-
-const NOTIF_KEY = 'alibot-notifications';
-
-const DEFAULTS: NotifToggle[] = [
-  { id: 'daily_summary',     group: 'דוחות',         label: 'סיכום ביצועים יומי',        desc: 'קבל מייל יומי עם ההזמנות, הכנסות ועמלות שלך',                  enabled: true },
-  { id: 'product_discovery', group: 'AI ואוטומציה',  label: 'גילוי מוצרים הושלם',        desc: 'קבל התראה כשה-AI מייבא מוצרים חדשים לקטלוג',                   enabled: true },
-  { id: 'campaign_errors',   group: 'AI ואוטומציה',  label: 'שגיאות קמפיין',             desc: 'התראה כשקמפיין נתקל בבעיה בשליחה',                             enabled: false },
-  { id: 'post_sent',         group: 'פוסטים',        label: 'פוסט פורסם',                desc: 'אישור כשפוסט מתפרסם בהצלחה בערוץ',                             enabled: false },
+/**
+ * Only notifications that are ACTUALLY sent appear here. Each toggle maps to real code:
+ * daily_summary → the hourly digest cron; campaign_errors → the scheduler's failure path.
+ * Toggles for things nothing sends were removed rather than left as decoration.
+ */
+const TOGGLES: { id: 'daily_summary' | 'campaign_errors'; label: string; desc: string }[] = [
+  {
+    id: 'daily_summary',
+    label: 'סיכום ביצועים יומי',
+    desc: 'מייל אחד ביום (09:00) — פוסטים שנשלחו, כשלים, ממתינים בתור, הזמנות, עמלות וקרדיטים שנותרו.',
+  },
+  {
+    id: 'campaign_errors',
+    label: 'שגיאות קמפיין',
+    desc: 'מייל כשקמפיין נכשל. בלי זה הכשל נרשם רק בלוג של השרת ולא תדע עליו.',
+  },
 ];
 
 function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void }) {
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={enabled}
       onClick={onChange}
-      className={`relative rounded-full transition-colors duration-200 shrink-0 ${enabled ? 'bg-blue-600' : 'bg-white/15'}`}
-      style={{ height: '22px', width: '40px' }}
+      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${enabled ? 'bg-blue-600' : 'bg-white/15'}`}
     >
-      <span
-        className="absolute rounded-full bg-white shadow transition-all duration-200"
-        style={{ width: '18px', height: '18px', top: '2px', right: enabled ? '2px' : '20px' }}
-      />
+      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${enabled ? 'left-0.5' : 'right-0.5'}`} />
     </button>
   );
 }
 
 export function NotificationsForm() {
-  const [toggles, setToggles] = useState<NotifToggle[]>(DEFAULTS);
+  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved]   = useState(false);
-  const [error, setError]   = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  // Load persisted notification preferences on mount
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(NOTIF_KEY);
-      if (stored) {
-        const savedPrefs: Record<string, boolean> = JSON.parse(stored);
-        setToggles((ts) => ts.map((t) => ({
-          ...t,
-          enabled: savedPrefs[t.id] !== undefined ? savedPrefs[t.id] : t.enabled,
-        })));
-      }
-    } catch {}
+    notificationsApi.get()
+      .then(setPrefs)
+      .catch(() => setError('טעינת ההעדפות נכשלה'))
+      .finally(() => setLoading(false));
   }, []);
 
-  const toggle = (id: string) =>
-    setToggles((ts) => ts.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t)));
+  const toggle = (id: 'daily_summary' | 'campaign_errors') =>
+    setPrefs((p) => (p ? { ...p, [id]: !p[id] } : p));
 
   const handleSave = async () => {
-    setSaving(true);
-    setError(null);
+    if (!prefs) return;
+    setSaving(true); setError(null); setTestMsg('');
     try {
-      // Persist to localStorage (notification delivery API not yet implemented on backend)
-      const prefs: Record<string, boolean> = {};
-      toggles.forEach((t) => { prefs[t.id] = t.enabled; });
-      localStorage.setItem(NOTIF_KEY, JSON.stringify(prefs));
+      const updated = await notificationsApi.update({
+        daily_summary: prefs.daily_summary,
+        campaign_errors: prefs.campaign_errors,
+      });
+      setPrefs((p) => (p ? { ...p, ...updated } : p));
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      setError('שגיאה בשמירת ההגדרות. נסה שוב.');
+    } catch {
+      setError('שמירת ההעדפות נכשלה. נסה שוב.');
     } finally {
       setSaving(false);
     }
   };
 
-  const groups = Array.from(new Set(toggles.map((t) => t.group)));
+  /** Sends the real digest to the account's address — proof, not a promise. */
+  const handleTest = async () => {
+    setTesting(true); setTestMsg(''); setError(null);
+    try {
+      const r = await notificationsApi.testDaily();
+      setTestMsg(r.sent ? '✓ נשלח — בדוק את תיבת הדואר שלך' : 'לא נשלח — לא נמצאה כתובת מייל לחשבון');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'שליחת הבדיקה נכשלה');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-white/40">
+        <Loader2 size={20} className="animate-spin ml-2" /> טוען העדפות...
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {groups.map((group) => (
-        <section key={group} className="bg-surface-secondary border border-edge rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-4">{group}</h3>
-          <div className="space-y-4">
-            {toggles.filter((t) => t.group === group).map((t) => (
-              <div key={t.id} className="flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white">{t.label}</p>
-                  <p className="text-xs text-white/40 mt-0.5">{t.desc}</p>
-                </div>
-                <Toggle enabled={t.enabled} onChange={() => toggle(t.id)} />
-              </div>
-            ))}
+    <div className="space-y-5" dir="rtl">
+      {/* Without SMTP nothing can be delivered — say it instead of letting a switch lie. */}
+      {prefs && !prefs.smtp_ready && (
+        <div className="flex items-start gap-2.5 bg-amber-500/[0.07] border border-amber-500/20 rounded-xl px-4 py-3">
+          <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs text-amber-400 font-medium">שרת המייל (SMTP) לא מוגדר</p>
+            <p className="text-2xs text-white/40 mt-0.5 leading-relaxed">
+              אפשר להפעיל את ההעדפות, אבל שום מייל לא יישלח עד שיוגדרו SMTP_HOST / SMTP_USER / SMTP_PASS בשרת.
+            </p>
           </div>
-        </section>
-      ))}
-
-      <p className="text-xs text-white/25">
-        אימות, איפוס סיסמה ומיילי onboarding נשלחים תמיד ולא ניתן להשבית אותם.
-      </p>
-
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
-          <AlertCircle size={14} className="shrink-0" />
-          {error}
         </div>
       )}
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl transition-all"
-      >
-        {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-        {saved ? 'נשמר ✓' : saving ? 'שומר...' : 'שמור הגדרות'}
-      </button>
+      <section className="bg-surface-secondary border border-edge rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white mb-1">התראות במייל</h3>
+        <p className="text-2xs text-white/35 mb-4">
+          נשלחות לכתובת החשבון{prefs?.last_daily_sent_on ? ` · סיכום אחרון נשלח ב-${prefs.last_daily_sent_on}` : ''}
+        </p>
+
+        <div className="space-y-1">
+          {TOGGLES.map((t) => (
+            <div key={t.id} className="flex items-start justify-between gap-4 py-3 border-b border-edge last:border-0">
+              <div className="min-w-0">
+                <p className="text-sm text-white/85">{t.label}</p>
+                <p className="text-2xs text-white/35 mt-0.5 leading-relaxed">{t.desc}</p>
+              </div>
+              <Toggle enabled={!!prefs?.[t.id]} onChange={() => toggle(t.id)} />
+            </div>
+          ))}
+        </div>
+
+        {error && <p className="text-xs text-red-400 mt-3">{error}</p>}
+        {testMsg && <p className="text-xs text-emerald-400 mt-3">{testMsg}</p>}
+
+        <div className="flex items-center gap-2 mt-5 flex-wrap">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-xl transition-all"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
+            {saved ? 'נשמר ✓' : saving ? 'שומר...' : 'שמור העדפות'}
+          </button>
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            title="שולח את הסיכום של היום לכתובת שלך עכשיו"
+            className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 text-white/60 text-sm rounded-xl transition-all"
+          >
+            {testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            שלח סיכום לבדיקה
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

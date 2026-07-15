@@ -5,6 +5,7 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 import { PostsService } from '../posts/posts.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { ChannelsService } from '../channels/channels.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { OrchestratorAgent } from '../agents/orchestrator.agent';
 import { AdsService } from '../ads/ads.service';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
@@ -23,6 +24,7 @@ export class CampaignSchedulerService {
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
     private readonly channels: ChannelsService,
+    private readonly notifications: NotificationsService,
     @Optional() private readonly orchestrator: OrchestratorAgent,
     @Optional() private readonly ads: AdsService,
     @Optional() private readonly supplierProducts: SupplierProductsService,
@@ -253,7 +255,11 @@ export class CampaignSchedulerService {
         : this.campaigns.markRun(campaign.id).then(() => this.posts.runCampaign(campaign, campaign.user_id));
 
       runner
-        .catch((err) => this.logger.error(`Campaign ${campaign.id} failed: ${err.message}`))
+        .catch((err) => {
+          this.logger.error(`Campaign ${campaign.id} failed: ${err.message}`);
+          // A campaign dying silently server-side is invisible to the owner — tell them.
+          void this.notifications.notifyCampaignError(campaign.user_id, campaign.name, err.message);
+        })
         .finally(() => this.running.delete(campaign.id));
     }
   }

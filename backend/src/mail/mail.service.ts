@@ -58,6 +58,16 @@ export class MailService {
     }
   }
 
+  /** Send a ready-made HTML email. Throws on SMTP failure so callers can react. */
+  async sendHtml(to: string, subject: string, html: string): Promise<void> {
+    if (!this.isConfigured()) {
+      this.logger.warn(`[DEV] Email to ${to} not sent (SMTP not configured): ${subject}`);
+      return;
+    }
+    const from = this.config.get<string>('SMTP_FROM') || `"Nexlify PRO" <noreply@alibotpro.com>`;
+    await this.transporter().sendMail({ from, to, subject, html });
+  }
+
   /**
    * Send one broadcast email (admin → user). Returns false when SMTP isn't configured
    * (the caller reports that nothing was actually delivered). The message body is the

@@ -569,6 +569,16 @@ export interface Channel {
   updated_at: string;
 }
 
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+export interface NotificationPrefs {
+  daily_summary: boolean;
+  campaign_errors: boolean;
+  last_daily_sent_on: string | null;
+  /** False when SMTP isn't configured — nothing can actually be delivered. */
+  smtp_ready: boolean;
+}
+
 // ─── Coupons ──────────────────────────────────────────────────────────────────
 
 export interface Coupon {
