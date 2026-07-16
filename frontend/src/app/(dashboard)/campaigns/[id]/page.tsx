@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  ArrowRight, Play, Pause, Zap, Loader2, AlertCircle, CheckCircle2, Clock
+  ArrowRight, Play, Pause, Zap, Loader2, AlertCircle, CheckCircle2, Clock, Pencil
 } from 'lucide-react';
 import { campaignsApi } from '@/lib/api-client';
 import type { Campaign, Post } from '@/types';
@@ -112,6 +112,14 @@ export default function CampaignDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push(`/campaigns/${id}/edit`)}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl transition-all"
+          >
+            <Pencil size={13} />
+            ערוך
+          </button>
+
           <button
             onClick={handleToggle}
             className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl transition-all"
