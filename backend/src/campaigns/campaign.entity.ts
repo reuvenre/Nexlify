@@ -24,6 +24,22 @@ export class Campaign {
   @Column({ default: 'draft' })
   status: CampaignStatus;
 
+  /**
+   * Product source. 'aliexpress' = keyword search via the affiliate API (the original
+   * behaviour). 'flylink' = rotate the user's linked supplier_products (no keyword search;
+   * FLYLINK has no search API). Drives which runner the scheduler picks.
+   */
+  @Column({ default: 'aliexpress' })
+  source: string;
+
+  /**
+   * FLYLINK only: JSON array of target channel_ids the campaign publishes to. AliExpress
+   * campaigns leave this null and post to the default channel. null/[] for a flylink
+   * campaign means "no target set" and the run fails loudly rather than posting nowhere.
+   */
+  @Column({ type: 'text', nullable: true })
+  target_channels: string | null;
+
   @Column('text', { array: true, default: '{}' })
   keywords: string[];
 

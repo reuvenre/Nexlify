@@ -250,9 +250,19 @@ export class CampaignSchedulerService {
       // whether the orchestrator was injected (always true), so every campaign wrongly
       // ran through the AI agents regardless of its use_agents flag.
       const useAgents = campaign.use_agents && this.orchestrator;
-      const runner = useAgents
-        ? this.campaigns.markRun(campaign.id).then(() => this.orchestrator.run(campaign, campaign.user_id))
-        : this.campaigns.markRun(campaign.id).then(() => this.posts.runCampaign(campaign, campaign.user_id));
+      // FLYLINK campaigns rotate the linked supplier catalog instead of keyword-searching
+      // AliExpress, so they run through a different service. use_agents only applies to the
+      // AliExpress path.
+      // Return type is unioned across three runners and the result is unused here
+      // (fire-and-forget with .catch/.finally below), so widen to unknown.
+      const runOnce = (): Promise<unknown> => {
+        if (campaign.source === 'flylink' && this.supplierProducts) {
+          return this.supplierProducts.runFlylinkCampaign(campaign, campaign.user_id);
+        }
+        if (useAgents) return this.orchestrator.run(campaign, campaign.user_id);
+        return this.posts.runCampaign(campaign, campaign.user_id);
+      };
+      const runner = this.campaigns.markRun(campaign.id).then(runOnce);
 
       runner
         .catch((err) => {

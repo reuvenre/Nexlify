@@ -192,6 +192,24 @@ export class PostsService {
   }
 
   /**
+   * The BODY template content for a specific group — the copy style that group publishes
+   * in (e.g. the "מאמא מותגים" hidden-product wording). Public so the FLYLINK campaign
+   * runner can generate on-brand text for whichever group it posts to. Empty string when
+   * the group has no body template (→ caller falls back to the built-in voice).
+   */
+  async resolveBodyTemplate(userId: string, channelId?: string): Promise<string> {
+    if (!channelId) return '';
+    const id = await this.channels.getBodyTemplateId(userId, channelId).catch(() => null);
+    return this.templateContent(userId, id);
+  }
+
+  /** Bump a campaign's posts_count by one. Public so the FLYLINK runner (which lives in
+   *  SupplierProductsService and has no Campaign repo) can keep the counter accurate. */
+  async incrementCampaignPosts(campaignId: string): Promise<void> {
+    await this.campaignRepo.increment({ id: campaignId }, 'posts_count', 1);
+  }
+
+  /**
    * The user's default BODY template — the writing style their hand-published posts use.
    * The composer sends the template down with each request; a campaign runs headless and
    * has no composer, so without this it silently fell back to the generic built-in voice.

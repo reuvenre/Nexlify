@@ -4,9 +4,24 @@ export class CampaignDto {
   @IsString()
   name: string;
 
+  /** 'aliexpress' (keyword search) or 'flylink' (rotate linked supplier catalog). */
+  @IsOptional()
+  @IsIn(['aliexpress', 'flylink'])
+  source?: string;
+
+  // Optional: a FLYLINK campaign has no keywords. The per-source requirement (AliExpress
+  // needs keywords, FLYLINK needs target groups) is enforced in the runner, which fails
+  // loudly with a Hebrew message rather than a generic 400.
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  keywords: string[];
+  keywords?: string[];
+
+  /** FLYLINK only: target group channel_ids the campaign publishes to. */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  target_channels?: string[];
 
   @IsOptional()
   @IsString()

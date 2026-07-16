@@ -340,10 +340,16 @@ export interface ValidateResult {
 
 export type CampaignStatus = 'active' | 'paused' | 'draft' | 'error';
 
+export type CampaignSource = 'aliexpress' | 'flylink';
+
 export interface Campaign {
   id: string;
   name: string;
   status: CampaignStatus;
+  /** 'aliexpress' = keyword search; 'flylink' = rotate the linked supplier catalog. */
+  source: CampaignSource;
+  /** FLYLINK only: target group channel_ids. */
+  target_channels: string[];
   keywords: string[];
   category_id?: string;
   min_price?: number;
@@ -363,6 +369,8 @@ export interface Campaign {
 
 export interface CampaignInput {
   name: string;
+  source?: CampaignSource;
+  target_channels?: string[];
   keywords: string[];
   category_id?: string;
   min_price?: number;

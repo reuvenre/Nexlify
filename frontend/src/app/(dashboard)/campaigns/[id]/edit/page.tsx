@@ -16,6 +16,8 @@ export default function EditCampaignPage() {
     campaignsApi.get(id)
       .then((c) => setInitial({
         name: c.name,
+        source: c.source ?? 'aliexpress',
+        target_channels: c.target_channels ?? [],
         keywords: c.keywords ?? [],
         schedule_cron: c.schedule_cron,
         posts_per_run: c.posts_per_run,

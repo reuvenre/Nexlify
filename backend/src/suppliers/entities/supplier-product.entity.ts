@@ -68,6 +68,14 @@ export class SupplierProduct {
   @Column({ default: false })
   has_post: boolean;
 
+  /**
+   * When this product was last queued by a FLYLINK campaign. The campaign rotates the
+   * catalog by picking the oldest (NULLs = never posted) first, so this is the round-robin
+   * cursor. Distinct from has_post (a one-shot "ever posted?" flag).
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  last_posted_at: Date | null;
+
   @Column({ nullable: true })
   synced_at: Date;
 

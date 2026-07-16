@@ -105,6 +105,13 @@ export default function CampaignDetailPage() {
             >
               {STATUS_LABEL[campaign.status]}
             </span>
+            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border
+              ${campaign.source === 'flylink'
+                ? 'bg-violet-500/10 text-violet-300 border-violet-500/30'
+                : 'bg-blue-500/10 text-blue-300 border-blue-500/30'}`}
+            >
+              {campaign.source === 'flylink' ? 'FLYLINK' : 'AliExpress'}
+            </span>
           </div>
           <p className="text-sm text-white/40">
             {campaign.posts_count} פוסטים · {campaign.posts_per_run} פוסטים בהרצה
@@ -149,19 +156,27 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
-      {/* Info cards */}
+      {/* Info cards — keyword/filter cards are AliExpress-specific; FLYLINK shows its
+          target-group count and its rotation source instead. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {[
-          { label: 'מילות מפתח', value: campaign.keywords.join(', ') || '—' },
-          { label: 'הנחה מינ׳', value: campaign.min_discount ? `${campaign.min_discount}%` : '—' },
+        {(campaign.source === 'flylink'
+          ? [
+              { label: 'מקור', value: 'סבב קטלוג FLYLINK' },
+              { label: 'קבוצות יעד', value: `${campaign.target_channels?.length ?? 0} קבוצות` },
+            ]
+          : [
+              { label: 'מילות מפתח', value: campaign.keywords.join(', ') || '—' },
+              { label: 'הנחה מינ׳', value: campaign.min_discount ? `${campaign.min_discount}%` : '—' },
+            ]
+        ).concat([
           {
             label: 'הרצה הבאה',
             value: campaign.next_run_at
               ? new Date(campaign.next_run_at).toLocaleString('he-IL', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-              : '—'
+              : '—',
           },
-          { label: 'מארק-אפ', value: `${campaign.markup_percent ?? 0}%` },
-        ].map(({ label, value }) => (
+          { label: 'פוסטים בהרצה', value: `${campaign.posts_per_run}` },
+        ]).map(({ label, value }) => (
           <div key={label} className="bg-surface-secondary border border-edge rounded-xl p-4">
             <p className="text-2xs text-white/30 mb-1">{label}</p>
             <p className="text-xs text-white/70 truncate">{value}</p>

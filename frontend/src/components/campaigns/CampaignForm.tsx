@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Plus, X, Loader2, Save } from 'lucide-react';
-import type { Campaign, CampaignInput } from '@/types';
+import { ArrowRight, Plus, X, Loader2, Save, Search, Package } from 'lucide-react';
+import { channelsApi } from '@/lib/api-client';
+import { GroupMultiSelect, type GroupOption } from '@/components/GroupMultiSelect';
+import type { Campaign, CampaignInput, CampaignSource } from '@/types';
 
 const CRON_PRESETS = [
   { label: 'כל שעה',         value: '0 * * * *' },
@@ -32,7 +34,19 @@ export function CampaignForm({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [kwInput, setKwInput] = useState('');
-  const [form, setForm] = useState<CampaignInput>(initial);
+  const [form, setForm] = useState<CampaignInput>({ source: 'aliexpress', target_channels: [], ...initial });
+  const [channels, setChannels] = useState<GroupOption[]>([]);
+
+  const source: CampaignSource = form.source ?? 'aliexpress';
+  const isFlylink = source === 'flylink';
+
+  // Groups are only needed to pick FLYLINK targets, but loading them upfront keeps the
+  // toggle instant.
+  useEffect(() => {
+    channelsApi.list()
+      .then((list) => setChannels(list.map((c) => ({ id: c.id, name: c.name, channel_id: c.channel_id }))))
+      .catch(() => setChannels([]));
+  }, []);
 
   const addKeyword = () => {
     const kw = kwInput.trim();
@@ -47,14 +61,26 @@ export function CampaignForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.keywords.length === 0) {
+    // Each source has its own required input: AliExpress searches keywords, FLYLINK rotates
+    // a catalog into chosen groups.
+    if (isFlylink) {
+      if (!form.target_channels?.length) {
+        setError('בחר לפחות קבוצת יעד אחת לפרסום');
+        return;
+      }
+    } else if (form.keywords.length === 0) {
       setError('יש להוסיף לפחות מילת מפתח אחת');
       return;
     }
     setError('');
     setIsLoading(true);
     try {
-      const c = await onSubmit(form);
+      // Send only the fields relevant to the chosen source so a leftover keyword/group from
+      // toggling back and forth doesn't get persisted for the wrong source.
+      const payload: CampaignInput = isFlylink
+        ? { ...form, source: 'flylink', keywords: [], min_price: undefined, max_price: undefined, min_discount: undefined }
+        : { ...form, source: 'aliexpress', target_channels: [] };
+      const c = await onSubmit(payload);
       router.push(`/campaigns/${c.id}`);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -79,6 +105,38 @@ export function CampaignForm({
       </h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Source — AliExpress (keyword search) vs FLYLINK (rotate linked catalog). */}
+        <div className="bg-surface-secondary border border-edge rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-white mb-1">מקור המוצרים</h2>
+          <p className="text-2xs text-white/35 mb-4">
+            {isFlylink
+              ? 'הקמפיין מסובב את מוצרי FLYLINK שכבר קישרת — אין חיפוש, רק המוצרים שבחרת.'
+              : 'הקמפיין מחפש מוצרים חדשים ב-AliExpress לפי מילות מפתח.'}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              { key: 'aliexpress', label: 'AliExpress', desc: 'חיפוש לפי מילות מפתח', icon: Search },
+              { key: 'flylink', label: 'FLYLINK', desc: 'סבב הקטלוג המקושר', icon: Package },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, source: opt.key }))}
+                className={`flex items-start gap-2.5 p-3.5 rounded-xl border text-right transition-all
+                  ${source === opt.key
+                    ? 'bg-blue-600/20 border-blue-500/50'
+                    : 'bg-white/5 border-edge hover:bg-white/10'}`}
+              >
+                <opt.icon size={16} className={source === opt.key ? 'text-blue-400 mt-0.5' : 'text-white/40 mt-0.5'} />
+                <div>
+                  <p className={`text-sm font-medium ${source === opt.key ? 'text-blue-200' : 'text-white/70'}`}>{opt.label}</p>
+                  <p className="text-2xs text-white/35 mt-0.5">{opt.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Name + language */}
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">
           <h2 className="text-sm font-semibold text-white mb-4">פרטים בסיסיים</h2>
@@ -116,7 +174,23 @@ export function CampaignForm({
           </div>
         </div>
 
-        {/* Keywords */}
+        {/* FLYLINK: pick which group(s) the rotated products publish to. */}
+        {isFlylink && (
+          <div className="bg-surface-secondary border border-edge rounded-xl p-5">
+            <h2 className="text-sm font-semibold text-white mb-1">קבוצות יעד *</h2>
+            <p className="text-2xs text-white/35 mb-4">
+              המוצרים המקושרים יתפרסמו לקבוצות שתבחר, בסגנון הכתיבה של הקבוצה. הטקסט נכתב מחדש ב-AI לכל פוסט.
+            </p>
+            <GroupMultiSelect
+              channels={channels}
+              value={form.target_channels ?? []}
+              onChange={(ids) => setForm((f) => ({ ...f, target_channels: ids }))}
+            />
+          </div>
+        )}
+
+        {/* Keywords — AliExpress only (FLYLINK has no search). */}
+        {!isFlylink && (
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">
           <h2 className="text-sm font-semibold text-white mb-1">מילות מפתח לחיפוש</h2>
           <p className="text-2xs text-white/35 mb-4">
@@ -152,8 +226,10 @@ export function CampaignForm({
             )}
           </div>
         </div>
+        )}
 
-        {/* Filters */}
+        {/* Filters — AliExpress only (FLYLINK prices come from the linked catalog). */}
+        {!isFlylink && (
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">
           <h2 className="text-sm font-semibold text-white mb-4">פילטרים (אופציונלי)</h2>
           <div className="grid grid-cols-3 gap-4">
@@ -193,6 +269,7 @@ export function CampaignForm({
             </div>
           </div>
         </div>
+        )}
 
         {/* Schedule */}
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">

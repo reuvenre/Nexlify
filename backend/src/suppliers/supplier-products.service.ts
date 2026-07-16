@@ -6,7 +6,8 @@ import { SupplierCatalog } from './entities/supplier-catalog.entity';
 import { SupplierCatalogsService } from './supplier-catalogs.service';
 import { YupooService } from './yupoo.service';
 import { normalizeSku } from './sku-match.util';
-import { PostsService } from '../posts/posts.service';
+import { PostsService, CampaignRunResult } from '../posts/posts.service';
+import { Campaign } from '../campaigns/campaign.entity';
 import { AiService, GenerateImage } from '../ai/ai.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
@@ -435,6 +436,79 @@ export class SupplierProductsService {
       queue_active: creds?.schedule_enabled === true,
       interval_minutes: creds?.schedule_interval_minutes ?? 60,
     };
+  }
+
+  /**
+   * One FLYLINK campaign cycle. Unlike AliExpress there is no keyword search — FLYLINK has
+   * no search API and links are pasted by hand — so the campaign ROTATES the user's already-
+   * linked catalog: it picks the least-recently-posted in-stock products, writes fresh AI
+   * copy in the target group's voice, and queues them (they publish on the normal schedule,
+   * one per interval). last_posted_at is the round-robin cursor, so once every product has
+   * gone out the oldest resurfaces and the rotation loops — no repeats until a full lap.
+   *
+   * Mirrors PostsService.runCampaign's contract: queues (never sends immediately), throws
+   * on any condition that yields zero posts, per-product try/catch so one failure can't
+   * abort the batch.
+   */
+  async runFlylinkCampaign(campaign: Campaign, userId: string): Promise<CampaignRunResult> {
+    // Target groups: a flylink campaign has no default channel to fall back to, so an
+    // unset target is a hard error, not a silent post-to-nowhere.
+    let targets: string[] = [];
+    try { targets = JSON.parse(campaign.target_channels || '[]'); } catch { targets = []; }
+    targets = Array.from(new Set(targets.filter((t) => typeof t === 'string' && t.trim())));
+    if (!targets.length) throw new BadRequestException('לקמפיין FLYLINK לא הוגדרה קבוצת יעד — ערוך את הקמפיין ובחר קבוצה');
+
+    const limit = Math.max(1, Math.min(20, campaign.posts_per_run || 1));
+
+    // Oldest-first rotation: NULLS FIRST puts never-posted products at the head, so a fresh
+    // catalog publishes everything once before anything repeats. in_stock IS DISTINCT FROM
+    // false keeps NULL (never-checked) AND true, dropping only confirmed-dead links.
+    const products = await this.repo.createQueryBuilder('p')
+      .where('p.user_id = :userId', { userId })
+      .andWhere('p.status = :status', { status: 'active' })
+      .andWhere('p.in_stock IS DISTINCT FROM false')
+      .andWhere("p.flylink_url IS NOT NULL AND p.flylink_url <> ''")
+      .orderBy('p.last_posted_at', 'ASC', 'NULLS FIRST')
+      .addOrderBy('p.created_at', 'ASC')
+      .take(limit)
+      .getMany();
+
+    if (!products.length) throw new BadRequestException('אין מוצרי FLYLINK זמינים במלאי לפרסום');
+
+    // Copy style of the group the campaign posts to (first target) — e.g. the "מאמא מותגים"
+    // hidden-product template. Empty → the built-in voice.
+    const template = await this.posts.resolveBodyTemplate(userId, targets[0]);
+
+    const result: CampaignRunResult = { queued: 0, failed: 0, keyword: 'מוצרי FLYLINK', searched: 'FLYLINK', errors: [] };
+    const now = new Date();
+
+    for (const p of products) {
+      try {
+        const gallery = this.selectGallery(p, undefined, 10);
+        const image = gallery[0] || this.proxyImage(p.image_url) || '';
+        const { price, currency } = await this.pricing(userId, p.price);
+        const product = this.toPostProduct(p, image, price, currency);
+
+        // AI copy in the group's voice (charges one generation credit); createQueuedPost
+        // then reuses this text via textOverride, so it is NOT generated twice.
+        const preview = await this.posts.preview(userId, p.sku || p.id, 'he', product, template || undefined);
+        const text = preview?.generated_text || p.description || undefined;
+
+        await this.posts.createQueuedPost(userId, product, undefined, text, targets[0], gallery, undefined, targets);
+
+        p.has_post = true;
+        p.last_posted_at = now; // advance the rotation cursor
+        await this.repo.save(p);
+        await this.posts.incrementCampaignPosts(campaign.id);
+        result.queued++;
+      } catch (err: any) {
+        result.failed++;
+        result.errors.push(`${p.title?.slice(0, 40) || p.sku || p.id}: ${err.message}`);
+      }
+    }
+
+    if (!result.queued) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
+    return result;
   }
 
   /** Fetch a Yupoo album's FULL content (all color images) for the post modal — no save. */
