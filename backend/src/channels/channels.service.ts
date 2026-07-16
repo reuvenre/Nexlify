@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import axios from 'axios';
 import { Channel } from './channel.entity';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
@@ -194,6 +194,27 @@ export class ChannelsService {
       .set({ schedule_last_sent_at: at })
       .where('user_id = :userId AND channel_id IN (:...ids)', { userId, ids })
       .execute();
+  }
+
+  /**
+   * "Start the meter" on enqueue so a freshly-queued post can't fire on the very next
+   * scheduler tick. When a group's send clock is stale — never sent, or older than its
+   * interval — the queue gate treats a new post as immediately due, which the user reads
+   * as "it published instead of going into the queue". Stamping the clock to `now` makes
+   * the first queued post wait one full interval; a group mid-drip (recent clock) is left
+   * untouched so its cadence isn't pushed back. Per-channel interval falls back to the
+   * user's global interval when the channel inherits it.
+   */
+  async primeScheduleIfStale(userId: string, channelIds: string[], now: Date, fallbackIntervalMin: number): Promise<void> {
+    const ids = Array.from(new Set((channelIds || []).filter(Boolean)));
+    if (!ids.length) return;
+    const chans = await this.repo.find({ where: { user_id: userId, channel_id: In(ids) } });
+    const stale = chans.filter((c) => {
+      const interval = c.schedule_interval_minutes ?? fallbackIntervalMin;
+      const last = c.schedule_last_sent_at ? new Date(c.schedule_last_sent_at).getTime() : 0;
+      return !last || (now.getTime() - last) / 60_000 >= interval;
+    }).map((c) => c.channel_id);
+    if (stale.length) await this.markSent(userId, stale, now);
   }
 
   /** The saved channel's display name (for multi-group error labels). Null if unknown. */

@@ -535,7 +535,35 @@ export class PostsService {
     });
     this.applyChannels(post, channels, channelOverride);
 
-    return this.repo.save(post);
+    const saved = await this.repo.save(post);
+    await this.primeQueueClock(userId, saved, creds);
+    return saved;
+  }
+
+  /**
+   * Stop a just-queued post from firing on the very next scheduler tick. If the send clock
+   * for its target(s) is stale, the queue gate would treat it as immediately due — which
+   * users experience as "it published instead of queueing". Priming the clock to now makes
+   * the first queued post wait one interval; an active drip is left untouched. Best-effort:
+   * a failure here must never block the enqueue itself.
+   */
+  private async primeQueueClock(userId: string, post: Post, creds: DecryptedCredentials | null): Promise<void> {
+    const now = new Date();
+    const interval = creds?.schedule_interval_minutes ?? 60;
+    const targets = this.resolveTargets(post).filter((t): t is string => !!t);
+    try {
+      if (targets.length) {
+        await this.channels.primeScheduleIfStale(userId, targets, now, interval);
+      } else {
+        // Default bucket (no group) runs off the user's global clock.
+        const last = creds?.schedule_last_sent_at ? new Date(creds.schedule_last_sent_at).getTime() : 0;
+        if (!last || (now.getTime() - last) / 60_000 >= interval) {
+          await this.credentials.updateLastSent(userId, now);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`primeQueueClock failed for post ${post.id}: ${err.message}`);
+    }
   }
 
   /**
