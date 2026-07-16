@@ -22,9 +22,14 @@ const ALI_API = 'https://api-sg.aliexpress.com/sync';
 
 const UUID_RE = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
+/** Telegram's photo/album caption limit, in UTF-16 code units (JS string length). A
+ *  plain sendMessage allows 4096; over this we split image + text into two messages. */
+const TG_CAPTION_LIMIT = 1024;
+
 /** Outcome of one campaign cycle — reported to the user instead of a blind "queued". */
 export interface CampaignRunResult {
-  created: number;
+  /** Posts added to the auto-send queue (they publish per the schedule, not immediately). */
+  queued: number;
   failed: number;
   /** The keyword as the user typed it. */
   keyword: string;
@@ -697,14 +702,29 @@ export class PostsService {
     const template = campaign.post_template?.trim() || await this.getBodyText(userId, creds);
 
     const toPost = products.slice(0, campaign.posts_per_run);
-    const result: CampaignRunResult = { created: 0, failed: 0, keyword, searched, errors: [] };
+    const result: CampaignRunResult = { queued: 0, failed: 0, keyword, searched, errors: [] };
+
+    // Append to the END of the user's existing queue so campaign posts don't jump ahead
+    // of anything already waiting.
+    const maxOrder = await this.repo.createQueryBuilder('p')
+      .select('MAX(p.queue_order)', 'm')
+      .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
+      .getRawOne();
+    let order = (maxOrder?.m ?? -1) + 1;
 
     for (const product of toPost) {
       try {
-        const affiliateUrl = product.affiliate_url || await this.getAffiliateLink(product.product_id, creds);
+        // Always resolve a SHORT affiliate link via link.generate (~42 chars, per-product,
+        // tracked). The promotion_link that product.query returns is a broken 1065-char
+        // link — identical across products AND over Telegram's 1024 caption limit — which
+        // is exactly what made these posts fail. Do NOT prefer it.
+        const affiliateUrl = await this.getAffiliateLink(product.product_id, creds);
         const parts = this.priceParts(product, rate);
         const text = await this.generateText(product, campaign.language, rate, creds, template || undefined, parts.localOverride);
 
+        // Queue, don't publish. The campaign no longer dumps every post at its cron time;
+        // it feeds the same auto-send queue the composer uses, so posts go out one per
+        // interval inside the user's send window — "linked to post scheduling".
         const post = this.repo.create({
           user_id: userId,
           campaign_id: campaign.id,
@@ -716,14 +736,15 @@ export class PostsService {
           sale_price_usd: parts.saleUsd,
           price_ils: parts.priceIls,
           generated_text: text,
-          status: 'pending',
+          status: 'queued',
+          queue_order: order++,
         });
 
         await this.repo.save(post);
-        await this.sendToTelegram(post, creds);
-        result.created++;
+        result.queued++;
         // posts_count drives the "N פוסטים" figure on the campaign screen. Nothing ever
-        // incremented it, so it read 0 forever no matter how much a campaign published.
+        // incremented it, so it read 0 forever. Count at enqueue time — the post is now
+        // committed to go out.
         await this.campaignRepo.increment({ id: campaign.id }, 'posts_count', 1);
       } catch (err: any) {
         // One product failing (dead link, AI hiccup) must not abort the rest of the run.
@@ -731,13 +752,10 @@ export class PostsService {
         result.errors.push(`${product.title?.slice(0, 40) || product.product_id}: ${err.message}`);
         this.logger.warn(`Campaign ${campaign.id} product ${product.product_id} failed: ${err.message}`);
       }
-
-      // Small delay between posts
-      await new Promise((r) => setTimeout(r, 1500));
     }
 
     // Every product failed → the run produced nothing. Surface it rather than return 0.
-    if (!result.created) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
+    if (!result.queued) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
     return result;
   }
 
@@ -1292,14 +1310,24 @@ export class PostsService {
 
     const m = media || await this.prepareTelegramMedia(post, creds);
 
+    // Telegram caps a PHOTO caption at 1024 code units (a plain message allows 4096).
+    // A post can exceed it — usually a long affiliate URL, but also long copy — and the
+    // API then rejects the whole send with "message caption is too long", so the post
+    // fails entirely. When that happens, send the image with NO caption and the full text
+    // as a follow-up message, so the post still goes out intact instead of not at all.
+    const overflow = caption.length > TG_CAPTION_LIMIT;
+    const mediaCaption = overflow ? '' : caption;
+    const sendOverflow = async () => { if (overflow) await this.sendTelegramText(token, channel, caption); };
+
     if (m.kind === 'buffers') {
-      if (m.buffers.length >= 2) { await this.sendMediaGroupUpload(token, channel, m.buffers, caption, post); return; }
-      if (m.buffers.length === 1) { await this.sendPhotoUpload(token, channel, m.buffers[0], caption, post); return; }
+      if (m.buffers.length >= 2) { await this.sendMediaGroupUpload(token, channel, m.buffers, mediaCaption, post); await sendOverflow(); return; }
+      if (m.buffers.length === 1) { await this.sendPhotoUpload(token, channel, m.buffers[0], mediaCaption, post); await sendOverflow(); return; }
       // 0 buffers shouldn't reach here (prepare returns album/single instead) — fall through.
     }
 
     if (m.kind === 'album') {
-      await this.sendMediaGroup(token, channel, m.images, caption, post);
+      await this.sendMediaGroup(token, channel, m.images, mediaCaption, post);
+      await sendOverflow();
       return;
     }
 
@@ -1308,23 +1336,48 @@ export class PostsService {
     try {
       const res = await axios.post(
         url,
-        { chat_id: channel, photo: image, caption, parse_mode: 'HTML' },
+        { chat_id: channel, photo: image, caption: mediaCaption, parse_mode: 'HTML' },
         { timeout: 15000 },
       );
       post.telegram_message_id = res.data?.result?.message_id;
+      await sendOverflow();
     } catch (err: any) {
       // Last-resort safety net: if Telegram rejects the HTML (400 "can't parse
       // entities"), resend as PLAIN text so the post still goes out rather than
       // failing entirely. Any other error rethrows.
       const desc: string = err?.response?.data?.description || '';
       if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
-        const plain = caption.replace(/<[^>]+>/g, '');
+        const plain = mediaCaption.replace(/<[^>]+>/g, '');
         const res = await axios.post(
           url,
           { chat_id: channel, photo: image, caption: plain },
           { timeout: 15000 },
         );
         post.telegram_message_id = res.data?.result?.message_id;
+        await sendOverflow();
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Send a plain (image-less) Telegram message — used for the overflow text when a
+   * caption exceeds the 1024-cap photo limit. HTML with a plain-text fallback, mirroring
+   * the photo path. Link preview is disabled so the follow-up sits tight under the image.
+   */
+  private async sendTelegramText(token: string, channel: string, text: string) {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    try {
+      await axios.post(url, {
+        chat_id: channel, text, parse_mode: 'HTML', disable_web_page_preview: true,
+      }, { timeout: 15000 });
+    } catch (err: any) {
+      const desc: string = err?.response?.data?.description || '';
+      if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
+        await axios.post(url, {
+          chat_id: channel, text: text.replace(/<[^>]+>/g, ''), disable_web_page_preview: true,
+        }, { timeout: 15000 });
         return;
       }
       throw err;

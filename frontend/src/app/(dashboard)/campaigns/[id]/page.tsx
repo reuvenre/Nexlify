@@ -48,9 +48,10 @@ export default function CampaignDetailPage() {
   };
 
   /**
-   * Reports what the run actually produced. It used to print "queued — posts will go out
-   * shortly" unconditionally, including when the run failed instantly and published
-   * nothing, so a broken campaign looked healthy indefinitely.
+   * Reports what the run actually produced. Posts are QUEUED, not published on the spot —
+   * they go out through the auto-send schedule (one per interval, inside the send window),
+   * which is what "linked to post scheduling" means. It used to print "queued — posts will
+   * go out shortly" unconditionally, even when the run failed instantly.
    */
   const handleRunNow = async () => {
     setIsRunning(true);
@@ -59,8 +60,8 @@ export default function CampaignDetailPage() {
       const r = await campaignsApi.runNow(id);
       const via = r.searched !== r.keyword ? ` (חיפוש: "${r.searched}")` : '';
       const failed = r.failed ? ` · ${r.failed} נכשלו` : '';
-      setRunResult(`נשלחו ${r.created} פוסטים עבור "${r.keyword}"${via}${failed}`);
-      // The run just created posts and bumped posts_count — refetch instead of guessing.
+      setRunResult(`${r.queued} פוסטים נכנסו לתור עבור "${r.keyword}"${via}${failed} — יתפרסמו לפי לוח הזמנים`);
+      // The run just queued posts and bumped posts_count — refetch instead of guessing.
       const [c, p] = await Promise.all([campaignsApi.get(id), campaignsApi.posts(id, { limit: 20 })]);
       setCampaign(c);
       setPosts(p.data);

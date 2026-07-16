@@ -376,9 +376,10 @@ export interface CampaignInput {
 }
 
 /** What a "run now" actually did. `searched` differs from `keyword` when a Hebrew
- *  keyword was translated to English for the AliExpress query. */
+ *  keyword was translated to English for the AliExpress query. Posts are QUEUED, not sent
+ *  immediately — they publish through the auto-send schedule. */
 export interface CampaignRunResult {
-  created: number;
+  queued: number;
   failed: number;
   keyword: string;
   searched: string;
