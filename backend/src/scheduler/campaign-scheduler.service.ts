@@ -148,6 +148,12 @@ export class CampaignSchedulerService {
           const gEnd = cred.schedule_end_hour ?? 22;
           const gInterval = cred.schedule_interval_minutes ?? 60;
 
+          // Chats already sent to in THIS tick. Buckets are per-group, but two buckets can
+          // resolve to the SAME Telegram chat — most commonly when the user's default
+          // channel is ALSO a saved group. Without this, the group bucket and the default
+          // bucket both fired to that chat in one tick → two posts at the same moment.
+          const served = new Set<string>();
+
           // ── One bucket per GROUP (own window/interval/clock; null = inherit global) ──
           const channels = await this.channels.listForSchedule(cred.user_id).catch(() => []);
           for (const ch of channels) {
@@ -158,8 +164,9 @@ export class CampaignSchedulerService {
             const interval = ch.schedule_interval_minutes ?? gInterval;
             if (!due(startHour, endHour, interval, ch.schedule_last_sent_at)) continue;
 
-            const res = await this.posts.processNextQueuedPost(cred.user_id, ch.channel_id);
-            if (!res.sent) continue;
+            const res = await this.posts.processNextQueuedPost(cred.user_id, ch.channel_id, served);
+            if (res.deferred || !res.sent) continue; // deferred = its chat already got a post this tick
+            (res.chats || []).forEach((c) => served.add(c));
             // Advance the clock of EVERY group the post reached (a multi-group post must
             // not hand the other groups a free extra slot), and of this group regardless.
             await this.channels.markSent(cred.user_id, [ch.channel_id, ...(res.targets || [])], now);
@@ -169,9 +176,13 @@ export class CampaignSchedulerService {
 
           // ── Default bucket: posts with no group — uses the user's global schedule ──
           if (due(gStart, gEnd, gInterval, cred.schedule_last_sent_at)) {
-            const res = await this.posts.processNextQueuedPost(cred.user_id, null);
-            if (res.sent) {
+            const res = await this.posts.processNextQueuedPost(cred.user_id, null, served);
+            if (res.sent && !res.deferred) {
+              (res.chats || []).forEach((c) => served.add(c));
               await this.credentials.updateLastSent(cred.user_id, now);
+              // The default channel may itself be a saved group — advance that group's clock
+              // too so its bucket doesn't fire to the same chat on the next tick out of sync.
+              await this.channels.markSent(cred.user_id, res.chats || [], now).catch(() => {});
               if (res.ok) this.logger.log(`Queue: sent default-channel post for user ${cred.user_id}`);
               else this.logger.warn(`Queue: default-channel post for user ${cred.user_id} failed: ${res.error || 'unknown error'}`);
             }

@@ -584,7 +584,14 @@ export class PostsService {
      *  • undefined    → any post (legacy/global behaviour)
      */
     bucket?: string | null,
-  ): Promise<{ sent: boolean; ok?: boolean; error?: string; targets?: string[] }> {
+    /**
+     * Normalized chat ids already sent to in THIS scheduler tick. If the head post would
+     * hit any of them it is DEFERRED (left queued) instead of sent, so no single Telegram
+     * chat ever receives two posts in one tick — the case where the default channel is
+     * ALSO a saved group, or a fan-out post re-hits a group already served this tick.
+     */
+    excludeChats?: Set<string>,
+  ): Promise<{ sent: boolean; ok?: boolean; error?: string; targets?: string[]; chats?: string[]; deferred?: boolean }> {
     const qb = this.repo
       .createQueryBuilder('p')
       .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' });
@@ -603,13 +610,26 @@ export class PostsService {
     const targets = this.resolveTargets(next).filter((t): t is string => !!t);
 
     const creds = await this.credentials.getRaw(userId);
+
+    // The ACTUAL Telegram chats this post lands in. A group post → its target channel_ids;
+    // a default post (no group) → the user's default channel. Normalized so a bare id and
+    // a -100-prefixed id compare equal.
+    const chats = (targets.length ? targets : [creds?.telegram_channel_id])
+      .map((c) => (c ? normalizeTelegramChatId(c) : ''))
+      .filter(Boolean) as string[];
+
+    // Would this send double-post a chat already served this tick? Leave it queued.
+    if (excludeChats && chats.some((c) => excludeChats.has(c))) {
+      return { sent: false, deferred: true, chats };
+    }
+
     next.status = 'pending';
     await this.repo.save(next);
     // Route to the post's target group if set (supplier products / per-catalog channel).
     await this.sendToTelegram(next, creds, next.channel_override || undefined);
     // sendToTelegram mutates next.status in place ('sent' | 'failed'); TS still sees the
     // 'pending' we assigned above, so compare via a widened string.
-    return { sent: true, ok: (next.status as string) === 'sent', error: next.error_message || undefined, targets };
+    return { sent: true, ok: (next.status as string) === 'sent', error: next.error_message || undefined, targets, chats };
   }
 
   /**
