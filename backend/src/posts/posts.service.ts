@@ -1142,6 +1142,11 @@ export class PostsService {
   }
 
   private async sendToTelegram(post: Post, creds: DecryptedCredentials, channelOverride?: string) {
+    // Guarantee a SHORT affiliate link before anything is published — old queued posts and
+    // any pasted link can carry the broken 1065-char /s/ form, which is ugly and blows the
+    // Telegram caption limit. This is the single choke point every platform flows through.
+    await this.ensureShortLink(post, creds);
+
     const errors: string[] = [];
     let anySuccess = false;
 
@@ -1684,6 +1689,32 @@ export class PostsService {
       // deals to the user's real audience. Fail the run instead; the scheduler logs it.
       this.logger.error(`searchProducts failed: ${err?.message}`);
       throw err;
+    }
+  }
+
+  /**
+   * Ensure a post's AliExpress link is the SHORT /e/_ form (~42 chars) before publishing.
+   * product.query returns a broken /s/ promotion_link that is ~1065 chars — over Telegram's
+   * caption limit and hideous in a post. Legacy posts, and any hand-pasted link, can carry
+   * it. Regenerate via link.generate and persist, but ONLY swap when we actually get a
+   * genuine short affiliate link back — never trade a tracked long link for the untracked
+   * plain-URL fallback. No-ops for FLYLINK links and links that are already short.
+   */
+  private async ensureShortLink(post: Post, creds: DecryptedCredentials): Promise<void> {
+    const u = post.affiliate_url || '';
+    if (!/aliexpress/i.test(u) || u.length <= 100) return; // short or non-AliExpress → fine
+    if (!/^\d{6,}$/.test(String(post.product_id || ''))) return; // no usable item id
+    try {
+      const short = await this.getAffiliateLink(post.product_id, creds);
+      if (short && short.length < 100 && /s\.click\.aliexpress/i.test(short)) {
+        post.affiliate_url = short;
+        await this.repo.save(post);
+        this.logger.log(`Shortened affiliate link for post ${post.id} (${u.length}→${short.length} chars)`);
+      }
+    } catch (err: any) {
+      // A failure here must not block the send — worst case the post goes out with the
+      // long link via the caption safety net, exactly as before this fix.
+      this.logger.warn(`ensureShortLink failed for post ${post.id}: ${err.message}`);
     }
   }
 
