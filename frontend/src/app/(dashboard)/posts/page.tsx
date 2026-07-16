@@ -5,6 +5,7 @@ import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
   ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal, Eye, Users, Megaphone,
+  ExternalLink, Wand2, Copy, Check,
 } from 'lucide-react';
 import Link from 'next/link';
 import { postsApi, credentialsApi, channelsApi } from '@/lib/api-client';
@@ -531,6 +532,20 @@ function toLocalInput(iso?: string): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
+/**
+ * The direct AliExpress product page for a post — reconstructed from product_id, which is
+ * the item id for AliExpress posts. Lets the user open the real listing to verify the
+ * price/variant. Returns '' for FLYLINK/supplier posts (the item id is a hidden SKU, not a
+ * public aliexpress.com page).
+ */
+function directProductUrl(post: Post): string {
+  const isAli = !post.affiliate_url || /aliexpress/i.test(post.affiliate_url);
+  if (isAli && /^\d{6,}$/.test(String(post.product_id || ''))) {
+    return `https://www.aliexpress.com/item/${post.product_id}.html`;
+  }
+  return '';
+}
+
 function EditPostModal({ post, onClose, onSaved }: {
   post: Post; onClose: () => void; onSaved: () => void;
 }) {
@@ -542,7 +557,11 @@ function EditPostModal({ post, onClose, onSaved }: {
   const [link, setLink] = useState(post.affiliate_url || '');
   const [scheduledAt, setScheduledAt] = useState(() => toLocalInput(post.scheduled_at));
   const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [copied, setCopied] = useState('');
   const [error, setError] = useState('');
+
+  const directUrl = directProductUrl(post);
 
   const save = async () => {
     setSaving(true); setError('');
@@ -557,6 +576,34 @@ function EditPostModal({ post, onClose, onSaved }: {
       });
       onSaved();
     } catch (e: any) { setError(e?.response?.data?.message || 'שמירה נכשלה'); setSaving(false); }
+  };
+
+  /** Rewrite the post text with AI from the CURRENT (edited) title/price — the same
+   *  generation the composer runs, so editing here is as capable as a new post. */
+  const regenerate = async () => {
+    setRegenerating(true); setError('');
+    try {
+      const r = await postsApi.preview(post.product_id, 'he', {
+        product_id: post.product_id,
+        title,
+        image_url: image,
+        product_url: directUrl,
+        // Price is already in ₪ — flag the currency so the composer doesn't re-multiply it.
+        sale_price: price.trim() !== '' ? Number(price) : 0,
+        original_price: price.trim() !== '' ? Number(price) : 0,
+        currency: 'ILS',
+        discount_percent: 0, orders_count: 0, rating: 0, category: '',
+      });
+      if (r.generated_text) setText(r.generated_text);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'ייצור הטקסט נכשל');
+    } finally { setRegenerating(false); }
+  };
+
+  const copy = (value: string, key: string) => {
+    navigator.clipboard.writeText(value);
+    setCopied(key);
+    setTimeout(() => setCopied(''), 1500);
   };
 
   const inputCls = 'w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-blue-500/50';
@@ -579,21 +626,57 @@ function EditPostModal({ post, onClose, onSaved }: {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className="block text-xs text-white/50 mb-1">מחיר (₪)</label>
-            <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} dir="ltr" />
+        <div className="mb-3">
+          <label className="block text-xs text-white/50 mb-1">מחיר (₪)</label>
+          <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className={`${inputCls} max-w-[160px]`} dir="ltr" />
+        </div>
+
+        {/* Direct product page — reconstructed from the item id so the user can open the
+            real listing and verify price/variant before publishing. AliExpress posts only. */}
+        {directUrl && (
+          <div className="mb-3">
+            <label className="block text-xs text-white/50 mb-1">קישור ישיר למוצר (לבדיקה)</label>
+            <div className="flex items-center gap-1.5">
+              <input readOnly value={directUrl} className={`${inputCls} text-white/60`} dir="ltr" onFocus={(e) => e.currentTarget.select()} />
+              <button type="button" onClick={() => copy(directUrl, 'direct')} title="העתק" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/50">
+                {copied === 'direct' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+              </button>
+              <a href={directUrl} target="_blank" rel="noopener noreferrer" title="פתח באתר" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-blue-400">
+                <ExternalLink size={14} />
+              </a>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs text-white/50 mb-1">קישור שותפים</label>
+        )}
+
+        {/* Affiliate link — full width; this is what actually goes in the post. */}
+        <div className="mb-3">
+          <label className="block text-xs text-white/50 mb-1">קישור שותפים (מתפרסם)</label>
+          <div className="flex items-center gap-1.5">
             <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…" className={inputCls} dir="ltr" />
+            {link && (
+              <>
+                <button type="button" onClick={() => copy(link, 'aff')} title="העתק" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/50">
+                  {copied === 'aff' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                </button>
+                <a href={link} target="_blank" rel="noopener noreferrer" title="פתח" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-blue-400">
+                  <ExternalLink size={14} />
+                </a>
+              </>
+            )}
           </div>
         </div>
 
         <label className="block text-xs text-white/50 mb-1.5">כתובת תמונה ראשית</label>
         <input value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" className={`${inputCls} mb-3`} dir="ltr" />
 
-        <label className="block text-xs text-white/50 mb-1.5">טקסט הפוסט</label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-xs text-white/50">טקסט הפוסט</label>
+          <button type="button" onClick={regenerate} disabled={regenerating}
+            className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 transition-colors">
+            {regenerating ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+            {regenerating ? 'מייצר...' : 'צור מחדש עם AI'}
+          </button>
+        </div>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8}
           className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white leading-relaxed outline-none focus:border-blue-500/50 resize-none font-mono" dir="rtl" />
 
