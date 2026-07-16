@@ -149,6 +149,20 @@ export class ChannelsService {
    * found"). Returns null if the user has no matching channel (caller falls back to the
    * default credentials). `token` is null when the channel has no own token (use default).
    */
+  /**
+   * If a raw chat id (e.g. the user's default channel) is ALSO a saved group, return that
+   * group's channel_id — else null. Lets the queue route a "no group" post into the saved
+   * group's bucket when they're the same chat, so one chat never has two parallel queues.
+   * Matches on the normalized chat id so a bare id and a -100-prefixed id are equal.
+   */
+  async groupIdForChat(userId: string, chatId: string): Promise<string | null> {
+    const target = normalizeTelegramChatId((chatId || '').trim());
+    if (!target) return null;
+    const active = await this.repo.find({ where: { user_id: userId, is_active: true } });
+    const match = active.find((c) => normalizeTelegramChatId(c.channel_id) === target);
+    return match ? match.channel_id : null;
+  }
+
   async resolveSendTarget(userId: string, channelId: string): Promise<{ token: string | null; chatId: string } | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
     if (!c) return null;

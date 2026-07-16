@@ -470,6 +470,16 @@ export class PostsService {
     channels?: string[],             // target group(s) — fan out to several at once (1 credit)
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
+
+    // Unify queues per chat: if this post has no explicit group AND the user's default
+    // channel is itself a saved group, route it into THAT group's bucket. Otherwise the
+    // default bucket and the group bucket are two queues for one chat, which double-posts.
+    // Same destination either way — only the queue it lives in changes.
+    if (!channelOverride && !(channels && channels.length) && creds?.telegram_channel_id) {
+      const group = await this.channels.groupIdForChat(userId, creds.telegram_channel_id).catch(() => null);
+      if (group) channelOverride = group;
+    }
+
     const currencyPair = creds?.currency_pair || 'USD_ILS';
     const rate = await this.rates.getRate(currencyPair);
 
