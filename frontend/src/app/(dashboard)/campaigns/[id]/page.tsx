@@ -60,7 +60,7 @@ export default function CampaignDetailPage() {
       const r = await campaignsApi.runNow(id);
       const via = r.searched !== r.keyword ? ` (חיפוש: "${r.searched}")` : '';
       const failed = r.failed ? ` · ${r.failed} נכשלו` : '';
-      setRunResult(`${r.queued} פוסטים נכנסו לתור עבור "${r.keyword}"${via}${failed} — יתפרסמו לפי לוח הזמנים`);
+      setRunResult(`${r.queued} פוסטים נוצרו עבור "${r.keyword}"${via}${failed} — יתפרסמו לפי תדירות הקמפיין`);
       // The run just queued posts and bumped posts_count — refetch instead of guessing.
       const [c, p] = await Promise.all([campaignsApi.get(id), campaignsApi.posts(id, { limit: 20 })]);
       setCampaign(c);

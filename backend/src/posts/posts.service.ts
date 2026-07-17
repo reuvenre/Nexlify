@@ -468,6 +468,13 @@ export class PostsService {
     images?: string[],
     collageCells?: number,
     channels?: string[],             // target group(s) — fan out to several at once (1 credit)
+    /**
+     * When `scheduledAt` is set the post is SCHEDULED (published at that time by the
+     * scheduled-posts cron) instead of QUEUED (paced by the global queue interval). Used
+     * by campaigns, whose own cron is the cadence — see runCampaign / runFlylinkCampaign.
+     * `campaignId` links the post back to its campaign.
+     */
+    opts?: { scheduledAt?: Date; campaignId?: string },
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
 
@@ -515,16 +522,22 @@ export class PostsService {
       priceAlreadyConverted ? product.sale_price : undefined,
     );
 
-    // Assign next queue_order for this user
-    const maxOrderResult = await this.repo
-      .createQueryBuilder('p')
-      .select('MAX(p.queue_order)', 'maxOrder')
-      .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
-      .getRawOne();
-    const nextOrder = (maxOrderResult?.maxOrder ?? -1) + 1;
+    const scheduled = !!opts?.scheduledAt;
+
+    // Next queue_order — only relevant for queued posts (scheduled ones publish by time).
+    let nextOrder = 0;
+    if (!scheduled) {
+      const maxOrderResult = await this.repo
+        .createQueryBuilder('p')
+        .select('MAX(p.queue_order)', 'maxOrder')
+        .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
+        .getRawOne();
+      nextOrder = (maxOrderResult?.maxOrder ?? -1) + 1;
+    }
 
     const post = this.repo.create({
       user_id: userId,
+      campaign_id: opts?.campaignId,
       product_id: product.product_id,
       product_title: product.title,
       product_image: product.image_url,
@@ -533,8 +546,11 @@ export class PostsService {
       sale_price_usd: saleUsd,
       price_ils: priceIls,
       generated_text: text,
-      status: 'queued',
-      queue_order: nextOrder,
+      // Scheduled → publishes at scheduled_at (campaign cron cadence). Queued → paced by
+      // the global queue interval.
+      status: scheduled ? 'scheduled' : 'queued',
+      queue_order: scheduled ? undefined : nextOrder,
+      scheduled_at: opts?.scheduledAt,
       catalog_product_id: catalogProductId,
       channel_override: channelOverride || null,
       // Extra images (product colors/variants) beyond the main one → sent as a
@@ -546,7 +562,8 @@ export class PostsService {
     this.applyChannels(post, channels, channelOverride);
 
     const saved = await this.repo.save(post);
-    await this.primeQueueClock(userId, saved, creds);
+    // Only queued posts ride the interval clock; scheduled posts publish by their own time.
+    if (!scheduled) await this.primeQueueClock(userId, saved, creds);
     return saved;
   }
 
@@ -738,6 +755,42 @@ export class PostsService {
 
   // ── Run campaign ──────────────────────────────────────────────────────────
 
+  /** Current hour (0-23) in the given IANA timezone, DST-aware. */
+  private hourInZone(date: Date, tz: string): number {
+    try {
+      const h = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: tz }).format(date);
+      const n = parseInt(h, 10);
+      return n === 24 ? 0 : n;
+    } catch { return date.getHours(); }
+  }
+
+  /**
+   * Publish times for ONE campaign run of `count` posts. The campaign's own cron is the
+   * cadence, so the run's posts go out starting NOW — NOT re-paced by the global queue
+   * interval, which is what made a "every 3h" campaign publish hourly. Extra posts in a
+   * single run are spaced 15 min apart. The first time is clamped into the user's send
+   * window so a cron that fires at night still posts in the morning.
+   */
+  campaignScheduleTimes(count: number, creds: DecryptedCredentials | null): Date[] {
+    const tz = process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
+    const startHour = creds?.schedule_start_hour ?? 9;
+    const endHour = creds?.schedule_end_hour ?? 22;
+    const gapMs = 15 * 60_000;
+
+    let first = new Date();
+    if (startHour < endHour) {
+      // Walk forward hour by hour (DST-safe) until we land inside the window.
+      for (let i = 0; i < 24; i++) {
+        const h = this.hourInZone(first, tz);
+        if (h >= startHour && h < endHour) break;
+        first = new Date(first.getTime() + 60 * 60_000);
+      }
+    }
+    const times: Date[] = [];
+    for (let i = 0; i < Math.max(1, count); i++) times.push(new Date(first.getTime() + i * gapMs));
+    return times;
+  }
+
   /**
    * Run one campaign cycle: pick a keyword → find products → write → publish.
    *
@@ -756,39 +809,50 @@ export class PostsService {
 
     const searched = await this.searchKeyword(keyword, creds);
 
-    const products = await this.searchProducts({
+    // Fetch a wide net (x10) so we have room to skip products this campaign already posted.
+    const found = await this.searchProducts({
       keyword: searched,
       category_id: campaign.category_id,
       min_price: campaign.min_price,
       max_price: campaign.max_price,
       min_discount: campaign.min_discount,
-      limit: campaign.posts_per_run * 3,
+      limit: Math.min(50, campaign.posts_per_run * 10),
     }, creds);
 
-    if (!products.length) {
+    if (!found.length) {
       const via = searched !== keyword ? ` (חיפוש באנגלית: "${searched}")` : '';
       throw new BadRequestException(
         `לא נמצאו מוצרים עבור "${keyword}"${via}. נסה מילת מפתח אחרת או הרחב את טווח המחירים (${campaign.min_price ?? 0}–${campaign.max_price ?? '∞'}).`,
       );
     }
 
+    // Skip products this campaign has already posted — the search returns the same
+    // top-by-volume items every run, so without this the campaign kept re-posting them.
+    // Fall back to the full list only if EVERY candidate was already used (better a repeat
+    // than nothing).
+    const postedIds = new Set(
+      (await this.repo.createQueryBuilder('p')
+        .select('DISTINCT p.product_id', 'product_id')
+        .where('p.campaign_id = :cid', { cid: campaign.id })
+        .getRawMany()).map((r) => String(r.product_id)),
+    );
+    const fresh = found.filter((p) => !postedIds.has(String(p.product_id)));
+    const pool = fresh.length ? fresh : found;
+
     // A campaign runs headless — nothing hands it a template the way the composer does.
     // Fall back to the user's default body template so campaign posts are written in the
     // same voice as the ones they publish by hand, instead of the generic built-in one.
     const template = campaign.post_template?.trim() || await this.getBodyText(userId, creds);
 
-    const toPost = products.slice(0, campaign.posts_per_run);
+    const toPost = pool.slice(0, campaign.posts_per_run);
     const result: CampaignRunResult = { queued: 0, failed: 0, keyword, searched, errors: [] };
 
-    // Append to the END of the user's existing queue so campaign posts don't jump ahead
-    // of anything already waiting.
-    const maxOrder = await this.repo.createQueryBuilder('p')
-      .select('MAX(p.queue_order)', 'm')
-      .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
-      .getRawOne();
-    let order = (maxOrder?.m ?? -1) + 1;
+    // Publish times for THIS run — the campaign's own cron is the cadence, so posts go out
+    // now (spaced 15 min for multi-post runs), NOT re-paced by the global queue interval.
+    const times = this.campaignScheduleTimes(toPost.length, creds);
 
-    for (const product of toPost) {
+    for (let i = 0; i < toPost.length; i++) {
+      const product = toPost[i];
       try {
         // Always resolve a SHORT affiliate link via link.generate (~42 chars, per-product,
         // tracked). The promotion_link that product.query returns is a broken 1065-char
@@ -798,9 +862,8 @@ export class PostsService {
         const parts = this.priceParts(product, rate);
         const text = await this.generateText(product, campaign.language, rate, creds, template || undefined, parts.localOverride);
 
-        // Queue, don't publish. The campaign no longer dumps every post at its cron time;
-        // it feeds the same auto-send queue the composer uses, so posts go out one per
-        // interval inside the user's send window — "linked to post scheduling".
+        // SCHEDULE at the campaign's cadence (not the shared queue) so an "every 3h"
+        // campaign publishes every 3h instead of being re-paced to the 60-min queue interval.
         const post = this.repo.create({
           user_id: userId,
           campaign_id: campaign.id,
@@ -812,8 +875,8 @@ export class PostsService {
           sale_price_usd: parts.saleUsd,
           price_ils: parts.priceIls,
           generated_text: text,
-          status: 'queued',
-          queue_order: order++,
+          status: 'scheduled',
+          scheduled_at: times[i],
         });
 
         await this.repo.save(post);

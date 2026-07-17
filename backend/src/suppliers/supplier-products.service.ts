@@ -482,7 +482,13 @@ export class SupplierProductsService {
     const result: CampaignRunResult = { queued: 0, failed: 0, keyword: 'מוצרי FLYLINK', searched: 'FLYLINK', errors: [] };
     const now = new Date();
 
-    for (const p of products) {
+    // Publish times for THIS run — the campaign's cron is the cadence, so a "every 3h"
+    // flylink campaign publishes every 3h rather than being re-paced to the queue interval.
+    const creds = await this.credentials.getRaw(userId);
+    const times = this.posts.campaignScheduleTimes(products.length, creds);
+
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
       try {
         const gallery = this.selectGallery(p, undefined, 10);
         const image = gallery[0] || this.proxyImage(p.image_url) || '';
@@ -494,7 +500,9 @@ export class SupplierProductsService {
         const preview = await this.posts.preview(userId, p.sku || p.id, 'he', product, template || undefined);
         const text = preview?.generated_text || p.description || undefined;
 
-        await this.posts.createQueuedPost(userId, product, undefined, text, targets[0], gallery, undefined, targets);
+        // SCHEDULE at the campaign's cadence + attribute to the campaign.
+        await this.posts.createQueuedPost(userId, product, undefined, text, targets[0], gallery, undefined, targets,
+          { scheduledAt: times[i], campaignId: campaign.id });
 
         p.has_post = true;
         p.last_posted_at = now; // advance the rotation cursor
