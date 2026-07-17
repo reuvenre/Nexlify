@@ -6,6 +6,7 @@ import { Channel } from './channel.entity';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { encrypt, decrypt, mask, normalizeTelegramChatId } from '../common/crypto';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { CredentialsService } from '../credentials/credentials.service';
 
 @Injectable()
 export class ChannelsService {
@@ -13,6 +14,7 @@ export class ChannelsService {
     @InjectRepository(Channel)
     private readonly repo: Repository<Channel>,
     private readonly subscription: SubscriptionService,
+    private readonly credentials: CredentialsService,
   ) {}
 
   async list(userId: string) {
@@ -81,9 +83,16 @@ export class ChannelsService {
 
   async test(userId: string, id: string) {
     const channel = await this.findOwned(userId, id);
-    const token = channel.bot_token_enc ? decrypt(channel.bot_token_enc) : null;
-    if (!token || !channel.channel_id) {
-      return { ok: false, error: 'Bot token or channel ID missing' };
+    // Resolve the token the SAME way the real send path does: the channel's own bot if
+    // it has one, otherwise the user's default bot from Settings. Testing only the
+    // per-channel token (as before) wrongly failed groups that rely on the shared bot.
+    const ownToken = channel.bot_token_enc ? decrypt(channel.bot_token_enc) : null;
+    const token = ownToken || (await this.credentials.getTelegramToken(userId).catch(() => null));
+    if (!token) {
+      return { ok: false, error: 'לא הוגדר טוקן בוט. הוסף טוקן מ-@BotFather לקבוצה, או טוקן כללי בהגדרות ← אינטגרציות.' };
+    }
+    if (!channel.channel_id) {
+      return { ok: false, error: 'חסר מזהה ערוץ (Channel ID) לקבוצה הזו.' };
     }
     const chatId = normalizeTelegramChatId(channel.channel_id);
     try {
@@ -106,8 +115,30 @@ export class ChannelsService {
 
       return { ok: res.data?.ok === true };
     } catch (err: any) {
-      return { ok: false, error: err?.response?.data?.description || err.message };
+      return { ok: false, error: this.explainTelegramError(err) };
     }
+  }
+
+  /**
+   * Turn Telegram's terse English API errors into a clear, actionable Hebrew message.
+   * "Unauthorized" (a rejected/revoked bot token) in particular was meaningless to users.
+   */
+  private explainTelegramError(err: any): string {
+    const desc: string = err?.response?.data?.description || err?.message || '';
+    const d = desc.toLowerCase();
+    if (d.includes('unauthorized')) {
+      return 'הטוקן של הבוט שגוי או בוטל. פתח את @BotFather, העתק מחדש את הטוקן של הבוט, וערוך את הקבוצה כדי להזין אותו.';
+    }
+    if (d.includes('chat not found')) {
+      return 'הבוט לא בקבוצה/ערוץ הזה, או שמזהה הערוץ (Channel ID) שגוי. הוסף את הבוט כמנהל וּודא שה-Channel ID נכון.';
+    }
+    if (d.includes('kicked') || d.includes('not a member') || d.includes('forbidden')) {
+      return 'הבוט הוסר מהקבוצה או אינו חבר בה. הוסף אותו מחדש כמנהל עם הרשאת פרסום.';
+    }
+    if (d.includes('not enough rights') || d.includes('need administrator') || d.includes('administrator rights')) {
+      return 'לבוט אין הרשאות מנהל בקבוצה. הפוך אותו למנהל עם הרשאה לפרסם הודעות.';
+    }
+    return desc || 'הבדיקה נכשלה.';
   }
 
   /** Fetches member count from Telegram's getChatMemberCount API */
