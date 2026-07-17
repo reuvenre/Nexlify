@@ -147,7 +147,7 @@ export default function ResetPasswordPage() {
               <span className="gradient-text-hero">חזור פנימה</span>
             </h1>
             <p className="text-white/45 text-base leading-relaxed">
-              הגדר סיסמה חדשה וחזור לנהל<br />את הקמפיינים שלך.
+              הגדר סיסמה חדשה וחזור לנהל<br />את הטייס האוטומטי שלך.
             </p>
           </div>
         </div>

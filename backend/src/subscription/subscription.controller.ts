@@ -1,8 +1,7 @@
-import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionService } from './subscription.service';
-import { BillingCycle } from './plans.const';
 
 @Controller('subscription')
 @UseGuards(JwtAuthGuard)
@@ -23,14 +22,9 @@ export class SubscriptionController {
     return this.svc.listPlans();
   }
 
-  /** Demo-mode purchase: activates the chosen plan immediately (no payment). */
-  @Post('switch')
-  @HttpCode(200)
-  switch(
-    @Req() req: Request,
-    @Body('plan') plan: string,
-    @Body('billing') billing?: BillingCycle,
-  ) {
-    return this.svc.switchPlan(this.uid(req), plan, billing || 'monthly');
-  }
+  // NOTE: there is deliberately NO self-service plan-switch route. Plans are paid,
+  // and no payment gateway is wired yet, so letting a user POST their own plan was a
+  // free-upgrade hole (any user could grant themselves the top tier). Plan changes go
+  // through the admin path (PATCH /admin/users/:id/subscription → setPlanForUser) until
+  // a real payment gateway + webhook is added, which will call setPlanForUser on success.
 }

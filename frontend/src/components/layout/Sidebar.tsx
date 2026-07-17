@@ -16,7 +16,7 @@ const NAV_SECTIONS = [
     title: 'פרסום',
     items: [
       { href: '/dashboard',  label: 'דשבורד',    icon: LayoutDashboard },
-      { href: '/campaigns',  label: 'קמפיינים',   icon: Megaphone },
+      { href: '/campaigns',  label: 'הטייס האוטומטי', icon: Megaphone },
       { href: '/quick-post', label: 'פוסט מהיר',  icon: Zap },
       { href: '/posts',      label: 'פוסטים',     icon: FileText },
     ],

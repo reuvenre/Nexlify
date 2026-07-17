@@ -314,9 +314,8 @@ export const subscriptionApi = {
   status: () => http.get<SubscriptionStatus>('/subscription').then(extract),
   /** Plan catalog — prices/credits/limits come from the backend, never hardcode. */
   plans: () => http.get<PlanDef[]>('/subscription/plans').then(extract),
-  /** Demo-mode purchase: activates the plan immediately (no payment gateway yet). */
-  switchPlan: (plan: string, billing: BillingCycle) =>
-    http.post<SubscriptionStatus>('/subscription/switch', { plan, billing }).then(extract),
+  // No self-service switchPlan: plans are paid and there's no payment gateway yet, so
+  // upgrades are handled by an admin (PATCH /admin/users/:id/subscription) until billing lands.
 };
 
 // ─── Discovery API ───────────────────────────────────────────────────────────

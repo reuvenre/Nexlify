@@ -60,13 +60,13 @@ export default function CampaignDetailPage() {
       const r = await campaignsApi.runNow(id);
       const via = r.searched !== r.keyword ? ` (חיפוש: "${r.searched}")` : '';
       const failed = r.failed ? ` · ${r.failed} נכשלו` : '';
-      setRunResult(`${r.queued} פוסטים נוצרו עבור "${r.keyword}"${via}${failed} — יתפרסמו לפי תדירות הקמפיין`);
+      setRunResult(`${r.queued} פוסטים נוצרו עבור "${r.keyword}"${via}${failed} — יתפרסמו לפי תדירות הטייס האוטומטי`);
       // The run just queued posts and bumped posts_count — refetch instead of guessing.
       const [c, p] = await Promise.all([campaignsApi.get(id), campaignsApi.posts(id, { limit: 20 })]);
       setCampaign(c);
       setPosts(p.data);
     } catch (e: any) {
-      setRunResult(`שגיאה: ${e?.response?.data?.message || 'הרצת הקמפיין נכשלה'}`);
+      setRunResult(`שגיאה: ${e?.response?.data?.message || 'ההרצה נכשלה'}`);
     } finally {
       setIsRunning(false);
     }
@@ -90,7 +90,7 @@ export default function CampaignDetailPage() {
         className="flex items-center gap-2 text-white/40 hover:text-white text-sm mb-6 transition-colors"
       >
         <ArrowRight size={14} />
-        כל הקמפיינים
+        הטייס האוטומטי
       </button>
 
       {/* Header */}
@@ -191,7 +191,7 @@ export default function CampaignDetailPage() {
         {posts.length === 0 && (
           <div className="flex flex-col items-center py-10 text-white/25">
             <Clock size={28} className="mb-3" />
-            <p className="text-sm">הקמפיין טרם שלח פוסטים</p>
+            <p className="text-sm">הטייס האוטומטי טרם שלח פוסטים</p>
           </div>
         )}
 

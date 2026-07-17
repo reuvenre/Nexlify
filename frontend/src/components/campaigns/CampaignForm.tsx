@@ -84,7 +84,7 @@ export function CampaignForm({
       router.push(`/campaigns/${c.id}`);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setError(msg || (mode === 'create' ? 'שגיאה ביצירת הקמפיין' : 'שגיאה בשמירת הקמפיין'));
+      setError(msg || (mode === 'create' ? 'שגיאה ביצירת הטייס האוטומטי' : 'שגיאה בשמירת הטייס האוטומטי'));
     } finally {
       setIsLoading(false);
     }
@@ -97,11 +97,11 @@ export function CampaignForm({
         className="flex items-center gap-2 text-white/40 hover:text-white text-sm mb-6 transition-colors"
       >
         <ArrowRight size={14} />
-        חזרה לקמפיינים
+        חזרה להטייס האוטומטי
       </button>
 
       <h1 className="text-2xl font-bold text-white mb-8">
-        {mode === 'create' ? 'קמפיין חדש' : 'עריכת קמפיין'}
+        {mode === 'create' ? 'טייס אוטומטי חדש' : 'עריכת טייס אוטומטי'}
       </h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -110,8 +110,8 @@ export function CampaignForm({
           <h2 className="text-sm font-semibold text-white mb-1">מקור המוצרים</h2>
           <p className="text-2xs text-white/35 mb-4">
             {isFlylink
-              ? 'הקמפיין מסובב את מוצרי FLYLINK שכבר קישרת — אין חיפוש, רק המוצרים שבחרת.'
-              : 'הקמפיין מחפש מוצרים חדשים ב-AliExpress לפי מילות מפתח.'}
+              ? 'הטייס האוטומטי מסובב את מוצרי FLYLINK שכבר קישרת — אין חיפוש, רק המוצרים שבחרת.'
+              : 'הטייס האוטומטי מחפש מוצרים חדשים ב-AliExpress לפי מילות מפתח.'}
           </p>
           <div className="grid grid-cols-2 gap-3">
             {([
@@ -142,7 +142,7 @@ export function CampaignForm({
           <h2 className="text-sm font-semibold text-white mb-4">פרטים בסיסיים</h2>
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-white/50 mb-1.5">שם הקמפיין *</label>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">שם הטייס האוטומטי *</label>
               <input
                 required
                 value={form.name}
@@ -339,7 +339,7 @@ export function CampaignForm({
             className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-all"
           >
             {isLoading ? <Loader2 size={14} className="animate-spin" /> : mode === 'create' ? <Plus size={14} /> : <Save size={14} />}
-            {isLoading ? 'שומר...' : mode === 'create' ? 'צור קמפיין' : 'שמור שינויים'}
+            {isLoading ? 'שומר...' : mode === 'create' ? 'צור טייס אוטומטי' : 'שמור שינויים'}
           </button>
 
           <button

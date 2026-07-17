@@ -97,7 +97,7 @@ export default function AdminUsersPage() {
                   <th className="px-3 py-2.5 font-medium">מנוי</th>
                   <th className="px-3 py-2.5 font-medium">סטטוס</th>
                   <th className="px-3 py-2.5 font-medium text-center">פוסטים</th>
-                  <th className="px-3 py-2.5 font-medium text-center">קמפיינים</th>
+                  <th className="px-3 py-2.5 font-medium text-center">טייסים</th>
                   <th className="px-3 py-2.5 font-medium">הצטרף</th>
                   <th className="px-3 py-2.5 font-medium"></th>
                 </tr>

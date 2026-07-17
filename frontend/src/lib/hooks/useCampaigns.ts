@@ -18,7 +18,7 @@ export function useCampaigns() {
       setTotal(res.total);
       setError(null);
     } catch (e: unknown) {
-      setError((e as Error).message || 'שגיאה בטעינת קמפיינים');
+      setError((e as Error).message || 'שגיאה בטעינת הטייס האוטומטי');
     } finally {
       setIsLoading(false);
     }

@@ -18,8 +18,8 @@ const TOGGLES: { id: 'daily_summary' | 'campaign_errors'; label: string; desc: s
   },
   {
     id: 'campaign_errors',
-    label: 'שגיאות קמפיין',
-    desc: 'מייל כשקמפיין נכשל. בלי זה הכשל נרשם רק בלוג של השרת ולא תדע עליו.',
+    label: 'שגיאות בטייס האוטומטי',
+    desc: 'מייל כשהטייס האוטומטי נכשל. בלי זה הכשל נרשם רק בלוג של השרת ולא תדע עליו.',
   },
 ];
 

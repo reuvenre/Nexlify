@@ -1,9 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Zap, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Check, Zap, Loader2, Mail, ArrowUpCircle } from 'lucide-react';
 import { subscriptionApi } from '@/lib/api-client';
 import type { BillingCycle, PlanDef, SubscriptionStatus } from '@/types';
+
+// Where upgrade requests go until a real payment gateway is wired.
+const SUPPORT_EMAIL = 'support@alibot.pro';
 
 // Feature lists are marketing copy (what each tier includes). Numbers (price,
 // credits, groups) come from the backend catalog — single source of truth.
@@ -34,7 +37,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
     includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
     features: [
       { label: 'גילוי מוצרים AI' },
-      { label: 'סוכני AI לניהול קמפיינים' },
+      { label: 'סוכני AI לניהול הטייס האוטומטי' },
       { label: 'אינטגרציית אמזון', soon: true },
     ],
   },
@@ -52,7 +55,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'תור פרסום חכם' },
       { label: 'האצת מודעות אוטומטית (Meta)' },
       { label: 'גילוי מוצרים AI' },
-      { label: 'סוכני AI לניהול קמפיינים' },
+      { label: 'סוכני AI לניהול הטייס האוטומטי' },
       { label: 'מעקב טוקנים ותקציב AI' },
       { label: '6,000 קרדיטים בחודש' },
       { label: 'וואטסאפ', soon: true },
@@ -69,8 +72,6 @@ export function SubscriptionForm() {
   const [plans, setPlans] = useState<PlanDef[]>([]);
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [switching, setSwitching] = useState<string | null>(null);
-  const [switched, setSwitched] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -84,19 +85,14 @@ export function SubscriptionForm() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handlePurchase = async (planId: string) => {
-    setSwitching(planId);
-    setError(null);
-    try {
-      const s = await subscriptionApi.switchPlan(planId, billing);
-      setStatus(s);
-      setSwitched(planId);
-      setTimeout(() => setSwitched(null), 2500);
-    } catch (e: any) {
-      setError(e?.response?.data?.message || 'החלפת התוכנית נכשלה');
-    } finally {
-      setSwitching(null);
-    }
+  // A plan is a paid product and there's no payment gateway yet, so the UI never
+  // activates a plan itself — an upgrade opens a pre-filled email to the team, who
+  // set the plan via the admin panel. No client path can grant a paid tier for free.
+  const upgradeMailto = (plan: PlanDef) => {
+    const cycle = billing === 'annual' ? 'שנתי' : 'חודשי';
+    const subject = `בקשת שדרוג לתוכנית ${plan.name}`;
+    const body = `היי, אני רוצה לשדרג לתוכנית ${plan.name} (חיוב ${cycle}).`;
+    return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   if (loading) {
@@ -165,15 +161,15 @@ export function SubscriptionForm() {
         )}
       </div>
 
-      {/* No payment gateway is wired yet — switching a plan only grants credits. Saying so
-          outright beats a pricing grid that implies a charge that never happens. */}
-      <div className="flex items-start gap-2.5 bg-amber-500/[0.07] border border-amber-500/20 rounded-xl px-4 py-3">
-        <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+      {/* Upgrades are handled by the team (no self-checkout), so the UI is honest about
+          how to move up rather than showing a button that silently grants a paid tier. */}
+      <div className="flex items-start gap-2.5 bg-blue-500/[0.07] border border-blue-500/20 rounded-xl px-4 py-3">
+        <ArrowUpCircle size={14} className="text-blue-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-xs text-amber-400 font-medium">מצב הדגמה — אין חיוב</p>
+          <p className="text-xs text-blue-300 font-medium">שדרוג תוכנית</p>
           <p className="text-2xs text-white/40 mt-0.5 leading-relaxed">
-            המחירים להצגה בלבד. הפעלת תוכנית מעניקה את הקרדיטים מיידית ולא גובה כסף —
-            שער תשלום עדיין לא מחובר.
+            כדי לשדרג, לחץ על "פנה לשדרוג" בתוכנית הרצויה — נחזור אליך ונפעיל אותה. שער
+            תשלום אוטומטי בקרוב.
           </p>
         </div>
       </div>
@@ -183,8 +179,6 @@ export function SubscriptionForm() {
         {plans.map((plan) => {
           const price = billing === 'annual' ? plan.price_annual : plan.price_monthly;
           const isCurrent = status?.plan === plan.id;
-          const isSwitching = switching === plan.id;
-          const justSwitched = switched === plan.id;
           const meta = PLAN_FEATURES[plan.id] || { includesLabel: 'כולל', features: [] };
           const groupsLabel = plan.max_groups === null ? 'ללא הגבלה' : `${plan.max_groups} קבוצות`;
 
@@ -226,21 +220,21 @@ export function SubscriptionForm() {
                 </div>
               </div>
 
-              <button
-                onClick={() => !isCurrent && handlePurchase(plan.id)}
-                disabled={isCurrent || switching !== null}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold mb-4 transition-all
-                  ${isCurrent
-                    ? 'bg-blue-600 text-white cursor-default'
-                    : justSwitched
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white'}`}
-              >
-                {isSwitching ? <Loader2 size={14} className="animate-spin" /> : justSwitched ? <CheckCircle2 size={14} /> : null}
-                {isCurrent ? 'התוכנית הנוכחית' : isSwitching ? 'מפעיל...' : justSwitched ? 'הופעל!' : 'הפעל תוכנית'}
-              </button>
-              {!isCurrent && !isSwitching && (
-                <p className="text-[9px] text-white/25 text-center -mt-3 mb-3">מופעל מיידית · ללא חיוב</p>
+              {isCurrent ? (
+                <button
+                  disabled
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold mb-4 bg-blue-600 text-white cursor-default"
+                >
+                  התוכנית הנוכחית
+                </button>
+              ) : (
+                <a
+                  href={upgradeMailto(plan)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold mb-4 bg-blue-600 hover:bg-blue-500 text-white transition-all"
+                >
+                  <Mail size={14} />
+                  פנה לשדרוג
+                </a>
               )}
 
               <div className="border-t border-edge pt-3 mt-auto">
@@ -265,7 +259,7 @@ export function SubscriptionForm() {
       </div>
 
       <p className="text-xs text-white/25 text-center">
-        לשאלות בנוגע לחיוב פנה אלינו ל-support@alibot.pro
+        לשאלות בנוגע לחיוב פנה אלינו ל-{SUPPORT_EMAIL}
       </p>
     </div>
   );

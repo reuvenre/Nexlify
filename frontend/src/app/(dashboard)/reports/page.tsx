@@ -181,7 +181,7 @@ export default function ReportsPage() {
           {/* By campaign */}
           {summary && summary.by_campaign.length > 0 && (
             <div className="bg-surface-secondary border border-edge rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-4">הכנסות לפי קמפיין</h3>
+              <h3 className="text-sm font-semibold text-white mb-4">הכנסות לפי טייס אוטומטי</h3>
               <div className="space-y-3">
                 {summary.by_campaign.map((c) => {
                   const maxVal = Math.max(...summary.by_campaign.map((x) => x.total));
@@ -227,7 +227,7 @@ export default function ReportsPage() {
             <div className="bg-surface-secondary border border-dashed border-edge-hover rounded-2xl p-16 text-center">
               <BarChart3 size={36} className="text-white/15 mx-auto mb-4" />
               <p className="text-sm text-white/30">אין נתוני הכנסות לתקופה זו</p>
-              <p className="text-xs text-white/20 mt-1">הפעל קמפיינים כדי לראות נתונים כאן</p>
+              <p className="text-xs text-white/20 mt-1">הפעל את הטייס האוטומטי כדי לראות נתונים כאן</p>
             </div>
           )}
         </div>

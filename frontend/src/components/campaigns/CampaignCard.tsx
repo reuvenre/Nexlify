@@ -44,7 +44,7 @@ export function CampaignCard({ campaign, onToggle, onRunNow, onDelete, onClick }
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm(`למחוק את קמפיין "${campaign.name}"?`)) {
+    if (confirm(`למחוק את הטייס האוטומטי "${campaign.name}"?`)) {
       await onDelete(campaign.id);
     }
   };

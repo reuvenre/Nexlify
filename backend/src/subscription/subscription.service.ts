@@ -58,36 +58,11 @@ export class SubscriptionService {
   }
 
   /**
-   * Demo-mode purchase: activates the plan immediately, refills credits to the
-   * plan's monthly amount and starts a new cycle. A real payment-gateway step
-   * (Grow/PayPlus/Stripe) slots in front of this call later.
+   * Grant a plan to a user (admin or, in future, a payment webhook). This is the ONLY
+   * write path to a subscription — there is no self-service switch, because plans are
+   * paid and no payment gateway is wired yet. Always refills to the plan's monthly
+   * credits and starts a fresh cycle.
    */
-  async switchPlan(userId: string, planId: string, billing: BillingCycle = 'monthly'): Promise<SubscriptionStatus> {
-    const plan = PLANS[planId as PlanId];
-    if (!plan) throw new BadRequestException('תוכנית לא מוכרת');
-    if (billing !== 'monthly' && billing !== 'annual') billing = 'monthly';
-
-    const user = await this.users.findOne({ where: { id: userId } });
-    const isSamePlan = user?.subscription_plan === plan.id;
-
-    // Only (re)fill credits on a REAL plan change — otherwise re-posting the same
-    // plan would reset credits to full on demand, an unlimited free-AI bypass
-    // (AI can fall back to the operator's server key). Switching plan grants the
-    // new plan's credits; staying on the same plan keeps the current balance.
-    const patch: any = {
-      subscription_plan: plan.id,
-      plan_billing: billing,
-    };
-    if (!isSamePlan) {
-      patch.credits_remaining = plan.monthly_credits;
-      patch.plan_renews_at = nextMonth();
-    }
-    await this.users.update(userId, patch);
-    this.logger.log(`User ${userId} switched to plan ${plan.id} (${billing}) [demo mode, refill=${!isSamePlan}]`);
-    return this.getStatus(userId);
-  }
-
-  /** Admin: set any user's plan. Always refills (an admin action, not self-service). */
   async setPlanForUser(userId: string, planId: string, billing: BillingCycle = 'monthly') {
     const plan = PLANS[planId as PlanId];
     if (!plan) throw new BadRequestException('תוכנית לא מוכרת');

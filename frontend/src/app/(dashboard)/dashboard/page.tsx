@@ -106,7 +106,7 @@ export default function DashboardPage() {
         { id: 'ali',      label: 'חבר את AliExpress',     desc: 'הגדר App Key ו-App Secret',     href: '/settings',         done: aliOk },
         { id: 'ai',       label: 'חבר מנוע AI',            desc: 'מפתח API ליצירת תוכן — Gemini / OpenAI / Claude', href: '/settings', done: aiOk },
         { id: 'channel',  label: 'הוסף ערוץ טלגרם',        desc: 'חבר ערוץ לפרסום אוטומטי',       href: '/groups',           done: channelOk },
-        { id: 'campaign', label: 'צור קמפיין',              desc: 'הפעל פרסום אוטומטי של מוצרים', href: '/campaigns/new',    done: campaignOk },
+        { id: 'campaign', label: 'הגדר טייס אוטומטי',        desc: 'הפעל פרסום אוטומטי של מוצרים', href: '/campaigns/new',    done: campaignOk },
         { id: 'post',     label: 'שלח פוסט ראשון',         desc: 'פרסם מוצר לטלגרם',             href: '/quick-post',       done: postOk },
       ]);
     } catch (e) {
@@ -200,7 +200,7 @@ export default function DashboardPage() {
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-        <StatCard label="קמפיינים"       value={isLoading ? '—' : stats.campaigns}                        sub={`${stats.activeCampaigns} פעילים`} icon={Megaphone}  accent="blue" />
+        <StatCard label="טייסים אוטומטיים" value={isLoading ? '—' : stats.campaigns}                        sub={`${stats.activeCampaigns} פעילים`} icon={Megaphone}  accent="blue" />
         <StatCard label="סה״כ פוסטים"    value={isLoading ? '—' : stats.totalPosts.toLocaleString()}      sub={`${stats.sentToday} היום`}          icon={FileText}   accent="violet" />
         <StatCard label="ערוצים"         value={isLoading ? '—' : stats.channels}                         sub="ערוצי טלגרם"                         icon={Users}      accent="cyan" />
         <StatCard label="הכנסות (30 יום)" value={isLoading ? '—' : `₪${totalEarnings.toFixed(0)}`}        sub="מוסדר + משוער"                       icon={DollarSign}  accent="green" />
@@ -249,7 +249,7 @@ export default function DashboardPage() {
             <div className="flex flex-col items-center justify-center py-12 text-white/25">
               <FileText size={32} className="mb-3" />
               <p className="text-sm">אין פוסטים עדיין</p>
-              <p className="text-xs mt-1">צור קמפיין ראשון כדי להתחיל</p>
+              <p className="text-xs mt-1">הגדר טייס אוטומטי ראשון כדי להתחיל</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -314,7 +314,7 @@ export default function DashboardPage() {
                 <Zap size={12} className="text-blue-400" /> פוסט מהיר
               </Link>
               <Link href="/campaigns/new" className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 text-xs text-white/60 hover:text-white/90 transition-all">
-                <Megaphone size={12} className="text-violet-400" /> קמפיין חדש
+                <Megaphone size={12} className="text-violet-400" /> טייס אוטומטי חדש
               </Link>
               <Link href="/groups" className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 text-xs text-white/60 hover:text-white/90 transition-all">
                 <Users size={12} className="text-cyan-400" /> ניהול ערוצים

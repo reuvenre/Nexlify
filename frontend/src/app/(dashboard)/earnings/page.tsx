@@ -103,7 +103,7 @@ export default function EarningsPage() {
           {/* By campaign */}
           {summary.by_campaign.length > 0 && (
             <div className="bg-surface-secondary border border-edge rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-4">לפי קמפיין</h3>
+              <h3 className="text-sm font-semibold text-white mb-4">לפי טייס אוטומטי</h3>
               <div className="space-y-2">
                 {summary.by_campaign.map((c) => (
                   <div key={c.campaign_id} className="flex items-center gap-4">

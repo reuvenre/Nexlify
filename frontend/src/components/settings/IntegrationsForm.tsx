@@ -354,7 +354,7 @@ export function IntegrationsForm() {
         <h3 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
           <span className="text-lg">📡</span> ערוצי פרסום ברירת מחדל
         </h3>
-        <p className="text-2xs text-white/30 mb-4">לאן פוסטים שנשלחים אוטומטית (קמפיינים, תור) יתפרסמו.</p>
+        <p className="text-2xs text-white/30 mb-4">לאן פוסטים שנשלחים אוטומטית (הטייס האוטומטי, תור) יתפרסמו.</p>
         <div className="space-y-2">
           {[
             { label: 'Telegram', emoji: '📨', value: pubTelegram, set: setPubTelegram },
