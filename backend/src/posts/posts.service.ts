@@ -837,18 +837,38 @@ export class PostsService {
       );
     }
 
+    // Quality filters enforced HERE, not by the API: product.query has no rating param,
+    // and (as discovered) its min_discount param is a no-op — so both are applied to the
+    // fetched page. rating comes from each product's evaluate_rate (0–5). If the filter
+    // rejects everything, fail loudly with the thresholds rather than posting off-spec
+    // products the user explicitly filtered out.
+    const minRating = campaign.min_rating ?? 0;
+    const minDiscount = campaign.min_discount ?? 0;
+    const qualified = found.filter((p) =>
+      (minRating <= 0 || (p.rating || 0) >= minRating) &&
+      (minDiscount <= 0 || (p.discount_percent || 0) >= minDiscount),
+    );
+    if (!qualified.length) {
+      const bits: string[] = [];
+      if (minRating > 0) bits.push(`דירוג ≥ ${minRating}★`);
+      if (minDiscount > 0) bits.push(`הנחה ≥ ${minDiscount}%`);
+      throw new BadRequestException(
+        `נמצאו ${found.length} מוצרים עבור "${keyword}", אבל אף אחד לא עומד בסינון (${bits.join(', ')}). הורד את הסף או נסה מילת מפתח אחרת.`,
+      );
+    }
+
     // Skip products this campaign has already posted — the search returns the same
     // top-by-volume items every run, so without this the campaign kept re-posting them.
-    // Fall back to the full list only if EVERY candidate was already used (better a repeat
-    // than nothing).
+    // Fall back to the full qualified list only if EVERY candidate was already used
+    // (better a repeat than nothing) — but never fall back past the quality filters.
     const postedIds = new Set(
       (await this.repo.createQueryBuilder('p')
         .select('DISTINCT p.product_id', 'product_id')
         .where('p.campaign_id = :cid', { cid: campaign.id })
         .getRawMany()).map((r) => String(r.product_id)),
     );
-    const fresh = found.filter((p) => !postedIds.has(String(p.product_id)));
-    const pool = fresh.length ? fresh : found;
+    const fresh = qualified.filter((p) => !postedIds.has(String(p.product_id)));
+    const pool = fresh.length ? fresh : qualified;
 
     // A campaign runs headless — nothing hands it a template the way the composer does.
     // Fall back to the user's default body template so campaign posts are written in the

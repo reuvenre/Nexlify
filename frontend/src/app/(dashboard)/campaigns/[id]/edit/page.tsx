@@ -26,6 +26,7 @@ export default function EditCampaignPage() {
         min_price: c.min_price,
         max_price: c.max_price,
         min_discount: c.min_discount,
+        min_rating: c.min_rating,
         post_template: c.post_template,
       }))
       .catch(() => router.push('/campaigns'));

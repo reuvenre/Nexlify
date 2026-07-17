@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional, IsNumber, IsIn, Min } from 'class-validator';
+import { IsString, IsArray, IsOptional, IsNumber, IsIn, Min, Max } from 'class-validator';
 
 export class CampaignDto {
   @IsString()
@@ -41,6 +41,13 @@ export class CampaignDto {
   @IsNumber()
   @Min(0)
   min_discount?: number;
+
+  /** Minimum star rating (0–5). Enforced client-side against evaluate_rate. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  min_rating?: number;
 
   @IsString()
   schedule_cron: string;

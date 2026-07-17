@@ -355,6 +355,8 @@ export interface Campaign {
   min_price?: number;
   max_price?: number;
   min_discount?: number;
+  /** Minimum star rating (0–5) a product must have to be published. */
+  min_rating?: number;
   schedule_cron: string;
   posts_per_run: number;
   language: 'he' | 'en' | 'ar';
@@ -376,6 +378,7 @@ export interface CampaignInput {
   min_price?: number;
   max_price?: number;
   min_discount?: number;
+  min_rating?: number;
   schedule_cron: string;
   posts_per_run: number;
   language?: 'he' | 'en' | 'ar';

@@ -268,6 +268,38 @@ export function CampaignForm({
               />
             </div>
           </div>
+
+          {/* Minimum rating — enforced against each product's AliExpress feedback score.
+              Best-sellers cluster at 4.5–4.9★, so these thresholds actually filter. */}
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-white/50 mb-1.5">דירוג מינימלי</label>
+            <div className="flex gap-2 flex-wrap">
+              {([
+                { v: undefined, label: 'כל דירוג' },
+                { v: 4, label: '4+ ⭐' },
+                { v: 4.5, label: '4.5+ ⭐' },
+                { v: 4.8, label: '4.8+ ⭐' },
+              ] as const).map((opt) => {
+                const active = (form.min_rating ?? undefined) === opt.v;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, min_rating: opt.v }))}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-medium transition-all
+                      ${active
+                        ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
+                        : 'bg-white/5 text-white/40 border border-edge hover:bg-white/10'}`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-2xs text-white/30 mt-2">
+              רק מוצרים בדירוג הזה ומעלה יפורסמו. אם אף מוצר לא עומד בסף, ההרצה תיכשל בהודעה ברורה במקום לפרסם מוצר לא מתאים.
+            </p>
+          </div>
         </div>
         )}
 

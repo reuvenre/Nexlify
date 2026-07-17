@@ -55,6 +55,14 @@ export class Campaign {
   @Column('float', { nullable: true })
   min_discount: number;
 
+  /**
+   * Minimum product rating (0–5 stars) to publish. AliExpress product.query has no
+   * server-side rating filter, so this is enforced client-side in the runner against
+   * each product's evaluate_rate (positive-feedback %). null/0 = no rating filter.
+   */
+  @Column('float', { nullable: true })
+  min_rating: number;
+
   @Column({ default: '0 9 * * *' })
   schedule_cron: string;
 
