@@ -810,14 +810,25 @@ export class PostsService {
     const searched = await this.searchKeyword(keyword, creds);
 
     // Fetch a wide net (x10) so we have room to skip products this campaign already posted.
-    const found = await this.searchProducts({
-      keyword: searched,
-      category_id: campaign.category_id,
-      min_price: campaign.min_price,
-      max_price: campaign.max_price,
-      min_discount: campaign.min_discount,
-      limit: Math.min(50, campaign.posts_per_run * 10),
+    // A rotating page walks DEEPER into the results over time — AliExpress returns the same
+    // top-by-volume items on page 1 every run, but has thousands of matches (measured:
+    // 2,500–3,700 for these keywords). A random page 1-6 keeps surfacing fresh products for
+    // effectively ever; page 1 is the fallback for sparse keywords (few results).
+    const pageSize = Math.min(50, Math.max(20, campaign.posts_per_run * 10));
+    const page = 1 + Math.floor(Math.random() * 6);
+    let found = await this.searchProducts({
+      keyword: searched, category_id: campaign.category_id,
+      min_price: campaign.min_price, max_price: campaign.max_price,
+      min_discount: campaign.min_discount, limit: pageSize, page,
     }, creds);
+    // Sparse keyword or an over-deep page came back thin → fall back to the top page.
+    if (found.length < campaign.posts_per_run && page !== 1) {
+      found = await this.searchProducts({
+        keyword: searched, category_id: campaign.category_id,
+        min_price: campaign.min_price, max_price: campaign.max_price,
+        min_discount: campaign.min_discount, limit: pageSize, page: 1,
+      }, creds);
+    }
 
     if (!found.length) {
       const via = searched !== keyword ? ` (חיפוש באנגלית: "${searched}")` : '';
@@ -1762,6 +1773,7 @@ export class PostsService {
     max_price?: number;
     min_discount?: number;
     limit?: number;
+    page?: number;
   }, creds: DecryptedCredentials): Promise<any[]> {
     if (!creds?.aliexpress_app_key) {
       throw new BadRequestException('AliExpress affiliate credentials not configured');
@@ -1788,6 +1800,7 @@ export class PostsService {
           'target_original_price,target_sale_price,target_sale_price_currency,promotion_link,' +
           'discount,product_main_image_url,product_detail_url,evaluate_rate,first_level_category_name,lastest_volume',
         page_size: params.limit || 10,
+        page_no: params.page && params.page > 0 ? params.page : undefined,
         sort: 'LAST_VOLUME_DESC',
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
