@@ -277,10 +277,15 @@ export class PostsService {
     // ships. Returned separately rather than baked into generated_text on purpose: the
     // coupon is re-resolved at send time, so a code that expires while the post waits in
     // the queue is never delivered. Baking it into the text would freeze a stale code.
+    // Mirror the send path's AliExpress-only rule: no coupon preview for a FLYLINK/other link.
     const priceUsd = priceAlreadyConverted && rate > 0
       ? +(product.sale_price / rate).toFixed(2)
       : product.sale_price;
-    const match = await this.coupons.bestFor(userId, priceUsd).catch(() => null);
+    const previewLink = String(product.affiliate_url || product.product_url || '');
+    const isFlylinkProduct = /flylink/i.test(previewLink);
+    const match = isFlylinkProduct
+      ? null
+      : await this.coupons.bestFor(userId, priceUsd).catch(() => null);
 
     return {
       product,
@@ -1042,11 +1047,15 @@ export class PostsService {
       ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
       : post.generated_text;
 
-    // Best matching AliExpress coupon for THIS product's price, resolved at SEND time so a
-    // queued/scheduled post never goes out with a coupon that expired while it waited.
-    // Priced in USD because the coupon tiers are ($7 OFF $55+); a post with no USD price
-    // (e.g. FLYLINK) yields no coupon.
-    const match = await this.coupons.bestFor(post.user_id, post.sale_price_usd).catch(() => null);
+    // Coupons are AliExpress-ONLY — the codes redeem at AliExpress checkout, so an AliExpress
+    // code on a FLYLINK post is useless and misleading. Attach one only when this post's link
+    // is an AliExpress link (source is inferred from the link, same as the posts-list filter).
+    // Resolved at SEND time so a queued/scheduled post never ships a code that expired while
+    // it waited; priced in USD because the tiers are ($7 OFF $55+).
+    const isAliExpressPost = /aliexpress/i.test(post.affiliate_url || '');
+    const match = isAliExpressPost
+      ? await this.coupons.bestFor(post.user_id, post.sale_price_usd).catch(() => null)
+      : null;
     if (match && !body.includes(match.coupon.code)) {
       body = `${body}\n\n${this.coupons.couponLine(match.coupon, match.qualifies)}`;
     }

@@ -142,7 +142,11 @@ export default function CouponsPage() {
             <Ticket size={22} className="text-pink-400" /> קופונים
           </h1>
           <p className="text-sm text-white/40 mt-1">
-            הדבק את הקודים מהמייל של AliExpress — המערכת תצמיד לכל פוסט את הקופון המשתלם ביותר לפי מחיר המוצר.
+            הדבק את הקודים מהמייל של AliExpress — המערכת תצמיד לכל פוסט של AliExpress את הקופון המשתלם ביותר לפי מחיר המוצר.
+          </p>
+          <p className="text-2xs text-amber-400/80 mt-1.5 flex items-center gap-1.5">
+            <AlertTriangle size={11} className="shrink-0" />
+            הקופונים חלים רק על פוסטים של AliExpress. פוסטים של FLYLINK לא מקבלים קופון (הקוד תקף רק בקנייה ב-AliExpress).
           </p>
         </div>
         <button onClick={load} disabled={loading}
