@@ -166,33 +166,27 @@ export class ChannelsService {
       return { ok: false, error: 'לא הוגדר Page Access Token בהגדרות ← אינטגרציות.' };
     }
     try {
+      // Only request `name`: it's valid for BOTH a user token and a PAGE token. Asking for
+      // `tasks` here broke the test for the (correct!) page tokens returned by /me/accounts —
+      // `tasks` is not a field on the page node when queried with a page token (#100
+      // "nonexisting field (tasks)"). Reaching the page by name is enough to confirm the
+      // token covers it; publish permission is validated by the actual publish call.
       const res = await axios.get(
         `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}`,
-        { params: { fields: 'name,tasks', access_token: token }, timeout: 6000, validateStatus: () => true },
+        { params: { fields: 'name', access_token: token }, timeout: 6000, validateStatus: () => true },
       );
       if (res.data?.error) {
         const msg = res.data.error.message || 'unknown error';
-        // #100/#803: object not found or wrong node type. Most common cause when it works
-        // for other channels but not this one: the token entered here doesn't COVER this
-        // specific page (a user token, or a page token for a different page). Point straight
-        // at the fix: /me/accounts lists exactly the pages the token can manage.
+        // Object not found / wrong node type: usually the Page ID is the URL's profile.php
+        // number instead of the real Graph Page ID, or the token doesn't cover this page.
         return {
           ok: false,
-          error: /tasks|nonexisting|does not exist|Unsupported/i.test(msg)
-            ? `${msg} — הטוקן שהזנת כאן לא מכסה את הדף הזה. ב-Graph API Explorer הרץ GET /me/accounts: אם הדף מופיע — העתק את ה-access_token ואת ה-id שלו לכאן; אם לא מופיע — צור טוקן מחדש וודא שהדף הזה מסומן בהרשאות.`
+          error: /nonexisting|does not exist|Unsupported|cannot be loaded/i.test(msg)
+            ? `${msg} — ודא שה-Page ID הוא זה שחוזר מ-GET /me/accounts (לא המספר מכתובת ה-profile.php), ושהטוקן הוא ה-access_token של אותו דף.`
             : msg,
         };
       }
-      const tasks: string[] = Array.isArray(res.data?.tasks) ? res.data.tasks : [];
-      const canPublish = tasks.includes('CREATE_CONTENT') || tasks.includes('MANAGE');
-      const name = res.data?.name || pageId;
-      if (!canPublish) {
-        return {
-          ok: false,
-          error: `מחובר לדף "${name}" אך אין לטוקן הרשאת פרסום. נדרש Page Access Token של אדמין הדף עם ההרשאה pages_manage_posts.`,
-        };
-      }
-      return { ok: true, page_name: name };
+      return { ok: true, page_name: res.data?.name || pageId };
     } catch (err: any) {
       return { ok: false, error: err?.response?.data?.error?.message || err?.message || 'הבדיקה נכשלה.' };
     }
