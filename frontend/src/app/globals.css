@@ -129,6 +129,19 @@ input:-webkit-autofill {
   box-shadow: 0 0 0 3px rgba(239,68,68,0.10) !important;
 }
 
+/* ── Native <select> dropdown options ──────────────────────────────────────────
+   The OPEN dropdown popup is painted by the OS/browser, not the page. Our selects use
+   translucent Tailwind backgrounds (bg-white/5) + near-white text, so the popup renders
+   as near-white text on the system's WHITE popup — every option is invisible except the
+   highlighted one (which gets the blue OS highlight). This looked like an "empty" menu.
+   Force each option onto a solid, theme-correct surface so it's readable in BOTH themes,
+   everywhere at once. Chrome/Edge honour option background-color + color. */
+option,
+optgroup {
+  background-color: var(--bg-secondary);
+  color: var(--text);
+}
+
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
