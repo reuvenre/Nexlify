@@ -1387,16 +1387,19 @@ export class PostsService {
     // Facebook honours its toggle GLOBALLY — even for group/queue posts — so enabling
     // "publish to Facebook" fans every post out to the page(s), not only default posts.
     const wantTelegram = targets.some((t) => !!t) || creds?.publish_telegram !== false;
-    // Make.com relay: when enabled + a webhook is set, Facebook is delivered by POSTing
-    // the post to the user's Make scenario (which posts via its own authorized FB
-    // connection). Make then REPLACES the native Graph API path so FB isn't double-posted.
-    const wantMake = creds?.publish_via_make === true && !!creds?.make_webhook_url;
-    const wantFacebook = creds?.publish_facebook === true && !wantMake;
+    // Make.com is a GLOBAL relay for Facebook: when enabled + a webhook is set, FB is
+    // delivered by POSTing to the user's Make scenario. BUT a channel that has its OWN
+    // Facebook page token must still publish NATIVELY with that token even when Make is on —
+    // otherwise the per-channel token the user configured is silently ignored (exactly why
+    // Ali4You wasn't posting). So `wantFacebook` is just the master switch; per-target below
+    // we pick native (own token) vs the Make relay.
+    const makeRelay = creds?.publish_via_make === true && !!creds?.make_webhook_url;
+    const wantFacebook = creds?.publish_facebook === true;
     const wantInstagram = creds?.publish_instagram === true;
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
-    if (!wantTelegram && !wantFacebook && !wantInstagram && !wantMake) {
+    if (!wantTelegram && !wantFacebook && !wantInstagram && !makeRelay) {
       post.status = 'failed';
       post.error_message = 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
       await this.repo.save(post);
@@ -1441,25 +1444,35 @@ export class PostsService {
       })());
     }
 
-    // Facebook / Make: one send per UNIQUE page (groups sharing a page post once).
-    if (wantFacebook || wantMake) {
+    // Facebook: one send per UNIQUE page (groups sharing a page post once). A channel with
+    // its OWN page token publishes NATIVELY with it — even when Make is the global relay —
+    // so the per-channel token is never ignored. Channels without their own token use the
+    // global path: the Make relay when enabled, else native with the account's global token.
+    if (wantFacebook || makeRelay) {
       const pages = await this.resolvePages(post.user_id, targets, creds);
       for (const [pageId, target] of pages) {
         const body = await this.buildPostBody(post, creds, target);
         const label = await this.targetLabel(post.user_id, target, multi && pages.size > 1);
-        if (wantFacebook) {
-          const token = await this.resolveFacebookPageToken(post.user_id, target, creds);
+        const ownToken = target ? await this.channels.getFacebookPageToken(post.user_id, target) : null;
+
+        if (ownToken) {
           tasks.push(
-            this.sendToFacebook(post, creds, body, pageId, token)
+            this.sendToFacebook(post, creds, body, pageId, ownToken)
               .then(() => { anySuccess = true; })
               .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }),
           );
-        }
-        if (wantMake) {
+        } else if (makeRelay) {
           tasks.push(
             this.sendToMakeWebhook(post, creds, body, pageId)
               .then(() => { anySuccess = true; })
               .catch((err: any) => { errors.push(`Make: ${label}${err?.response?.data?.message || err.message}`); }),
+          );
+        } else if (wantFacebook) {
+          const token = creds?.facebook_page_token || '';
+          tasks.push(
+            this.sendToFacebook(post, creds, body, pageId, token)
+              .then(() => { anySuccess = true; })
+              .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }),
           );
         }
       }
