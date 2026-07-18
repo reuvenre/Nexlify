@@ -256,6 +256,8 @@ export interface SupplierCatalog {
   sku_match_config?: Record<string, any>;
   selectors_json?: string;
   target_channel_id?: string;
+  /** Whether a Yupoo store password is set (the value itself is never sent to the client). */
+  has_password?: boolean;
   enabled: boolean;
   created_at: string;
 }

@@ -572,9 +572,9 @@ export const suppliersApi = {
   updateCatalog: (id: string, data: Partial<SupplierCatalog>) =>
     http.patch<SupplierCatalog>(`/suppliers/catalogs/${id}`, data).then(extract),
   deleteCatalog: (id: string) => http.delete(`/suppliers/catalogs/${id}`).then(extract),
-  probeStore: (store: string) =>
+  probeStore: (store: string, password?: string) =>
     http.get<{ count: number; sample_code: string | null; suggested_mode: string; samples: any[] }>(
-      '/suppliers/catalogs/probe', { params: { store }, timeout: 30_000 },
+      '/suppliers/catalogs/probe', { params: { store, ...(password ? { password } : {}) }, timeout: 30_000 },
     ).then(extract),
 
   browse: (catalogId: string, params: { page?: number; category?: string; with_categories?: 0 | 1 }) =>

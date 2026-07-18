@@ -30,6 +30,14 @@ export class SupplierCatalog {
   @Column({ nullable: true })
   source_store: string;
 
+  /**
+   * Password for a password-protected ("index-lock") Yupoo store, AES-encrypted.
+   * Sent as the `indexlockcode` cookie on every fetch — verified live that this cookie
+   * alone unlocks the album list. Null for public stores.
+   */
+  @Column({ nullable: true })
+  password_enc: string;
+
   /** Affiliate network the pasted link belongs to. */
   @Column({ default: 'flylink' })
   affiliate_network: string;

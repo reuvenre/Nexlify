@@ -151,6 +151,7 @@ function CatalogModal({ catalog, channels, onClose, onSaved }: { catalog: Suppli
     source_prefix: catalog?.sku_match_config?.source_prefix || '',
     affiliate_prefix: catalog?.sku_match_config?.affiliate_prefix || '',
     target_channel_id: catalog?.target_channel_id || '',
+    password: '',
     enabled: catalog?.enabled ?? true,
   });
   const [saving, setSaving] = useState(false);
@@ -162,7 +163,7 @@ function CatalogModal({ catalog, channels, onClose, onSaved }: { catalog: Suppli
     if (!form.source_store.trim()) return;
     setProbing(true); setProbe(null);
     try {
-      const r = await suppliersApi.probeStore(form.source_store.trim());
+      const r = await suppliersApi.probeStore(form.source_store.trim(), form.password.trim() || undefined);
       setProbe(`נמצאו ${r.count} מוצרים · קוד לדוגמה: ${r.sample_code} · מומלץ: ${MATCH_MODES.find((m) => m.value === r.suggested_mode)?.label}`);
       if (r.suggested_mode) setForm((f) => ({ ...f, sku_match_mode: r.suggested_mode as SkuMatchMode }));
     } catch (e: any) { setProbe('בדיקת החנות נכשלה — ' + (e?.response?.data?.message || 'שגיאה')); }
@@ -176,6 +177,8 @@ function CatalogModal({ catalog, channels, onClose, onSaved }: { catalog: Suppli
       sku_match_mode: form.sku_match_mode, target_channel_id: form.target_channel_id || null, enabled: form.enabled,
       sku_match_config: form.sku_match_mode === 'prefix_map' ? { source_prefix: form.source_prefix, affiliate_prefix: form.affiliate_prefix } : null,
     };
+    // Only send the password when the user typed one — on edit, blank keeps the existing password.
+    if (form.password.trim()) payload.password = form.password.trim();
     try {
       if (catalog) await suppliersApi.updateCatalog(catalog.id, payload);
       else await suppliersApi.createCatalog(payload);
@@ -203,6 +206,9 @@ function CatalogModal({ catalog, channels, onClose, onSaved }: { catalog: Suppli
               </button>
             </div>
             {probe && <p className="text-2xs text-blue-400/80 mt-1.5">{probe}</p>}
+          </Field>
+          <Field label="סיסמת החנות (אם מוגנת)" hint={catalog?.has_password ? 'סיסמה מוגדרת — השאר ריק כדי לשמור עליה' : 'לחנות Yupoo נעולה בסיסמה. השאר ריק אם החנות פתוחה.'}>
+            <Input value={form.password} onChange={(v) => setForm((f) => ({ ...f, password: v }))} placeholder={catalog?.has_password ? '••••••' : 'סיסמה (אופציונלי)'} dir="ltr" />
           </Field>
           <Field label="כלל התאמת קוד">
             <div className="grid grid-cols-2 gap-2">

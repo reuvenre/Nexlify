@@ -84,14 +84,17 @@ export class YupooService {
     return `https://${slug}.x.yupoo.com`;
   }
 
-  private async get(url: string, referer: string): Promise<string> {
+  private async get(url: string, referer: string, password?: string): Promise<string> {
+    // A password-protected ("index-lock") store unlocks with the `indexlockcode` cookie set
+    // to the password — proven live (cookie alone → full album list, no verify call needed).
+    const cookie = password ? { Cookie: `indexlockcode=${encodeURIComponent(password)}` } : {};
     // Render→Yupoo can be slow/intermittent (a single 12s attempt often ECONNABORTED).
     // Retry with backoff before giving up; keep the total under the caller's HTTP timeout.
     let lastMsg = 'network error';
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await axios.get(url, {
-          headers: { ...BROWSER_HEADERS, Referer: referer },
+          headers: { ...BROWSER_HEADERS, ...cookie, Referer: referer },
           timeout: 14000, maxRedirects: 5, maxContentLength: 5 * 1024 * 1024,
           validateStatus: () => true,
         });
@@ -105,10 +108,18 @@ export class YupooService {
     throw new BadRequestException(`לא ניתן להגיע ל-Yupoo — בדוק את כתובת/שם החנות (${lastMsg})`);
   }
 
-  /** Fetch a single album page → the product content. */
-  async fetchAlbum(albumUrl: string): Promise<YupooItem> {
+  /** Yupoo's index-lock overlay marker — present when the store is password-gated + not unlocked. */
+  private isLocked(html: string): boolean {
+    return /indexlock__main|主页已加密/.test(html);
+  }
+
+  /** Fetch a single album page → the product content. `password` unlocks a gated store. */
+  async fetchAlbum(albumUrl: string, password?: string): Promise<YupooItem> {
     const base = this.base(albumUrl);
-    const html = await this.get(albumUrl, base + '/');
+    const html = await this.get(albumUrl, base + '/', password);
+    if (this.isLocked(html)) {
+      throw new BadRequestException('החנות מוגנת בסיסמה — הגדר/תקן את סיסמת הקטלוג (Yupoo).');
+    }
     const $ = cheerio.load(html);
 
     const rawTitle = ($('.showalbumheader__gallerytitle').first().text()
@@ -136,9 +147,9 @@ export class YupooService {
   }
 
   /** The brand categories of a store — for in-system browsing. */
-  async fetchCategories(store: string): Promise<Array<{ id: string; name: string }>> {
+  async fetchCategories(store: string, password?: string): Promise<Array<{ id: string; name: string }>> {
     const base = this.storeBase(store);
-    const html = await this.get(`${base}/albums`, base + '/');
+    const html = await this.get(`${base}/albums`, base + '/', password);
     const $ = cheerio.load(html);
     const out: Array<{ id: string; name: string }> = [];
     const seen = new Set<string>();
@@ -160,12 +171,15 @@ export class YupooService {
    */
   async fetchStore(
     store: string,
-    opts: { page?: number; categoryId?: string } = {},
+    opts: { page?: number; categoryId?: string; password?: string } = {},
   ): Promise<{ items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>; hasMore: boolean }> {
     const base = this.storeBase(store);
     const page = Math.max(1, opts.page || 1);
     const path = opts.categoryId ? `/categories/${opts.categoryId}` : '/albums';
-    const html = await this.get(`${base}${path}?page=${page}`, base + '/');
+    const html = await this.get(`${base}${path}?page=${page}`, base + '/', opts.password);
+    if (this.isLocked(html)) {
+      throw new BadRequestException('החנות מוגנת בסיסמה — הגדר/תקן את סיסמת הקטלוג (Yupoo).');
+    }
     const $ = cheerio.load(html);
     const items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }> = [];
     const seen = new Set<string>();

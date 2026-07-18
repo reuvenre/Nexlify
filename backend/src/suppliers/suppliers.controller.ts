@@ -25,7 +25,9 @@ export class SuppliersController {
   createCatalog(@Req() req: Request, @Body() dto: any) { return this.catalogs.create(this.uid(req), dto); }
 
   @Get('catalogs/probe')
-  probe(@Req() req: Request, @Query('store') store: string) { return this.catalogs.probeStore(store); }
+  probe(@Req() req: Request, @Query('store') store: string, @Query('password') password?: string) {
+    return this.catalogs.probeStore(store, password);
+  }
 
   /** Browse a catalog's Yupoo store from inside the app (categories + paginated albums). */
   @Get('catalogs/:id/browse')

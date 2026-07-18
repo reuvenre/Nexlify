@@ -133,7 +133,7 @@ export class SupplierProductsService {
           images: dto.album.images,
           album_url: dto.album.album_url || dto.yupooUrl.trim(),
         }
-      : await this.yupoo.fetchAlbum(dto.yupooUrl.trim());
+      : await this.yupoo.fetchAlbum(dto.yupooUrl.trim(), this.catalogs.catalogPassword(catalog));
     const mode = catalog.sku_match_mode;
     const cfg = catalog.sku_match_config || {};
     const yupooCanon = normalizeSku(item.code, mode, cfg);
@@ -521,9 +521,9 @@ export class SupplierProductsService {
 
   /** Fetch a Yupoo album's FULL content (all color images) for the post modal — no save. */
   async previewAlbum(userId: string, catalogId: string, url: string) {
-    await this.catalogs.get(userId, catalogId); // authorize catalog ownership
+    const cat = await this.catalogs.get(userId, catalogId); // authorize catalog ownership
     if (!url?.trim()) throw new BadRequestException('חסר קישור Yupoo');
-    const item = await this.yupoo.fetchAlbum(url.trim());
+    const item = await this.yupoo.fetchAlbum(url.trim(), this.catalogs.catalogPassword(cat));
     const { rate, currency } = await this.rateFor(userId);
     return {
       code: item.code,
@@ -543,7 +543,13 @@ export class SupplierProductsService {
   async refreshOne(product: SupplierProduct): Promise<void> {
     try {
       if (product.yupoo_url) {
-        const item = await this.yupoo.fetchAlbum(product.yupoo_url);
+        // A password-protected store needs its catalog password to fetch — load it best-effort.
+        let pw: string | undefined;
+        try {
+          const cat = await this.catalogs.get(product.user_id, product.supplier_catalog_id);
+          pw = this.catalogs.catalogPassword(cat);
+        } catch { /* catalog gone — try public */ }
+        const item = await this.yupoo.fetchAlbum(product.yupoo_url, pw);
         if (item.price > 0) product.price = item.price;
       }
     } catch { /* keep old price on fetch failure */ }
