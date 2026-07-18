@@ -147,11 +147,11 @@ export class YupooService {
   }
 
   /** The brand categories of a store — for in-system browsing. */
-  async fetchCategories(store: string, password?: string): Promise<Array<{ id: string; name: string }>> {
+  async fetchCategories(store: string, password?: string): Promise<Array<{ id: string; name: string; isSubCate: boolean }>> {
     const base = this.storeBase(store);
     const html = await this.get(`${base}/albums`, base + '/', password);
     const $ = cheerio.load(html);
-    const out: Array<{ id: string; name: string }> = [];
+    const out: Array<{ id: string; name: string; isSubCate: boolean }> = [];
     const seen = new Set<string>();
     $('a[href*="/categories/"]').each((_, el) => {
       const href = $(el).attr('href') || '';
@@ -160,7 +160,9 @@ export class YupooService {
       const name = ($(el).text() || '').replace(/\s+/g, ' ').trim();
       if (!name) return;
       seen.add(m[1]);
-      out.push({ id: m[1], name });
+      // SUB-categories must be fetched with ?isSubCate=true or Yupoo returns 404/empty;
+      // top-level categories must be fetched WITHOUT it. Preserve which one this is.
+      out.push({ id: m[1], name, isSubCate: /isSubCate=true/i.test(href) });
     });
     return out;
   }
@@ -171,12 +173,16 @@ export class YupooService {
    */
   async fetchStore(
     store: string,
-    opts: { page?: number; categoryId?: string; password?: string } = {},
+    opts: { page?: number; categoryId?: string; isSubCate?: boolean; password?: string } = {},
   ): Promise<{ items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>; hasMore: boolean }> {
     const base = this.storeBase(store);
     const page = Math.max(1, opts.page || 1);
+    const params = new URLSearchParams({ page: String(page) });
+    // A sub-category 404s / returns empty unless fetched with isSubCate=true; a top-level
+    // category 404s WITH it. The caller passes which kind this category is.
+    if (opts.categoryId && opts.isSubCate) params.set('isSubCate', 'true');
     const path = opts.categoryId ? `/categories/${opts.categoryId}` : '/albums';
-    const html = await this.get(`${base}${path}?page=${page}`, base + '/', opts.password);
+    const html = await this.get(`${base}${path}?${params.toString()}`, base + '/', opts.password);
     if (this.isLocked(html)) {
       throw new BadRequestException('החנות מוגנת בסיסמה — הגדר/תקן את סיסמת הקטלוג (Yupoo).');
     }

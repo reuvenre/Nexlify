@@ -36,11 +36,13 @@ export class SuppliersController {
     @Param('id') id: string,
     @Query('page') page = '1',
     @Query('category') categoryId?: string,
+    @Query('is_sub') isSub?: string,
     @Query('with_categories') withCategories?: string,
   ) {
     return this.catalogs.browse(this.uid(req), id, {
       page: +page || 1,
       categoryId: categoryId || undefined,
+      isSubCate: isSub === '1',
       withCategories: withCategories === '1',
     });
   }

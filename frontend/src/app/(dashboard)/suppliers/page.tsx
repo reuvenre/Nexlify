@@ -319,19 +319,20 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
 }) {
   const [catalogId, setCatalogId] = useState(catalogs[0]?.id || '');
   const [opened, setOpened] = useState<string | null>(null); // album_url of the product modal
-  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: string; name: string; isSubCate: boolean }>>([]);
   const [category, setCategory] = useState('');
+  const [catIsSub, setCatIsSub] = useState(false); // is the current category a Yupoo sub-category?
   const [items, setItems] = useState<Array<{ code: string; price: number; currency?: string; description: string; album_url: string; thumb?: string }>>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const load = useCallback(async (p: number, cat: string, withCats: boolean) => {
+  const load = useCallback(async (p: number, cat: string, withCats: boolean, isSub = false) => {
     if (!catalogId) return;
     setLoading(true); setError('');
     try {
-      const r = await suppliersApi.browse(catalogId, { page: p, category: cat || undefined, with_categories: withCats ? 1 : 0 });
+      const r = await suppliersApi.browse(catalogId, { page: p, category: cat || undefined, is_sub: isSub ? 1 : 0, with_categories: withCats ? 1 : 0 });
       setItems(r.items); setHasMore(r.hasMore); setPage(p);
       if (r.categories) setCategories(r.categories);
     } catch (e: any) {
@@ -350,7 +351,13 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
           {catalogs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         {categories.length > 0 && (
-          <select value={category} onChange={(e) => { setCategory(e.target.value); load(1, e.target.value, false); }}
+          <select
+            value={category}
+            onChange={(e) => {
+              const cat = e.target.value;
+              const sub = categories.find((c) => c.id === cat)?.isSubCate ?? false;
+              setCategory(cat); setCatIsSub(sub); load(1, cat, false, sub);
+            }}
             className="bg-surface-secondary border border-edge-hover rounded-xl px-4 py-2 text-sm text-white/70 outline-none focus:border-blue-500/50 max-w-[220px]">
             <option value="">כל הקטגוריות ({categories.length})</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -391,10 +398,10 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
           {items.length === 0 && <p className="text-center text-sm text-white/30 py-12">לא נמצאו מוצרים</p>}
           {(page > 1 || hasMore) && (
             <div className="flex items-center justify-center gap-3 mt-6">
-              <button disabled={page <= 1} onClick={() => load(page - 1, category, false)}
+              <button disabled={page <= 1} onClick={() => load(page - 1, category, false, catIsSub)}
                 className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הקודם</button>
               <span className="text-xs text-white/40">עמוד {page}</span>
-              <button disabled={!hasMore} onClick={() => load(page + 1, category, false)}
+              <button disabled={!hasMore} onClick={() => load(page + 1, category, false, catIsSub)}
                 className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הבא</button>
             </div>
           )}

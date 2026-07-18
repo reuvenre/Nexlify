@@ -107,12 +107,12 @@ export class SupplierCatalogsService {
   }
 
   /** Browse a catalog's store from inside the app (categories + paginated albums). */
-  async browse(userId: string, catalogId: string, opts: { page?: number; categoryId?: string; withCategories?: boolean }) {
+  async browse(userId: string, catalogId: string, opts: { page?: number; categoryId?: string; isSubCate?: boolean; withCategories?: boolean }) {
     const cat = await this.get(userId, catalogId);
     if (!cat.source_store) throw new BadRequestException('לא הוגדרה חנות Yupoo לקטלוג');
     const pw = this.catalogPassword(cat);
     const [page, categories, creds] = await Promise.all([
-      this.yupoo.fetchStore(cat.source_store, { page: opts.page, categoryId: opts.categoryId, password: pw }),
+      this.yupoo.fetchStore(cat.source_store, { page: opts.page, categoryId: opts.categoryId, isSubCate: opts.isSubCate, password: pw }),
       opts.withCategories ? this.yupoo.fetchCategories(cat.source_store, pw) : Promise.resolve(undefined),
       this.credentials.getRaw(userId),
     ]);
