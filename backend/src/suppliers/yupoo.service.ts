@@ -181,24 +181,46 @@ export class YupooService {
       throw new BadRequestException('החנות מוגנת בסיסמה — הגדר/תקן את סיסמת הקטלוג (Yupoo).');
     }
     const $ = cheerio.load(html);
-    const items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }> = [];
-    const seen = new Set<string>();
+    // Each album card has TWO <a> to the same /albums/<id>: an IMAGE link (real
+    // photo.yupoo.com src, no title) and a TITLE link (the title, but a lazy 1x1
+    // placeholder img). Reading both from a single <a> grabbed the placeholder — so
+    // merge per album href: title from whichever <a> has it, thumb from whichever <a>
+    // carries a real photo.yupoo.com image.
+    type Row = { code: string; price: number; description: string; album_url: string; thumb?: string };
+    const byAlbum = new Map<string, Row>();
     $('a[href*="/albums/"]').each((_, el) => {
       const href = $(el).attr('href') || '';
       if (!/\/albums\/\d+/.test(href)) return;
       const clean = href.split('?')[0];
-      if (seen.has(clean)) return;
-      seen.add(clean);
-      const rawTitle = ($(el).attr('title') || $(el).text() || '').trim();
-      if (!rawTitle) return;
-      const { code, price, description } = this.parseTitle(rawTitle);
-      let thumb = $(el).find('img').attr('data-src') || $(el).find('img').attr('src') || undefined;
-      if (thumb && thumb.startsWith('//')) thumb = 'https:' + thumb;
-      // Upgrade the low-res grid thumbnail to the medium size so bigger cards stay sharp.
-      if (thumb) thumb = thumb.replace(/\/(small|thumb)\.jpg/i, '/medium.jpg');
-      items.push({ code, price, description, album_url: href.startsWith('http') ? href : base + href, thumb });
+      const row: Row = byAlbum.get(clean) || {
+        code: '', price: 0, description: '',
+        album_url: href.startsWith('http') ? href : base + href,
+      };
+
+      if (!row.code) {
+        const rawTitle = ($(el).attr('title') || $(el).text() || '').trim();
+        if (rawTitle) {
+          const { code, price, description } = this.parseTitle(rawTitle);
+          row.code = code; row.price = price; row.description = description;
+        }
+      }
+
+      if (!row.thumb) {
+        $(el).find('img').each((__, img) => {
+          if (row.thumb) return;
+          let u = $(img).attr('data-src') || $(img).attr('data-origin-src') || $(img).attr('src') || '';
+          if (u.startsWith('//')) u = 'https:' + u;
+          // Only a REAL product photo — skip the lazy 1x1 data: placeholder and site assets.
+          if (/photo\.yupoo\.com/i.test(u)) {
+            row.thumb = u.replace(/\/(small|thumb)\.jpg/i, '/medium.jpg'); // sharper card
+          }
+        });
+      }
+
+      byAlbum.set(clean, row);
     });
-    // A full page (Yupoo returns 120) implies there's likely a next page.
+    const items = [...byAlbum.values()].filter((r) => r.code);
+    // A full page (Yupoo returns ~120) implies there's likely a next page.
     return { items, hasMore: items.length >= 100 };
   }
 }

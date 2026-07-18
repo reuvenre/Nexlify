@@ -120,6 +120,8 @@ export class SupplierCatalogsService {
     const pair = creds?.currency_pair || 'USD_ILS';
     const rate = (await this.rates.getRate(pair)) || 1;
     const currency = pair.split('_')[1] || 'ILS';
+    // thumb stays the RAW photo.yupoo.com URL — the frontend's yupooImg() wraps it in the
+    // hotlink proxy. (Proxying here too would double-wrap and break the image.)
     const items = page.items.map((it) => ({ ...it, price: +((it.price || 0) * rate).toFixed(2), currency }));
     return { ...page, items, categories };
   }
