@@ -289,11 +289,10 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
         <StoreBrowser
           catalogs={catalogs}
           channels={channels}
-          // Linking a product must NOT switch tabs: that unmounts this browser (and the
-          // composer modal inside it), which is what used to dump the user back on the
-          // products list instead of the post screen. Refresh quietly instead.
+          // Linking or posting a product must NOT switch tabs: that unmounts this browser
+          // (and the composer modal inside it). Refresh "My Products" quietly in the
+          // background and keep the user in "עיין בקטלוג" to post more.
           onRefresh={load}
-          onFinished={() => { setMode('mine'); load(); }}
         />
       ) : loading ? (
         <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
@@ -313,12 +312,10 @@ function ProductsTab({ catalogs, channels }: { catalogs: SupplierCatalog[]; chan
 }
 
 // ─── In-system Yupoo store browser ────────────────────────────────────────────
-function StoreBrowser({ catalogs, channels, onRefresh, onFinished }: {
+function StoreBrowser({ catalogs, channels, onRefresh }: {
   catalogs: SupplierCatalog[]; channels: Channel[];
   /** Background refresh of "My Products" — keeps this tab (and the open composer) mounted. */
   onRefresh: () => void;
-  /** Post sent — safe to leave the browser and land on "My Products". */
-  onFinished: () => void;
 }) {
   const [catalogId, setCatalogId] = useState(catalogs[0]?.id || '');
   const [opened, setOpened] = useState<string | null>(null); // album_url of the product modal
@@ -412,7 +409,9 @@ function StoreBrowser({ catalogs, channels, onRefresh, onFinished }: {
           defaultChannel={catalogs.find((c) => c.id === catalogId)?.target_channel_id || ''}
           onClose={() => setOpened(null)}
           onLinked={onRefresh}
-          onSent={() => { setOpened(null); onFinished(); }}
+          // Stay in "עיין בקטלוג" after posting so the user can keep posting more
+          // products from the catalog — just close the modal and refresh quietly.
+          onSent={() => { setOpened(null); onRefresh(); }}
         />
       )}
     </div>
