@@ -6,7 +6,7 @@ import { Channel } from './channel.entity';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { encrypt, decrypt, mask, normalizeTelegramChatId } from '../common/crypto';
 import { SubscriptionService } from '../subscription/subscription.service';
-import { CredentialsService } from '../credentials/credentials.service';
+import { CredentialsService, GRAPH_VERSION } from '../credentials/credentials.service';
 
 @Injectable()
 export class ChannelsService {
@@ -139,6 +139,54 @@ export class ChannelsService {
       return 'לבוט אין הרשאות מנהל בקבוצה. הפוך אותו למנהל עם הרשאה לפרסם הודעות.';
     }
     return desc || 'הבדיקה נכשלה.';
+  }
+
+  /**
+   * Verify the Facebook Page configured for THIS channel — the per-channel page override,
+   * falling back to the account's default page. Non-destructive: it reads the page with the
+   * saved Page token and checks PUBLISH capability (the `tasks` list), so a token that can
+   * only READ the page is reported as not-publishable instead of a false "OK". Mirrors the
+   * Settings → Integrations check, but for the channel's own page (which that check ignores).
+   */
+  async testFacebook(userId: string, id: string) {
+    const channel = await this.findOwned(userId, id);
+    const creds = await this.credentials.getRaw(userId).catch(() => null);
+    const pageId = (channel.facebook_page_id || creds?.facebook_page_id || '').trim();
+    const token = creds?.facebook_page_token || '';
+    if (!pageId) {
+      return { ok: false, error: 'לא הוגדר דף פייסבוק לערוץ הזה (ולא דף ברירת מחדל בהגדרות ← אינטגרציות).' };
+    }
+    if (!token) {
+      return { ok: false, error: 'לא הוגדר Page Access Token בהגדרות ← אינטגרציות.' };
+    }
+    try {
+      const res = await axios.get(
+        `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}`,
+        { params: { fields: 'name,tasks', access_token: token }, timeout: 6000, validateStatus: () => true },
+      );
+      if (res.data?.error) {
+        const msg = res.data.error.message || 'unknown error';
+        // #100/#803: object not found or wrong node type (e.g. a personal profile id).
+        return {
+          ok: false,
+          error: /tasks|nonexisting|does not exist|Unsupported/i.test(msg)
+            ? `${msg} — ודא שה-Page ID הוא של דף עסקי (Page), לא פרופיל אישי, ושהטוקן הוא Page Access Token.`
+            : msg,
+        };
+      }
+      const tasks: string[] = Array.isArray(res.data?.tasks) ? res.data.tasks : [];
+      const canPublish = tasks.includes('CREATE_CONTENT') || tasks.includes('MANAGE');
+      const name = res.data?.name || pageId;
+      if (!canPublish) {
+        return {
+          ok: false,
+          error: `מחובר לדף "${name}" אך אין לטוקן הרשאת פרסום. נדרש Page Access Token של אדמין הדף עם ההרשאה pages_manage_posts.`,
+        };
+      }
+      return { ok: true, page_name: name };
+    } catch (err: any) {
+      return { ok: false, error: err?.response?.data?.error?.message || err?.message || 'הבדיקה נכשלה.' };
+    }
   }
 
   /** Fetches member count from Telegram's getChatMemberCount API */

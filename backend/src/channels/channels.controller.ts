@@ -36,4 +36,11 @@ export class ChannelsController {
   test(@Req() req: any, @Param('id') id: string) {
     return this.service.test(req.user.id, id);
   }
+
+  /** Verify the Facebook Page configured for this channel (read + publish-capability check). */
+  @Post(':id/test-facebook')
+  @HttpCode(200)
+  testFacebook(@Req() req: any, @Param('id') id: string) {
+    return this.service.testFacebook(req.user.id, id);
+  }
 }

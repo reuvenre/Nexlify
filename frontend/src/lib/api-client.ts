@@ -480,6 +480,10 @@ export const channelsApi = {
 
   test: (id: string) =>
     http.post<{ ok: boolean; error?: string }>(`/channels/${id}/test`).then(extract),
+
+  /** Verify the channel's Facebook page (valid token + publish permission). */
+  testFacebook: (id: string) =>
+    http.post<{ ok: boolean; error?: string; page_name?: string }>(`/channels/${id}/test-facebook`).then(extract),
 };
 
 // ─── Templates API ──────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Users, Plus, Trash2, CheckCircle2, XCircle,
-  Loader2, Send, Eye, EyeOff, ToggleLeft, ToggleRight, Pencil,
+  Loader2, Send, Eye, EyeOff, ToggleLeft, ToggleRight, Pencil, Facebook,
 } from 'lucide-react';
 import { channelsApi, templatesApi } from '@/lib/api-client';
 import type { Channel, CreateChannelInput, UpdateChannelInput, PostTemplate } from '@/types';
@@ -368,6 +368,7 @@ function ChannelCard({
   footerName,
   onDelete,
   onTest,
+  onTestFacebook,
   onToggle,
   onEdit,
 }: {
@@ -375,11 +376,14 @@ function ChannelCard({
   footerName?: string | null;
   onDelete: (id: string) => void;
   onTest: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  onTestFacebook: (id: string) => Promise<{ ok: boolean; error?: string; page_name?: string }>;
   onToggle: (id: string, active: boolean) => void;
   onEdit: (channel: Channel) => void;
 }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [fbTesting, setFbTesting] = useState(false);
+  const [fbResult, setFbResult] = useState<{ ok: boolean; error?: string; page_name?: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const handleTest = async () => {
@@ -389,6 +393,15 @@ function ChannelCard({
     setTestResult(result);
     setTesting(false);
     setTimeout(() => setTestResult(null), 5000);
+  };
+
+  const handleTestFacebook = async () => {
+    setFbTesting(true);
+    setFbResult(null);
+    const result = await onTestFacebook(channel.id);
+    setFbResult(result);
+    setFbTesting(false);
+    setTimeout(() => setFbResult(null), 8000);
   };
 
   const handleDelete = async () => {
@@ -474,6 +487,27 @@ function ChannelCard({
               : <><XCircle size={12} /> {testResult.error || 'שגיאה'}</>}
           </div>
         )}
+
+        {/* Facebook page check — only when a page is configured for THIS channel. Verifies
+            the token can actually publish to the page (not just read it). */}
+        {channel.facebook_page_id && (
+          <button
+            onClick={handleTestFacebook}
+            disabled={fbTesting}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-60 text-blue-300 text-xs rounded-lg transition-all"
+          >
+            {fbTesting ? <Loader2 size={12} className="animate-spin" /> : <Facebook size={12} />}
+            בדוק דף פייסבוק
+          </button>
+        )}
+
+        {fbResult && (
+          <div className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg w-full ${fbResult.ok ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
+            {fbResult.ok
+              ? <><CheckCircle2 size={12} className="shrink-0" /> מחובר לדף: {fbResult.page_name}</>
+              : <><XCircle size={12} className="shrink-0" /> {fbResult.error || 'שגיאה'}</>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -509,6 +543,7 @@ export default function GroupsPage() {
   };
 
   const handleTest = (id: string) => channelsApi.test(id);
+  const handleTestFacebook = (id: string) => channelsApi.testFacebook(id);
 
   const handleToggle = async (id: string, active: boolean) => {
     const updated = await channelsApi.update(id, { is_active: active }).catch(() => null);
@@ -590,6 +625,7 @@ export default function GroupsPage() {
               footerName={footerName(channel.footer_template_id)}
               onDelete={handleDelete}
               onTest={handleTest}
+              onTestFacebook={handleTestFacebook}
               onToggle={handleToggle}
               onEdit={setEditingChannel}
             />
