@@ -15,10 +15,14 @@ export interface SubscriptionStatus {
   renews_at: string | null;
 }
 
-function nextMonth(from = new Date()): Date {
+/**
+ * The 1st of the NEXT calendar month at 00:00. Credits refill on the 1st of every month
+ * (not a rolling anniversary), so everyone's cycle resets together at month start.
+ * Handles December → January rollover via the Date constructor's month overflow.
+ */
+function firstOfNextMonth(from = new Date()): Date {
   const d = new Date(from);
-  d.setMonth(d.getMonth() + 1);
-  return d;
+  return new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0);
 }
 
 /**
@@ -71,7 +75,7 @@ export class SubscriptionService {
       subscription_plan: plan.id,
       plan_billing: billing,
       credits_remaining: plan.monthly_credits,
-      plan_renews_at: nextMonth(),
+      plan_renews_at: firstOfNextMonth(),
     });
     return this.getStatus(userId);
   }
@@ -129,7 +133,7 @@ export class SubscriptionService {
 
     const plan = planOf(user.subscription_plan);
     user.credits_remaining = plan.monthly_credits;
-    user.plan_renews_at = nextMonth();
+    user.plan_renews_at = firstOfNextMonth();
     await this.users.update(user.id, {
       credits_remaining: user.credits_remaining,
       plan_renews_at: user.plan_renews_at,

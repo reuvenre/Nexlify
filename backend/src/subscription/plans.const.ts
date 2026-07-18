@@ -20,26 +20,28 @@ export interface PlanDef {
   popular: boolean;
 }
 
+// Annual price is the effective monthly cost when billed yearly — a ~20% discount off the
+// monthly price, rounded to the nearest shekel.
 export const PLANS: Record<PlanId, PlanDef> = {
   starter: {
     id: 'starter', name: 'Starter',
     price_monthly: 69, price_annual: 55,
-    monthly_credits: 500, max_groups: 1, popular: false,
+    monthly_credits: 1500, max_groups: 1, popular: false,
   },
   growth: {
     id: 'growth', name: 'Growth',
-    price_monthly: 149, price_annual: 119,
-    monthly_credits: 1500, max_groups: 5, popular: true,
+    price_monthly: 150, price_annual: 120,
+    monthly_credits: 5000, max_groups: 5, popular: true,
   },
   autopilot: {
     id: 'autopilot', name: 'Autopilot',
-    price_monthly: 259, price_annual: 207,
-    monthly_credits: 3000, max_groups: 10, popular: false,
+    price_monthly: 220, price_annual: 176,
+    monthly_credits: 7000, max_groups: 10, popular: false,
   },
   scale: {
     id: 'scale', name: 'Scale',
     price_monthly: 449, price_annual: 359,
-    monthly_credits: 6000, max_groups: null, popular: false,
+    monthly_credits: 50000, max_groups: null, popular: false,
   },
 };
 
