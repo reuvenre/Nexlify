@@ -33,9 +33,10 @@ export class Campaign {
   source: string;
 
   /**
-   * FLYLINK only: JSON array of target channel_ids the campaign publishes to. AliExpress
-   * campaigns leave this null and post to the default channel. null/[] for a flylink
-   * campaign means "no target set" and the run fails loudly rather than posting nowhere.
+   * JSON array of target channel_ids the campaign publishes to. FLYLINK requires it (a run
+   * with none fails loudly rather than posting nowhere). AliExpress treats it as optional:
+   * when set, posts go ONLY to those groups (isolated from other groups); null/[] falls back
+   * to the account's default channel (legacy behaviour).
    */
   @Column({ type: 'text', nullable: true })
   target_channels: string | null;

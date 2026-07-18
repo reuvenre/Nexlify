@@ -166,6 +166,7 @@ export default function CampaignDetailPage() {
             ]
           : [
               { label: 'מילות מפתח', value: campaign.keywords.join(', ') || '—' },
+              { label: 'קבוצת יעד', value: campaign.target_channels?.length ? `${campaign.target_channels.length} קבוצות` : 'ערוץ ברירת מחדל' },
               { label: 'הנחה מינ׳', value: campaign.min_discount ? `${campaign.min_discount}%` : '—' },
               { label: 'דירוג מינ׳', value: campaign.min_rating ? `${campaign.min_rating}★ ומעלה` : 'כל דירוג' },
             ]

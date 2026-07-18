@@ -227,6 +227,20 @@ export class ChannelsService {
   }
 
   /**
+   * A group's send-window hours (null = the group inherits the account's global window).
+   * Lets a campaign that targets a specific group publish in THAT group's hours instead of
+   * a global default. Returns null when no such group exists.
+   */
+  async getScheduleWindow(
+    userId: string,
+    channelId: string,
+  ): Promise<{ startHour: number | null; endHour: number | null } | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    if (!c) return null;
+    return { startHour: c.schedule_start_hour ?? null, endHour: c.schedule_end_hour ?? null };
+  }
+
+  /**
    * Stamp the per-group send clock for each of `channelIds`. A post that fanned out to
    * several groups advances ALL of their clocks, so no group gets an extra free slot.
    */

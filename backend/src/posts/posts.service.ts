@@ -776,10 +776,17 @@ export class PostsService {
    * single run are spaced 15 min apart. The first time is clamped into the user's send
    * window so a cron that fires at night still posts in the morning.
    */
-  campaignScheduleTimes(count: number, creds: DecryptedCredentials | null): Date[] {
+  campaignScheduleTimes(
+    count: number,
+    creds: DecryptedCredentials | null,
+    window?: { startHour?: number | null; endHour?: number | null },
+  ): Date[] {
     const tz = process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
-    const startHour = creds?.schedule_start_hour ?? 9;
-    const endHour = creds?.schedule_end_hour ?? 22;
+    // A campaign targeting a specific group publishes in THAT group's window when it has one,
+    // falling back to the account's global window, then to 9–22. This is why a group campaign
+    // no longer fires at, say, 6am just because the global default did.
+    const startHour = window?.startHour ?? creds?.schedule_start_hour ?? 9;
+    const endHour = window?.endHour ?? creds?.schedule_end_hour ?? 22;
     const gapMs = 15 * 60_000;
 
     let first = new Date();
@@ -883,9 +890,19 @@ export class PostsService {
     const toPost = pool.slice(0, campaign.posts_per_run);
     const result: CampaignRunResult = { queued: 0, failed: 0, keyword, searched, errors: [] };
 
+    // Which group(s) this campaign publishes to. An AliExpress campaign can now target
+    // specific groups (like FLYLINK) — its posts go ONLY there, isolated from other groups.
+    // Empty = the account's default channel (legacy behaviour, unchanged).
+    const targets = this.parseTargetChannels(campaign.target_channels);
+
     // Publish times for THIS run — the campaign's own cron is the cadence, so posts go out
     // now (spaced 15 min for multi-post runs), NOT re-paced by the global queue interval.
-    const times = this.campaignScheduleTimes(toPost.length, creds);
+    // Scheduled inside the TARGET group's send window when it has one, so a group campaign
+    // posts in that group's hours instead of a global default.
+    const window = targets.length
+      ? await this.channels.getScheduleWindow(userId, targets[0]).catch(() => null)
+      : null;
+    const times = this.campaignScheduleTimes(toPost.length, creds, window || undefined);
 
     for (let i = 0; i < toPost.length; i++) {
       const product = toPost[i];
@@ -914,6 +931,10 @@ export class PostsService {
           status: 'scheduled',
           scheduled_at: times[i],
         });
+        // Route to the campaign's target group(s). Without this the post carries no
+        // channel_override and the scheduled-send cron delivers it to the DEFAULT channel —
+        // which is exactly how an ALI4YOU campaign leaked into טקטי בקליק.
+        if (targets.length) this.applyChannels(post, targets);
 
         await this.repo.save(post);
         result.queued++;
@@ -1282,6 +1303,18 @@ export class PostsService {
     if (channelOverride) return [channelOverride];
     if (post.channel_override) return [post.channel_override];
     return [undefined];
+  }
+
+  /** A campaign's target_channels column is JSON text — parse it to a clean id array. */
+  private parseTargetChannels(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      return Array.from(new Set(arr.filter((c) => typeof c === 'string' && c.trim())));
+    } catch {
+      return [];
+    }
   }
 
   /** Persist the chosen target group(s) on a post (single or multi). */

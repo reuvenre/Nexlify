@@ -79,7 +79,7 @@ export function CampaignForm({
       // toggling back and forth doesn't get persisted for the wrong source.
       const payload: CampaignInput = isFlylink
         ? { ...form, source: 'flylink', keywords: [], min_price: undefined, max_price: undefined, min_discount: undefined }
-        : { ...form, source: 'aliexpress', target_channels: [] };
+        : { ...form, source: 'aliexpress', target_channels: form.target_channels ?? [] };
       const c = await onSubmit(payload);
       router.push(`/campaigns/${c.id}`);
     } catch (err: unknown) {
@@ -226,6 +226,24 @@ export function CampaignForm({
             )}
           </div>
         </div>
+        )}
+
+        {/* Target group(s) — AliExpress only. A campaign can publish to a SPECIFIC group,
+            isolated from the others; empty = the account's default channel. Without this an
+            AliExpress campaign always went to the default channel (leaked into other groups). */}
+        {!isFlylink && (
+          <div className="bg-surface-secondary border border-edge rounded-xl p-5">
+            <h2 className="text-sm font-semibold text-white mb-1">קבוצות יעד</h2>
+            <p className="text-2xs text-white/35 mb-4">
+              בחר לאיזו קבוצה (או קבוצות) הטייס יפרסם. בחירת קבוצה מבטיחה שהפוסטים של הטייס הזה
+              לא ידלפו לקבוצות אחרות. אם תשאיר ריק — הפוסטים ילכו לערוץ ברירת המחדל שלך.
+            </p>
+            <GroupMultiSelect
+              channels={channels}
+              value={form.target_channels ?? []}
+              onChange={(ids) => setForm((f) => ({ ...f, target_channels: ids }))}
+            />
+          </div>
         )}
 
         {/* Filters — AliExpress only (FLYLINK prices come from the linked catalog). */}
