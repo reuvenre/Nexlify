@@ -744,11 +744,27 @@ export class PostsService {
   // ── Due scheduled posts (called by cron) ──────────────────────────────────
 
   async findDueScheduledPosts(): Promise<Post[]> {
-    return this.repo
+    const due = await this.repo
       .createQueryBuilder('p')
       .where('p.status = :status', { status: 'scheduled' })
       .andWhere('p.scheduled_at <= :now', { now: new Date() })
+      .orderBy('p.scheduled_at', 'ASC')
       .getMany();
+
+    // Drip, don't flood: release at most ONE overdue post per destination group per tick.
+    // When the server wakes from sleep (free tier) with a backlog of overdue posts, sending
+    // them all at once dumped a burst into a single group at, e.g., 6am. The every-minute
+    // cron still drains the backlog quickly — just one post per group per minute, spaced —
+    // instead of all at once. A post with no override drips on the 'default' key.
+    const seen = new Set<string>();
+    const picked: Post[] = [];
+    for (const p of due) {
+      const key = `${p.user_id}::${p.channel_override || 'default'}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      picked.push(p);
+    }
+    return picked;
   }
 
   async sendScheduled(post: Post) {

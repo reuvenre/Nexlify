@@ -170,18 +170,31 @@ function ChannelFormFields({
         {showFbGuide && (
           <div className="mt-2 bg-blue-500/[0.06] border border-blue-500/20 rounded-lg p-3 text-2xs text-white/60 leading-relaxed space-y-1.5" dir="rtl">
             <p className="text-blue-300 font-medium">השגת Page Access Token</p>
+
+            {/* The fastest path — one call returns BOTH the Page ID and its Page token. This
+                is exactly what avoids the "Object ... does not exist / missing permissions"
+                error: that error means the token doesn't cover the page, NOT a wrong ID. */}
+            <div className="bg-emerald-500/[0.08] border border-emerald-500/25 rounded-md p-2 mb-1">
+              <p className="text-emerald-300 font-medium mb-0.5">הדרך הכי קלה (מומלץ)</p>
+              <ol className="list-decimal pr-4 space-y-0.5">
+                <li>היכנס ל-<span dir="ltr">developers.facebook.com</span> ← <b>Graph API Explorer</b>, ולחץ <b>Generate Access Token</b>.</li>
+                <li>סמן הרשאות: <span dir="ltr">pages_show_list</span>, <span dir="ltr">pages_manage_posts</span>, <span dir="ltr">pages_read_engagement</span> (ואשר את העמוד).</li>
+                <li>הרץ <span dir="ltr" className="font-mono">GET /me/accounts</span>. בתשובה תמצא את העמוד שלך עם שני שדות: <span dir="ltr" className="font-mono">id</span> = ה-Page ID, ו-<span dir="ltr" className="font-mono">access_token</span> = הטוקן של העמוד.</li>
+                <li>העתק את שניהם לשדות כאן — זה בדיוק ה-ID והטוקן התואמים.</li>
+              </ol>
+            </div>
+
+            <p className="text-white/45">או ידנית:</p>
             <ol className="list-decimal pr-4 space-y-1">
-              <li>היכנס ל-<span dir="ltr">developers.facebook.com</span> ← Tools ← <b>Graph API Explorer</b>.</li>
-              <li>בחר את האפליקציה שלך (או צור אחת: My Apps ← Create App ← סוג <b>Business</b>).</li>
-              <li>לחץ <b>Generate Access Token</b> והתחבר לחשבון הפייסבוק שלך.</li>
-              <li>סמן את ההרשאות: <span dir="ltr">pages_show_list</span>, <span dir="ltr">pages_manage_posts</span>, <span dir="ltr">pages_read_engagement</span>. <b>חשוב:</b> ודא שהעמוד של הקבוצה מסומן ברשימת העמודים.</li>
-              <li>בתפריט <b>User or Page</b> למעלה בחר את ה<b>עמוד</b> (Page) הרצוי — כך נוצר Page Access Token לאותו עמוד.</li>
+              <li>ב-<b>Graph API Explorer</b>, בתפריט <b>User or Page</b> למעלה בחר את ה<b>עמוד</b> (Page) — כך נוצר Page Access Token לאותו עמוד (ולא טוקן משתמש).</li>
               <li>העתק את הטוקן.</li>
               <li>מומלץ להפוך אותו לארוך-טווח (~60 יום): <span dir="ltr">developers.facebook.com/tools/debug/accesstoken</span> ← הדבק ← <b>Extend Access Token</b>.</li>
               <li>הדבק כאן, שמור, ואז לחץ <b>&quot;בדוק דף פייסבוק&quot;</b> בכרטיס הקבוצה כדי לוודא שהוא עובד.</li>
             </ol>
-            <p className="text-white/35">
-              דרך לוודא: ב-Graph API Explorer הרץ <span dir="ltr" className="font-mono">GET /me/accounts</span> — אם העמוד מופיע ברשימה, הטוקן מכסה אותו.
+
+            {/* Directly addresses the error the user hit with a profile.php?id= page. */}
+            <p className="text-amber-300/80 border-t border-white/10 pt-1.5">
+              קיבלת <span dir="ltr">&quot;does not exist / missing permissions&quot;</span>? ה-Page ID כנראה תקין — הבעיה היא שהטוקן שהזנת הוא טוקן <b>משתמש</b> או לא מכסה את העמוד. השתמש בטוקן שחוזר מ-<span dir="ltr" className="font-mono">/me/accounts</span> לאותו עמוד.
             </p>
           </div>
         )}
