@@ -45,6 +45,11 @@ export class Channel {
   @Column({ nullable: true })
   facebook_page_id: string;
 
+  /** Page Access Token for THIS group's Facebook page (encrypted). Each page needs its own
+   *  token, so a group on a different page carries its own. Null → the account's global token. */
+  @Column({ nullable: true })
+  facebook_page_token_enc: string;
+
   @Column({ default: true })
   is_active: boolean;
 

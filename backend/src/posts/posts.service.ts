@@ -1143,7 +1143,8 @@ export class PostsService {
         const body = await this.buildPostBody(post, creds, target);
         const label = await this.targetLabel(userId, target, multi && pages.size > 1);
         if ((failed('Facebook') && !wantMake)) {
-          tasks.push(this.sendToFacebook(post, creds, body, pageId)
+          const token = await this.resolveFacebookPageToken(userId, target, creds);
+          tasks.push(this.sendToFacebook(post, creds, body, pageId, token)
             .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }));
         }
         if (failed('Make') || (failed('Facebook') && wantMake)) {
@@ -1214,7 +1215,7 @@ export class PostsService {
           const label = await this.targetLabel(userId, target, multi && pages.size > 1);
           try {
             if (wantMake) await this.sendToMakeWebhook(post, creds, body, pageId);
-            else await this.sendToFacebook(post, creds, body, pageId);
+            else await this.sendToFacebook(post, creds, body, pageId, await this.resolveFacebookPageToken(userId, target, creds));
             anySuccess = true;
           } catch (err: any) {
             errors.push(`${wantMake ? 'Make' : 'Facebook'}: ${label}${err?.response?.data?.error?.message || err?.response?.data?.message || err.message}`);
@@ -1431,8 +1432,9 @@ export class PostsService {
         const body = await this.buildPostBody(post, creds, target);
         const label = await this.targetLabel(post.user_id, target, multi && pages.size > 1);
         if (wantFacebook) {
+          const token = await this.resolveFacebookPageToken(post.user_id, target, creds);
           tasks.push(
-            this.sendToFacebook(post, creds, body, pageId)
+            this.sendToFacebook(post, creds, body, pageId, token)
               .then(() => { anySuccess = true; })
               .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }),
           );
@@ -1700,9 +1702,21 @@ export class PostsService {
     return creds?.facebook_page_id || '';
   }
 
-  /** Publishes the post to a specific Facebook Page feed. Throws on failure. */
-  private async sendToFacebook(post: Post, creds: DecryptedCredentials, message: string, pageId: string) {
-    const token = creds?.facebook_page_token;
+  /**
+   * The Page Access Token to publish with: the target group's OWN token when it has one
+   * (a Page token is page-specific), otherwise the account's global token. This is what lets
+   * two groups on DIFFERENT Facebook pages each publish with their own token.
+   */
+  private async resolveFacebookPageToken(userId: string, channelOverride: string | undefined, creds: DecryptedCredentials): Promise<string> {
+    if (channelOverride) {
+      const tok = await this.channels.getFacebookPageToken(userId, channelOverride);
+      if (tok) return tok;
+    }
+    return creds?.facebook_page_token || '';
+  }
+
+  /** Publishes the post to a specific Facebook Page feed with the given token. Throws on failure. */
+  private async sendToFacebook(post: Post, creds: DecryptedCredentials, message: string, pageId: string, token: string) {
     if (!pageId || !token) throw new Error('Missing Facebook credentials');
 
     // Facebook does not render Telegram-style HTML tags — strip them for the FB body.

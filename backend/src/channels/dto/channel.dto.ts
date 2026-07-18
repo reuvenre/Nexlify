@@ -31,6 +31,10 @@ export class CreateChannelDto {
   @IsOptional()
   @IsString()
   facebook_page_id?: string;
+
+  @IsOptional()
+  @IsString()
+  facebook_page_token?: string;
 }
 
 export class UpdateChannelDto {
@@ -65,6 +69,10 @@ export class UpdateChannelDto {
   @IsOptional()
   @IsString()
   facebook_page_id?: string;
+
+  @IsOptional()
+  @IsString()
+  facebook_page_token?: string;
 
   // ── Per-group send queue (explicit null = inherit the user's global schedule) ──
   @IsOptional()

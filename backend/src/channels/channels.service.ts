@@ -51,6 +51,7 @@ export class ChannelsService {
       footer_template_id: dto.footer_template_id || null,
       facebook_page_id: dto.facebook_page_id?.trim() || null,
       bot_token_enc: dto.bot_token ? encrypt(dto.bot_token) : null,
+      facebook_page_token_enc: dto.facebook_page_token?.trim() ? encrypt(dto.facebook_page_token.trim()) : null,
     });
     await this.repo.save(channel);
     return this.toPublic(channel);
@@ -66,6 +67,9 @@ export class ChannelsService {
     if (dto.footer_template_id !== undefined) channel.footer_template_id = dto.footer_template_id || null;
     if (dto.facebook_page_id !== undefined) channel.facebook_page_id = dto.facebook_page_id?.trim() || null;
     if (dto.bot_token?.trim()) channel.bot_token_enc = encrypt(dto.bot_token.trim());
+    // Only overwrite the FB token when a new one is actually provided (the form sends the
+    // field blank unless the user re-enters it), so editing other fields never wipes it.
+    if (dto.facebook_page_token?.trim()) channel.facebook_page_token_enc = encrypt(dto.facebook_page_token.trim());
     // Per-group queue overrides — an explicit null clears the override (back to inherit).
     if (dto.schedule_enabled !== undefined) channel.schedule_enabled = dto.schedule_enabled;
     if (dto.schedule_interval_minutes !== undefined) channel.schedule_interval_minutes = dto.schedule_interval_minutes;
@@ -152,7 +156,9 @@ export class ChannelsService {
     const channel = await this.findOwned(userId, id);
     const creds = await this.credentials.getRaw(userId).catch(() => null);
     const pageId = (channel.facebook_page_id || creds?.facebook_page_id || '').trim();
-    const token = creds?.facebook_page_token || '';
+    // Prefer THIS channel's own Page token; fall back to the account's global token.
+    const ownToken = channel.facebook_page_token_enc ? decrypt(channel.facebook_page_token_enc) : null;
+    const token = ownToken || creds?.facebook_page_token || '';
     if (!pageId) {
       return { ok: false, error: 'לא הוגדר דף פייסבוק לערוץ הזה (ולא דף ברירת מחדל בהגדרות ← אינטגרציות).' };
     }
@@ -269,6 +275,12 @@ export class ChannelsService {
     return c?.facebook_page_id || null;
   }
 
+  /** The per-channel Facebook Page token (decrypted). Null → use the account's global token. */
+  async getFacebookPageToken(userId: string, channelId: string): Promise<string | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    return c?.facebook_page_token_enc ? decrypt(c.facebook_page_token_enc) : null;
+  }
+
   /** Every group of a user, for the per-group queue cron. */
   async listForSchedule(userId: string): Promise<Channel[]> {
     return this.repo.find({ where: { user_id: userId }, order: { created_at: 'ASC' } });
@@ -375,6 +387,9 @@ export class ChannelsService {
       body_template_id: c.body_template_id || null,
       footer_template_id: c.footer_template_id || null,
       facebook_page_id: c.facebook_page_id || '',
+      // FB token status only — never return the token itself; masked for display.
+      has_fb_token: !!c.facebook_page_token_enc,
+      fb_token_masked: c.facebook_page_token_enc ? mask(decrypt(c.facebook_page_token_enc)) : null,
       // Per-group queue settings — null means "inherit the global schedule".
       schedule_enabled: c.schedule_enabled ?? null,
       schedule_interval_minutes: c.schedule_interval_minutes ?? null,

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Users, Plus, Trash2, CheckCircle2, XCircle,
-  Loader2, Send, Eye, EyeOff, ToggleLeft, ToggleRight, Pencil, Facebook,
+  Loader2, Send, Eye, EyeOff, ToggleLeft, ToggleRight, Pencil, Facebook, HelpCircle,
 } from 'lucide-react';
 import { channelsApi, templatesApi } from '@/lib/api-client';
 import type { Channel, CreateChannelInput, UpdateChannelInput, PostTemplate } from '@/types';
@@ -21,6 +21,7 @@ function ChannelFormFields({
   showToken, setShowToken,
   footerTemplateId, setFooterTemplateId, footerTemplates,
   facebookPageId, setFacebookPageId,
+  facebookPageToken, setFacebookPageToken, hasFbToken,
   isEdit,
 }: {
   name: string; setName: (v: string) => void;
@@ -31,8 +32,12 @@ function ChannelFormFields({
   footerTemplateId: string; setFooterTemplateId: (v: string) => void;
   footerTemplates: PostTemplate[];
   facebookPageId: string; setFacebookPageId: (v: string) => void;
+  facebookPageToken: string; setFacebookPageToken: (v: string) => void;
+  hasFbToken?: boolean;
   isEdit?: boolean;
 }) {
+  const [showFbToken, setShowFbToken] = useState(false);
+  const [showFbGuide, setShowFbGuide] = useState(false);
   return (
     <>
       <div>
@@ -128,6 +133,59 @@ function ChannelFormFields({
           כל פוסט שיוצא לקבוצה הזו יתפרסם לעמוד הפייסבוק הזה. השאר ריק כדי להשתמש בעמוד ברירת המחדל הכללי.
         </p>
       </div>
+
+      {/* Per-channel Facebook Page token — a Page token is page-specific, so a group on a
+          DIFFERENT page needs its own. Blank = use the account's global token. */}
+      <div>
+        <label className="block text-xs text-white/50 mb-1.5">טוקן דף הפייסבוק (Page Access Token)</label>
+        <div className="relative">
+          <input
+            type={showFbToken ? 'text' : 'password'}
+            value={facebookPageToken}
+            onChange={(e) => setFacebookPageToken(e.target.value)}
+            placeholder={hasFbToken ? 'מוגדר — השאר ריק לשמור על הנוכחי' : 'הדבק Page Access Token של העמוד הזה'}
+            className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
+            dir="ltr"
+          />
+          <button
+            type="button"
+            onClick={() => setShowFbToken(!showFbToken)}
+            className="absolute top-1/2 right-3 -translate-y-1/2 text-white/30 hover:text-white/60"
+          >
+            {showFbToken ? <EyeOff size={13} /> : <Eye size={13} />}
+          </button>
+        </div>
+        <p className="text-2xs text-white/25 mt-1">
+          הטוקן שייך לעמוד ספציפי. אם הקבוצה הזו על עמוד אחר מהשאר — הזן כאן את הטוקן שלו. ריק = הטוקן הכללי מ-הגדרות ← אינטגרציות.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => setShowFbGuide((s) => !s)}
+          className="mt-1.5 flex items-center gap-1 text-2xs text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          <HelpCircle size={11} /> איך משיגים טוקן? (מדריך שלב-אחר-שלב)
+        </button>
+
+        {showFbGuide && (
+          <div className="mt-2 bg-blue-500/[0.06] border border-blue-500/20 rounded-lg p-3 text-2xs text-white/60 leading-relaxed space-y-1.5" dir="rtl">
+            <p className="text-blue-300 font-medium">השגת Page Access Token</p>
+            <ol className="list-decimal pr-4 space-y-1">
+              <li>היכנס ל-<span dir="ltr">developers.facebook.com</span> ← Tools ← <b>Graph API Explorer</b>.</li>
+              <li>בחר את האפליקציה שלך (או צור אחת: My Apps ← Create App ← סוג <b>Business</b>).</li>
+              <li>לחץ <b>Generate Access Token</b> והתחבר לחשבון הפייסבוק שלך.</li>
+              <li>סמן את ההרשאות: <span dir="ltr">pages_show_list</span>, <span dir="ltr">pages_manage_posts</span>, <span dir="ltr">pages_read_engagement</span>. <b>חשוב:</b> ודא שהעמוד של הקבוצה מסומן ברשימת העמודים.</li>
+              <li>בתפריט <b>User or Page</b> למעלה בחר את ה<b>עמוד</b> (Page) הרצוי — כך נוצר Page Access Token לאותו עמוד.</li>
+              <li>העתק את הטוקן.</li>
+              <li>מומלץ להפוך אותו לארוך-טווח (~60 יום): <span dir="ltr">developers.facebook.com/tools/debug/accesstoken</span> ← הדבק ← <b>Extend Access Token</b>.</li>
+              <li>הדבק כאן, שמור, ואז לחץ <b>&quot;בדוק דף פייסבוק&quot;</b> בכרטיס הקבוצה כדי לוודא שהוא עובד.</li>
+            </ol>
+            <p className="text-white/35">
+              דרך לוודא: ב-Graph API Explorer הרץ <span dir="ltr" className="font-mono">GET /me/accounts</span> — אם העמוד מופיע ברשימה, הטוקן מכסה אותו.
+            </p>
+          </div>
+        )}
+      </div>
     </>
   );
 }
@@ -141,6 +199,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
   const [description, setDescription] = useState('');
   const [footerTemplateId, setFooterTemplateId] = useState('');
   const [facebookPageId, setFacebookPageId] = useState('');
+  const [facebookPageToken, setFacebookPageToken] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -159,6 +218,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
         description: description || undefined,
         footer_template_id: footerTemplateId || undefined,
         facebook_page_id: facebookPageId || undefined,
+        facebook_page_token: facebookPageToken || undefined,
       } as CreateChannelInput);
       onAdd(channel);
       onClose();
@@ -182,6 +242,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
             showToken={showToken} setShowToken={setShowToken}
             footerTemplateId={footerTemplateId} setFooterTemplateId={setFooterTemplateId} footerTemplates={footerTemplates}
             facebookPageId={facebookPageId} setFacebookPageId={setFacebookPageId}
+            facebookPageToken={facebookPageToken} setFacebookPageToken={setFacebookPageToken}
           />
           {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="flex gap-3 pt-1">
@@ -220,6 +281,7 @@ function EditChannelModal({
   const [description, setDescription] = useState(channel.description);
   const [footerTemplateId, setFooterTemplateId] = useState(channel.footer_template_id || '');
   const [facebookPageId, setFacebookPageId] = useState(channel.facebook_page_id || '');
+  const [facebookPageToken, setFacebookPageToken] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -257,6 +319,7 @@ function EditChannelModal({
         schedule_end_hour: customSched ? Number(endHour) || 24 : null,
       };
       if (botToken.trim()) dto.bot_token = botToken.trim();
+      if (facebookPageToken.trim()) dto.facebook_page_token = facebookPageToken.trim();
       const updated = await channelsApi.update(channel.id, dto);
       onSave(updated);
       onClose();
@@ -297,6 +360,7 @@ function EditChannelModal({
             showToken={showToken} setShowToken={setShowToken}
             footerTemplateId={footerTemplateId} setFooterTemplateId={setFooterTemplateId} footerTemplates={footerTemplates}
             facebookPageId={facebookPageId} setFacebookPageId={setFacebookPageId}
+            facebookPageToken={facebookPageToken} setFacebookPageToken={setFacebookPageToken} hasFbToken={channel.has_fb_token}
             isEdit
           />
 

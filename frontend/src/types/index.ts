@@ -582,6 +582,9 @@ export interface Channel {
   body_template_id: string | null;
   footer_template_id: string | null;
   facebook_page_id: string;
+  /** Whether this channel has its own Facebook Page token (never the token itself). */
+  has_fb_token: boolean;
+  fb_token_masked: string | null;
   /** Per-group send queue. null on any field = inherit the global schedule setting. */
   schedule_enabled: boolean | null;
   schedule_interval_minutes: number | null;
@@ -632,6 +635,7 @@ export interface CreateChannelInput {
   description?: string;
   footer_template_id?: string;
   facebook_page_id?: string;
+  facebook_page_token?: string;
 }
 
 export interface UpdateChannelInput {
@@ -643,6 +647,7 @@ export interface UpdateChannelInput {
   body_template_id?: string;
   footer_template_id?: string;
   facebook_page_id?: string;
+  facebook_page_token?: string;
   /** Per-group send queue. Send null to clear an override (back to the global schedule). */
   schedule_enabled?: boolean | null;
   schedule_interval_minutes?: number | null;
