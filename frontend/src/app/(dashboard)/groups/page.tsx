@@ -244,7 +244,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-surface-secondary border border-edge-hover rounded-2xl w-full max-w-md p-6">
+      <div className="bg-surface-secondary border border-edge-hover rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-base font-semibold text-white mb-5">הוסף ערוץ חדש</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <ChannelFormFields
@@ -345,7 +345,7 @@ function EditChannelModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-surface-secondary border border-edge-hover rounded-2xl w-full max-w-md p-6">
+      <div className="bg-surface-secondary border border-edge-hover rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-semibold text-white">עריכת ערוץ</h2>
           <span className="text-xs text-white/30 bg-white/5 px-2.5 py-1 rounded-lg">

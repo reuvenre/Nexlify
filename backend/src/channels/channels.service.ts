@@ -172,11 +172,14 @@ export class ChannelsService {
       );
       if (res.data?.error) {
         const msg = res.data.error.message || 'unknown error';
-        // #100/#803: object not found or wrong node type (e.g. a personal profile id).
+        // #100/#803: object not found or wrong node type. Most common cause when it works
+        // for other channels but not this one: the token entered here doesn't COVER this
+        // specific page (a user token, or a page token for a different page). Point straight
+        // at the fix: /me/accounts lists exactly the pages the token can manage.
         return {
           ok: false,
           error: /tasks|nonexisting|does not exist|Unsupported/i.test(msg)
-            ? `${msg} — ודא שה-Page ID הוא של דף עסקי (Page), לא פרופיל אישי, ושהטוקן הוא Page Access Token.`
+            ? `${msg} — הטוקן שהזנת כאן לא מכסה את הדף הזה. ב-Graph API Explorer הרץ GET /me/accounts: אם הדף מופיע — העתק את ה-access_token ואת ה-id שלו לכאן; אם לא מופיע — צור טוקן מחדש וודא שהדף הזה מסומן בהרשאות.`
             : msg,
         };
       }
