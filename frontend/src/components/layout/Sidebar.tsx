@@ -8,8 +8,12 @@ import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut,
   ShoppingCart, Sun, Moon, Sparkles, Package,
-  Shield, Ticket,
+  Shield, Ticket, LayoutTemplate, ExternalLink,
 } from 'lucide-react';
+
+// The user's landing-page system (ClickLead), unlocked for the top plan. Override in
+// Vercel with NEXT_PUBLIC_CLICKLEAD_URL if the domain changes.
+const CLICKLEAD_URL = process.env.NEXT_PUBLIC_CLICKLEAD_URL || 'https://clicklead.win-solutions.co.il';
 
 const NAV_SECTIONS = [
   {
@@ -127,6 +131,27 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </div>
           </div>
         ))}
+
+        {/* ── Landing pages (ClickLead) — top-plan only ─────────────────────
+            Opens the user's separate landing-page system in a new tab. Shown only
+            to Scale; ClickLead enforces its own login, so this is a discovery gate,
+            not the security boundary (true SSO comes in stage 2). */}
+        {user?.subscription_plan === 'scale' && (
+          <div>
+            <p className="section-label px-2.5 mb-1.5">דפי נחיתה</p>
+            <a
+              href={CLICKLEAD_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onNavigate}
+              className="group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium text-white/40 hover:text-white/80 hover:bg-white/[0.05] transition-all duration-150"
+            >
+              <LayoutTemplate size={14} className="shrink-0 text-white/30 group-hover:text-white/55 transition-colors duration-150" />
+              <span className="truncate">בונה דפי נחיתה</span>
+              <ExternalLink size={11} className="mr-auto shrink-0 text-white/25" />
+            </a>
+          </div>
+        )}
       </nav>
 
       {/* ── Admin (admins only) ──────────────────────────────────────────── */}
