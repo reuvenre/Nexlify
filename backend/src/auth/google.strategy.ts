@@ -37,11 +37,10 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     const email = profile.emails?.[0]?.value;
     if (!email) return done(new Error('No email from Google'), undefined);
 
-    const user = await this.users.findOrCreateGoogle(
-      email,
-      profile.id,
-      profile.displayName,
-    );
+    const user = await this.users.findGoogleUserForLogin(email, profile.id);
+    // No existing account → don't fail the strategy (that returns a bare 401); pass a
+    // sentinel so the callback can redirect the user to register with a clear message.
+    if (!user) return done(null, { notRegistered: true, email } as any);
     done(null, user);
   }
 }

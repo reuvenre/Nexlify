@@ -103,18 +103,24 @@ export class UsersService implements OnModuleInit {
     return rows[0] || { total_users: 0, admins: 0, google_users: 0 };
   }
 
-  async findOrCreateGoogle(email: string, googleId: string, _displayName: string): Promise<User> {
-    let user = await this.repo.findOne({ where: { google_id: googleId } });
-    if (user) return user;
+  /**
+   * Resolve a Google sign-in to an EXISTING account only — never auto-create one.
+   * Google is a login method, not a registration path: a brand-new email must go
+   * through registration first. Returns null when no account matches (the caller
+   * then bounces the user to register), and links the google_id to an account that
+   * was created by email/password so they can use Google next time.
+   */
+  async findGoogleUserForLogin(email: string, googleId: string): Promise<User | null> {
+    const byGoogle = await this.repo.findOne({ where: { google_id: googleId } });
+    if (byGoogle) return byGoogle;
 
-    user = await this.repo.findOne({ where: { email } });
-    if (user) {
-      await this.repo.update(user.id, { google_id: googleId });
-      return { ...user, google_id: googleId };
+    const byEmail = await this.repo.findOne({ where: { email } });
+    if (byEmail) {
+      await this.repo.update(byEmail.id, { google_id: googleId });
+      return { ...byEmail, google_id: googleId };
     }
 
-    const newUser = this.repo.create({ email, google_id: googleId, password_hash: '' });
-    return this.repo.save(newUser);
+    return null; // never registered → do NOT create; the callback redirects to register
   }
 
   async create(email: string, password: string): Promise<User> {

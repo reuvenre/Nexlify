@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { Loader2, AlertCircle, CheckCircle2, Zap, TrendingUp, Globe } from 'lucide-react';
@@ -12,6 +12,13 @@ export default function RegisterPage() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // A Google sign-in with no account bounces here — explain they must register first.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('error') === 'not_registered') {
+      setError('אין עדיין חשבון עם חשבון הגוגל הזה. הירשם כאן תחילה, ואז תוכל להתחבר עם Google.');
+    }
+  }, []);
 
   const requirements = [
     { label: '8 תווים לפחות', ok: password.length >= 8 },

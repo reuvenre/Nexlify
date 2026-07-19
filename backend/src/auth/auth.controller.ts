@@ -138,6 +138,10 @@ export class AuthController {
   async googleCallback(@Req() req: Request, @Res() res: Response) {
     // FRONTEND_URL may list several domains (CORS) — redirect to the canonical first one.
     const frontendUrl = primaryUrl(this.config.get<string>('FRONTEND_URL'));
+    // Google sign-in for an email with no account: send them to register, not in.
+    if ((req.user as any)?.notRegistered) {
+      return res.redirect(`${frontendUrl}/register?error=not_registered`);
+    }
     try {
       // Sets the HttpOnly refresh cookie AND returns the tokens. Since the frontend is
       // on a different domain (the cookie is third-party there and gets blocked), we
