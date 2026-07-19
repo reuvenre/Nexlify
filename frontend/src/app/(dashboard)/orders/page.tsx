@@ -32,8 +32,11 @@ const LIMIT = 20;
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Earning[]>([]);
   const [total, setTotal] = useState(0);
+  const [totals, setTotals] = useState({ amount_usd: 0, commission_usd: 0, commission_ils: 0, count: 0 });
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<'all' | EarningStatus>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
@@ -45,16 +48,19 @@ export default function OrdersPage() {
       const res = await earningsApi.list({
         page: p, limit: LIMIT,
         status: filter === 'all' ? undefined : filter,
+        from: from || undefined,
+        to: to || undefined,
       });
       setOrders(res.data);
       setTotal(res.total);
+      setTotals(res.totals);
       setPage(p);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'טעינת ההזמנות נכשלה');
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, from, to]);
 
   useEffect(() => { load(1); }, [load]);
 
@@ -72,10 +78,10 @@ export default function OrdersPage() {
     }
   };
 
-  // Totals for the orders in view. Cancelled orders are excluded — they aren't money.
-  const live = orders.filter((o) => o.status !== 'cancelled');
-  const totalAmount = live.reduce((s, o) => s + (o.order_amount_usd || 0), 0);
-  const totalComm = live.reduce((s, o) => s + (o.commission_usd || 0), 0);
+  // Totals come from the backend across the WHOLE filtered range (not just this page);
+  // cancelled orders are already excluded server-side — they aren't money.
+  const totalAmount = totals.amount_usd;
+  const totalComm = totals.commission_usd;
   const commRate = totalAmount > 0 ? (totalComm / totalAmount) * 100 : 0;
   const pages = Math.max(1, Math.ceil(total / LIMIT));
 
@@ -141,6 +147,30 @@ export default function OrdersPage() {
             {f.label}
           </button>
         ))}
+      </div>
+
+      {/* Date range */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <span className="text-2xs text-white/40 ml-1">טווח תאריכים:</span>
+        <input
+          type="date" value={from} max={to || undefined}
+          onChange={(e) => setFrom(e.target.value)}
+          className="bg-surface-secondary border border-edge rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-blue-500/50"
+          dir="ltr"
+        />
+        <span className="text-white/30 text-xs">—</span>
+        <input
+          type="date" value={to} min={from || undefined}
+          onChange={(e) => setTo(e.target.value)}
+          className="bg-surface-secondary border border-edge rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-blue-500/50"
+          dir="ltr"
+        />
+        {(from || to) && (
+          <button onClick={() => { setFrom(''); setTo(''); }}
+            className="text-2xs text-white/40 hover:text-white/70 underline underline-offset-2">
+            נקה טווח
+          </button>
+        )}
       </div>
 
       {/* Table */}

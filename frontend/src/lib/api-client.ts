@@ -457,8 +457,10 @@ export const earningsApi = {
   summary: (params?: { period?: '7d' | '30d' | '90d' | 'all' }) =>
     http.get<EarningsSummary>('/earnings/summary', { params }).then(extract),
 
-  list: (params?: { page?: number; limit?: number; status?: string }) =>
-    http.get<PaginatedResponse<Earning>>('/earnings', { params }).then(extract),
+  list: (params?: { page?: number; limit?: number; status?: string; from?: string; to?: string }) =>
+    http.get<PaginatedResponse<Earning> & {
+      totals: { amount_usd: number; commission_usd: number; commission_ils: number; count: number };
+    }>('/earnings', { params }).then(extract),
 
   // Sync loops 4 order statuses with pacing against the AliExpress rate limit —
   // can take ~10-40s, well past the 15s global timeout.

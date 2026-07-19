@@ -90,17 +90,45 @@ export class EarningsService {
     };
   }
 
-  async list(userId: string, page = 1, limit = 20, status?: string) {
-    const qb = this.repo.createQueryBuilder('e')
-      .where('e.user_id = :userId', { userId })
+  async list(userId: string, page = 1, limit = 20, status?: string, from?: string, to?: string) {
+    // `to` is inclusive of the whole day the user picked (end-of-day), so a same-day
+    // from/to range still returns that day's orders.
+    const fromD = from ? new Date(from) : null;
+    const toD = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : null;
+
+    const applyFilters = <T>(qb: import('typeorm').SelectQueryBuilder<T>) => {
+      qb.where('e.user_id = :userId', { userId });
+      if (status) qb.andWhere('e.status = :status', { status });
+      if (fromD) qb.andWhere('e.order_date >= :fromD', { fromD });
+      if (toD) qb.andWhere('e.order_date <= :toD', { toD });
+      return qb;
+    };
+
+    const [data, total] = await applyFilters(this.repo.createQueryBuilder('e'))
       .orderBy('e.order_date', 'DESC')
       .skip((page - 1) * limit)
-      .take(limit);
+      .take(limit)
+      .getManyAndCount();
 
-    if (status) qb.andWhere('e.status = :status', { status });
+    // Totals across the WHOLE filtered range (not just this page) — cancelled excluded,
+    // since it isn't money — so the stat cards match the active filter, not the visible 20.
+    const t = await applyFilters(this.repo.createQueryBuilder('e'))
+      .andWhere("e.status <> 'cancelled'")
+      .select('COALESCE(SUM(e.order_amount_usd), 0)', 'amount_usd')
+      .addSelect('COALESCE(SUM(e.commission_usd), 0)', 'commission_usd')
+      .addSelect('COALESCE(SUM(e.commission_ils), 0)', 'commission_ils')
+      .addSelect('COUNT(*)', 'count')
+      .getRawOne();
 
-    const [data, total] = await qb.getManyAndCount();
-    return { data, total, page, limit };
+    return {
+      data, total, page, limit,
+      totals: {
+        amount_usd: +(parseFloat(t?.amount_usd) || 0).toFixed(2),
+        commission_usd: +(parseFloat(t?.commission_usd) || 0).toFixed(2),
+        commission_ils: +(parseFloat(t?.commission_ils) || 0).toFixed(2),
+        count: parseInt(t?.count, 10) || 0,
+      },
+    };
   }
 
   /**

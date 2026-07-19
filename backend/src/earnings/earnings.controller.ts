@@ -22,8 +22,10 @@ export class EarningsController {
     @Query('page') page = 1,
     @Query('limit') limit = 20,
     @Query('status') status?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.svc.list((req.user as any).id, +page, +limit, status);
+    return this.svc.list((req.user as any).id, +page, +limit, status, from, to);
   }
 
   @Post('sync')
