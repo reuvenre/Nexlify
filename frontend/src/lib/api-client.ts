@@ -307,6 +307,15 @@ export const subscriptionApi = {
   // upgrades are handled by an admin (PATCH /admin/users/:id/subscription) until billing lands.
 };
 
+// ─── Integrations API ────────────────────────────────────────────────────────
+
+export const integrationsApi = {
+  /** Scale-only: a ClickLead SSO custom token + URL. `token` is null when SSO isn't
+   *  configured yet (no Firebase service account) — caller then opens ClickLead plainly. */
+  clickleadSso: () =>
+    http.get<{ token: string | null; url: string }>('/integrations/clicklead/sso').then(extract),
+};
+
 // ─── Discovery API ───────────────────────────────────────────────────────────
 
 export const discoveryApi = {

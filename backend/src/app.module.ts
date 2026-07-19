@@ -24,6 +24,7 @@ import { AgentsModule } from './agents/agents.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -84,6 +85,7 @@ import { HealthController } from './health.controller';
     DiscoveryModule,
     SubscriptionModule,
     SuppliersModule,
+    IntegrationsModule,
   ],
   controllers: [HealthController],
 })

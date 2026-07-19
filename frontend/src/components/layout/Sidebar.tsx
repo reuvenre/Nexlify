@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { useTheme } from '@/lib/hooks/useTheme';
+import { integrationsApi } from '@/lib/api-client';
 import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut,
@@ -56,6 +57,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   const initials = user?.email?.[0]?.toUpperCase() ?? '?';
   const username = user?.email?.split('@')[0] ?? '';
+
+  // Open ClickLead. Open the tab SYNCHRONOUSLY (in the click) to dodge popup blockers,
+  // then ask the backend for an SSO token and point the tab at it — /sso#token signs the
+  // user straight in. If SSO isn't configured (token null) or errors, open ClickLead
+  // plainly so it still works (stage-1 behaviour). The token rides in the URL fragment
+  // (#), which browsers never send to servers or logs.
+  const openClickLead = async () => {
+    onNavigate?.();
+    const tab = window.open('about:blank', '_blank');
+    try {
+      const { token, url } = await integrationsApi.clickleadSso();
+      const dest = token ? `${url}/sso#token=${encodeURIComponent(token)}` : (url || CLICKLEAD_URL);
+      if (tab) tab.location.href = dest; else window.open(dest, '_blank');
+    } catch {
+      if (tab) tab.location.href = CLICKLEAD_URL; else window.open(CLICKLEAD_URL, '_blank');
+    }
+  };
 
   return (
     <aside className="sidebar-root fixed right-0 top-0 h-full w-[220px] bg-surface-sidebar border-l border-edge flex flex-col z-40 select-none">
@@ -139,17 +157,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {user?.subscription_plan === 'scale' && (
           <div>
             <p className="section-label px-2.5 mb-1.5">דפי נחיתה</p>
-            <a
-              href={CLICKLEAD_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={onNavigate}
-              className="group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium text-white/40 hover:text-white/80 hover:bg-white/[0.05] transition-all duration-150"
+            <button
+              onClick={openClickLead}
+              className="group relative flex w-full items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium text-white/40 hover:text-white/80 hover:bg-white/[0.05] transition-all duration-150"
             >
               <LayoutTemplate size={14} className="shrink-0 text-white/30 group-hover:text-white/55 transition-colors duration-150" />
               <span className="truncate">בונה דפי נחיתה</span>
               <ExternalLink size={11} className="mr-auto shrink-0 text-white/25" />
-            </a>
+            </button>
           </div>
         )}
       </nav>
