@@ -93,11 +93,11 @@ export default function CampaignDetailPage() {
         הטייס האוטומטי
       </button>
 
-      {/* Header */}
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-bold text-white">{campaign.name}</h1>
+      {/* Header — stacks on mobile so the action buttons never overflow off-screen. */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-8">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <h1 className="text-2xl font-bold text-white break-words">{campaign.name}</h1>
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full
               ${campaign.status === 'active' ? 'bg-emerald-500/15 text-emerald-400' :
                 campaign.status === 'paused' ? 'bg-amber-500/15 text-amber-400' :
@@ -118,7 +118,7 @@ export default function CampaignDetailPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             onClick={() => router.push(`/campaigns/${id}/edit`)}
             className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl transition-all"
