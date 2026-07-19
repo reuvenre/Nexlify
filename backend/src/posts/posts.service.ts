@@ -849,6 +849,42 @@ export class PostsService {
     return h >= startHour && h < endHour;
   }
 
+  /**
+   * Place a new post to `groupId` in that group's NEXT FREE slot: spaced by the group's
+   * interval from the latest pending (scheduled/queued) post ALREADY targeting the group —
+   * from ANY campaign or source. Returns { slot, skip }; skip=true when the group is already
+   * booked within the current interval, so two campaigns to one group never post together and
+   * the group publishes at most once per its interval (the group's setting is the rate).
+   */
+  async nextGroupSlot(userId: string, groupId: string, notBefore: Date): Promise<{ slot: Date; skip: boolean }> {
+    const intervalMin = (await this.channels.getIntervalMinutes(userId, groupId).catch(() => null)) ?? 60;
+    const row = await this.repo.createQueryBuilder('p')
+      .select('MAX(p.scheduled_at)', 'max')
+      .where('p.user_id = :userId', { userId })
+      .andWhere("p.status IN ('scheduled','queued')")
+      // A post targets the group via channel_override (single) OR channel_overrides (JSON
+      // array of quoted ids) — match both. Quotes make the LIKE exact (no substring bleed).
+      .andWhere('(p.channel_override = :g OR p.channel_overrides LIKE :like)', { g: groupId, like: `%"${groupId}"%` })
+      .getRawOne();
+    const latestMs = row?.max ? new Date(row.max).getTime() : 0;
+    if (!latestMs) return { slot: notBefore, skip: false };
+    const slotMs = Math.max(latestMs + intervalMin * 60_000, notBefore.getTime());
+
+    // Skip when the group is already booked: either the next slot is more than one interval
+    // out, OR it falls outside the group's send window (so a post never lands at night). The
+    // group's next in-window run creates it fresh instead.
+    const bookedAhead = slotMs > Date.now() + intervalMin * 60_000;
+    const win = await this.channels.getScheduleWindow(userId, groupId).catch(() => null);
+    const creds = await this.credentials.getRaw(userId).catch(() => null);
+    const startHour = win?.startHour ?? creds?.schedule_start_hour ?? 9;
+    const endHour = win?.endHour ?? creds?.schedule_end_hour ?? 22;
+    const tz = process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
+    const slotHour = this.hourInZone(new Date(slotMs), tz);
+    const outOfWindow = startHour < endHour && (slotHour < startHour || slotHour >= endHour);
+
+    return { slot: new Date(slotMs), skip: bookedAhead || outOfWindow };
+  }
+
   async runCampaign(campaign: Campaign, userId: string, opts?: { fromScheduler?: boolean }): Promise<CampaignRunResult> {
     const creds = await this.credentials.getRaw(userId);
     if (!creds) throw new BadRequestException('חסרים פרטי חיבור — הגדר אותם במסך ההגדרות');
@@ -947,9 +983,21 @@ export class PostsService {
       : null;
     const times = this.campaignScheduleTimes(toPost.length, creds, window || undefined);
 
+    let skipped = 0;
     for (let i = 0; i < toPost.length; i++) {
       const product = toPost[i];
       try {
+        // Per-group pacing: place the post in the group's next free slot (spaced by the
+        // group's interval from any pending post to it, any source). On a SCHEDULED run,
+        // if the group is already booked this interval, skip — so two campaigns to one
+        // group never collide and the group publishes at most 1/interval. Each post is
+        // saved before the next iteration, so successive posts chain off each other.
+        let scheduledAt = times[i];
+        if (targets.length) {
+          const { slot, skip } = await this.nextGroupSlot(userId, targets[0], times[i]);
+          if (skip && opts?.fromScheduler) { skipped++; continue; }
+          scheduledAt = slot;
+        }
         // Always resolve a SHORT affiliate link via link.generate (~42 chars, per-product,
         // tracked). The promotion_link that product.query returns is a broken 1065-char
         // link — identical across products AND over Telegram's 1024 caption limit — which
@@ -972,7 +1020,7 @@ export class PostsService {
           price_ils: parts.priceIls,
           generated_text: text,
           status: 'scheduled',
-          scheduled_at: times[i],
+          scheduled_at: scheduledAt,
         });
         // Route to the campaign's target group(s). Without this the post carries no
         // channel_override and the scheduled-send cron delivers it to the DEFAULT channel —
@@ -993,8 +1041,9 @@ export class PostsService {
       }
     }
 
-    // Every product failed → the run produced nothing. Surface it rather than return 0.
-    if (!result.queued) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
+    // Skipping because the group is already booked this interval is a legitimate no-op, not
+    // a failure — only throw when nothing was queued AND nothing was intentionally skipped.
+    if (!result.queued && !skipped) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
     return result;
   }
 

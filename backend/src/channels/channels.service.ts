@@ -297,6 +297,12 @@ export class ChannelsService {
     return { startHour: c.schedule_start_hour ?? null, endHour: c.schedule_end_hour ?? null };
   }
 
+  /** The group's send interval in minutes (its own setting), or null to inherit the default. */
+  async getIntervalMinutes(userId: string, channelId: string): Promise<number | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    return c?.schedule_interval_minutes ?? null;
+  }
+
   /**
    * Stamp the per-group send clock for each of `channelIds`. A post that fanned out to
    * several groups advances ALL of their clocks, so no group gets an extra free slot.

@@ -493,9 +493,17 @@ export class SupplierProductsService {
     const creds = await this.credentials.getRaw(userId);
     const times = this.posts.campaignScheduleTimes(products.length, creds);
 
+    let skipped = 0;
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
       try {
+        // Per-group pacing (same rule as AliExpress): place the post in the group's next free
+        // slot, spaced by the group's interval from any pending post to it. On a scheduled run,
+        // skip when the group is already booked this interval — so an AliExpress post and a
+        // FLYLINK post never land in the same group at the same time.
+        const { slot, skip } = await this.posts.nextGroupSlot(userId, targets[0], times[i]);
+        if (skip && opts?.fromScheduler) { skipped++; continue; }
+
         const gallery = this.selectGallery(p, undefined, 10);
         const image = gallery[0] || this.proxyImage(p.image_url) || '';
         const { price, currency } = await this.pricing(userId, p.price);
@@ -506,9 +514,9 @@ export class SupplierProductsService {
         const preview = await this.posts.preview(userId, p.sku || p.id, 'he', product, template || undefined);
         const text = preview?.generated_text || p.description || undefined;
 
-        // SCHEDULE at the campaign's cadence + attribute to the campaign.
+        // SCHEDULE in the group's next free slot + attribute to the campaign.
         await this.posts.createQueuedPost(userId, product, undefined, text, targets[0], gallery, undefined, targets,
-          { scheduledAt: times[i], campaignId: campaign.id });
+          { scheduledAt: slot, campaignId: campaign.id });
 
         p.has_post = true;
         p.last_posted_at = now; // advance the rotation cursor
@@ -521,7 +529,8 @@ export class SupplierProductsService {
       }
     }
 
-    if (!result.queued) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
+    // A group already booked this interval is a legitimate skip, not a failure.
+    if (!result.queued && !skipped) throw new BadRequestException(result.errors.join(' | ') || 'הרצת הקמפיין לא יצרה פוסטים');
     return result;
   }
 
