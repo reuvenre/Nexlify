@@ -100,6 +100,11 @@ export class CredentialSet {
   @Column({ default: false })
   image_enhance_enabled: boolean;
 
+  /** Min minutes between Facebook posts per page (0 = every post). Paces Facebook
+   *  independently of Telegram so high-frequency posting doesn't hit FB's spam block. */
+  @Column({ type: 'int', default: 0 })
+  facebook_min_interval_minutes: number;
+
   /* ── Product discovery (Apify) ─────────────────────────────────────────── */
 
   @Column({ nullable: true })

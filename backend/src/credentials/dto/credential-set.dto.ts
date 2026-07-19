@@ -97,6 +97,11 @@ export class CredentialSetDto {
   @IsBoolean()
   image_enhance_enabled?: boolean;
 
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  facebook_min_interval_minutes?: number;
+
   // ── Discovery (Apify) ──
   @IsOptional()
   @IsString()

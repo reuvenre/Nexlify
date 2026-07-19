@@ -77,6 +77,11 @@ export class Channel {
   @Column({ type: 'timestamp', nullable: true })
   schedule_last_sent_at: Date | null;
 
+  /** When this group's Facebook PAGE last received a post — the FB throttle clock, kept
+   *  separate from the Telegram queue clock so Facebook can be paced independently. */
+  @Column({ type: 'timestamp', nullable: true })
+  facebook_last_sent_at: Date | null;
+
   @Column({ type: 'int', default: 0, nullable: true })
   members_count: number;
 

@@ -32,6 +32,10 @@ export function IntegrationsForm() {
   // Auto image enhancement (local sharp pass, applied on the Telegram album)
   const [imageEnhance, setImageEnhance] = useState(false);
 
+  // Facebook throttle: min minutes between FB posts per page (0 = every post). Paces FB
+  // independently of Telegram so high-frequency posting doesn't hit Facebook's spam block.
+  const [fbMinInterval, setFbMinInterval] = useState('0');
+
   // Make.com webhook relay (delivers Facebook via the user's own Make scenario)
   const [makeUrl, setMakeUrl] = useState('');
   const [pubViaMake, setPubViaMake] = useState(false);
@@ -55,6 +59,7 @@ export function IntegrationsForm() {
         setPubFacebook(c.publish_facebook ?? false);
         setPubInstagram(c.publish_instagram ?? false);
         setImageEnhance(c.image_enhance_enabled ?? false);
+        setFbMinInterval(String(c.facebook_min_interval_minutes ?? 0));
         setMakeUrl(c.make_webhook_url || '');
         setPubViaMake(c.publish_via_make ?? false);
         setWaPhoneId(c.whatsapp_phone_number_id || '');
@@ -85,6 +90,7 @@ export function IntegrationsForm() {
         publish_facebook: pubFacebook,
         publish_instagram: pubInstagram,
         image_enhance_enabled: imageEnhance,
+        facebook_min_interval_minutes: Math.max(0, parseInt(fbMinInterval, 10) || 0),
         make_webhook_url: makeUrl,
         publish_via_make: pubViaMake,
         whatsapp_phone_number_id: waPhoneId,
@@ -348,6 +354,25 @@ export function IntegrationsForm() {
             </button>
           ))}
         </div>
+
+        {/* Facebook throttle — pace FB independently of Telegram (FB blocks high-frequency posting). */}
+        {pubFacebook && (
+          <div className="mt-3 border-t border-edge pt-3">
+            <label className="block text-xs font-medium text-white/60 mb-1.5">מרווח מינימלי בין פרסומים לפייסבוק (דקות)</label>
+            <input
+              type="number" min={0} step={30}
+              value={fbMinInterval}
+              onChange={(e) => setFbMinInterval(e.target.value)}
+              placeholder="0"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
+              dir="ltr"
+            />
+            <p className="text-2xs text-white/30 mt-1.5 leading-relaxed">
+              פייסבוק חוסמת פרסום בתדירות גבוהה. כאן קובעים כל כמה זמן דף יקבל פוסט לכל היותר — <b>טלגרם ממשיך בקצב המלא</b>, רק פייסבוק מואט.
+              <br />למשל <b>180</b> = פוסט אחד לפייסבוק כל 3 שעות לכל דף. <b>0</b> = כל פוסט (ללא האטה).
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Auto image enhancement */}

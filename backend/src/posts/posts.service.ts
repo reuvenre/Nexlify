@@ -1525,29 +1525,41 @@ export class PostsService {
     // so the per-channel token is never ignored. Channels without their own token use the
     // global path: the Make relay when enabled, else native with the account's global token.
     if (wantFacebook || makeRelay) {
+      // Facebook throttle: FB flags high-frequency posting as spam, so each page publishes at
+      // most once per facebook_min_interval_minutes — INDEPENDENT of Telegram, which keeps its
+      // full cadence. When a page was posted to too recently we skip FB for THIS post only
+      // (Telegram already sent above). 0 = no throttle (every post, the old behaviour).
+      const fbIntervalMs = Math.max(0, creds?.facebook_min_interval_minutes ?? 0) * 60_000;
       const pages = await this.resolvePages(post.user_id, targets, creds);
       for (const [pageId, target] of pages) {
+        if (fbIntervalMs > 0 && target) {
+          const last = await this.channels.getFacebookLastSent(post.user_id, target).catch(() => null);
+          if (last && Date.now() - last.getTime() < fbIntervalMs) continue; // throttled — skip FB for this page
+        }
         const body = await this.buildPostBody(post, creds, target);
         const label = await this.targetLabel(post.user_id, target, multi && pages.size > 1);
         const ownToken = target ? await this.channels.getFacebookPageToken(post.user_id, target) : null;
+        // Advance the page's FB clock only on a successful publish, so the next post's throttle
+        // check is accurate. Native and Make both count (Make can't return an id, so we track here).
+        const markSent = () => { if (target) this.channels.markFacebookSent(post.user_id, target).catch(() => {}); };
 
         if (ownToken) {
           tasks.push(
             this.sendToFacebook(post, creds, body, pageId, ownToken)
-              .then(() => { anySuccess = true; })
+              .then(() => { anySuccess = true; markSent(); })
               .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }),
           );
         } else if (makeRelay) {
           tasks.push(
             this.sendToMakeWebhook(post, creds, body, pageId)
-              .then(() => { anySuccess = true; })
+              .then(() => { anySuccess = true; markSent(); })
               .catch((err: any) => { errors.push(`Make: ${label}${err?.response?.data?.message || err.message}`); }),
           );
         } else if (wantFacebook) {
           const token = creds?.facebook_page_token || '';
           tasks.push(
             this.sendToFacebook(post, creds, body, pageId, token)
-              .then(() => { anySuccess = true; })
+              .then(() => { anySuccess = true; markSent(); })
               .catch((err: any) => { errors.push(`Facebook: ${label}${err?.response?.data?.error?.message || err.message}`); }),
           );
         }

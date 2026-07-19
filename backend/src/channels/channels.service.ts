@@ -192,6 +192,17 @@ export class ChannelsService {
     }
   }
 
+  /** When this group's Facebook PAGE last received a post — the FB throttle clock. */
+  async getFacebookLastSent(userId: string, channelId: string): Promise<Date | null> {
+    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    return c?.facebook_last_sent_at ?? null;
+  }
+
+  /** Stamp the group's Facebook page as just-posted (advances the FB throttle clock). */
+  async markFacebookSent(userId: string, channelId: string): Promise<void> {
+    await this.repo.update({ user_id: userId, channel_id: channelId }, { facebook_last_sent_at: new Date() });
+  }
+
   /** Fetches member count from Telegram's getChatMemberCount API */
   private async fetchMemberCount(token: string, chatId: string): Promise<number | null> {
     try {

@@ -137,6 +137,7 @@ export interface CredentialSet {
   make_webhook_url: string;
   publish_via_make: boolean;
   image_enhance_enabled: boolean;
+  facebook_min_interval_minutes: number;
   // Discovery
   apify_api_token: string;        // masked
   // Scaffolded integrations (activation pending external accounts)
@@ -198,6 +199,7 @@ export interface CredentialSetInput {
   make_webhook_url?: string;
   publish_via_make?: boolean;
   image_enhance_enabled?: boolean;
+  facebook_min_interval_minutes?: number;
   // Discovery
   apify_api_token?: string;
   // Scaffolded integrations
