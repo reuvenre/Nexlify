@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { OrchestratorAgent } from '../agents/orchestrator.agent';
 import { AdsService } from '../ads/ads.service';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
+import { EarningsService } from '../earnings/earnings.service';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -18,6 +19,7 @@ export class CampaignSchedulerService {
   private processingQueue = false;
   private boosting = false;
   private syncingSuppliers = false;
+  private syncingEarnings = false;
 
   constructor(
     private readonly campaigns: CampaignsService,
@@ -28,7 +30,30 @@ export class CampaignSchedulerService {
     @Optional() private readonly orchestrator: OrchestratorAgent,
     @Optional() private readonly ads: AdsService,
     @Optional() private readonly supplierProducts: SupplierProductsService,
+    @Optional() private readonly earnings: EarningsService,
   ) {}
+
+  /**
+   * Every 3 hours — the "live" order-tracking pull: auto-syncs AliExpress affiliate orders
+   * (aliexpress.affiliate.order.list) for every user with keys, so the orders/earnings screens
+   * stay current without a manual refresh. Offset from the top of the hour to avoid colliding
+   * with the supplier-price cron; guarded against overlap.
+   */
+  @Cron('0 20 */3 * * *')
+  async syncEarnings() {
+    if (!this.earnings || this.syncingEarnings) return;
+    this.syncingEarnings = true;
+    try {
+      const r = await this.earnings.syncAllUsers();
+      if (r.synced || r.updated) {
+        this.logger.log(`Earnings auto-sync: ${r.synced} new, ${r.updated} updated across ${r.users} users`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Earnings auto-sync tick failed: ${err.message}`);
+    } finally {
+      this.syncingEarnings = false;
+    }
+  }
 
   /**
    * Runs every 6 hours — refreshes supplier-product prices from Yupoo and checks

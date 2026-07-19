@@ -153,6 +153,27 @@ export class EarningsService {
     }
   }
 
+  /**
+   * Scheduled "live" pull: auto-sync affiliate orders for EVERY user with AliExpress keys,
+   * so the orders/earnings screens stay current without a manual refresh. Paced between users
+   * (the gateway bans bursts); one user's failure (bad keys, API limit) never aborts the rest.
+   */
+  async syncAllUsers(): Promise<{ users: number; synced: number; updated: number }> {
+    const userIds = await this.credentials.listUserIdsWithAliexpress();
+    let synced = 0, updated = 0;
+    for (const uid of userIds) {
+      try {
+        const r = await this.sync(uid);
+        synced += r.synced;
+        updated += r.updated;
+      } catch (err: any) {
+        this.logger.warn(`Earnings auto-sync failed for ${uid}: ${err?.message}`);
+      }
+      await new Promise((r) => setTimeout(r, 1500)); // space users out
+    }
+    return { users: userIds.length, synced, updated };
+  }
+
   private async doSync(userId: string, creds: any): Promise<{ synced: number; updated: number }> {
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     let synced = 0;

@@ -398,6 +398,17 @@ export class CredentialsService {
     return this.repo.find({ where: { boost_enabled: true } });
   }
 
+  /** User ids that have AliExpress affiliate keys configured (for the earnings auto-sync). */
+  async listUserIdsWithAliexpress(): Promise<string[]> {
+    const rows = await this.repo
+      .createQueryBuilder('c')
+      .select('c.user_id', 'user_id')
+      .where("c.aliexpress_app_key IS NOT NULL AND c.aliexpress_app_key <> ''")
+      .andWhere("c.aliexpress_app_secret_enc IS NOT NULL AND c.aliexpress_app_secret_enc <> ''")
+      .getRawMany();
+    return Array.from(new Set(rows.map((r) => String(r.user_id)).filter(Boolean)));
+  }
+
   /** Records the timestamp of the last sent queued post */
   async updateLastSent(userId: string, sentAt: Date): Promise<void> {
     await this.repo.update({ user_id: userId }, { schedule_last_sent_at: sentAt });
