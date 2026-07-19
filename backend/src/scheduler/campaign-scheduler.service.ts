@@ -268,10 +268,11 @@ export class CampaignSchedulerService {
       // (fire-and-forget with .catch/.finally below), so widen to unknown.
       const runOnce = (): Promise<unknown> => {
         if (campaign.source === 'flylink' && this.supplierProducts) {
-          return this.supplierProducts.runFlylinkCampaign(campaign, campaign.user_id);
+          return this.supplierProducts.runFlylinkCampaign(campaign, campaign.user_id, { fromScheduler: true });
         }
         if (useAgents) return this.orchestrator.run(campaign, campaign.user_id);
-        return this.posts.runCampaign(campaign, campaign.user_id);
+        // fromScheduler: skip runs outside the send window so overnight runs don't pile up.
+        return this.posts.runCampaign(campaign, campaign.user_id, { fromScheduler: true });
       };
       const runner = this.campaigns.markRun(campaign.id).then(runOnce);
 

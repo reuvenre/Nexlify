@@ -450,7 +450,13 @@ export class SupplierProductsService {
    * on any condition that yields zero posts, per-product try/catch so one failure can't
    * abort the batch.
    */
-  async runFlylinkCampaign(campaign: Campaign, userId: string): Promise<CampaignRunResult> {
+  async runFlylinkCampaign(campaign: Campaign, userId: string, opts?: { fromScheduler?: boolean }): Promise<CampaignRunResult> {
+    // Skip scheduled runs outside the send window — otherwise overnight hourly runs create
+    // posts clamped to the window-open time and all burst at once (same fix as AliExpress).
+    if (opts?.fromScheduler && !(await this.posts.isCampaignWindowOpen(userId, campaign))) {
+      return { queued: 0, failed: 0, keyword: '', searched: '', errors: ['מחוץ לחלון הפרסום — דילוג'] };
+    }
+
     // Target groups: a flylink campaign has no default channel to fall back to, so an
     // unset target is a hard error, not a silent post-to-nowhere.
     let targets: string[] = [];

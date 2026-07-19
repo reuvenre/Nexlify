@@ -827,9 +827,36 @@ export class PostsService {
    * and emails the owner, "run now" shows it. It must never resolve quietly on failure —
    * a campaign that publishes nothing has to say so.
    */
-  async runCampaign(campaign: Campaign, userId: string): Promise<CampaignRunResult> {
+  /**
+   * Is NOW inside the campaign's send window (its target group's hours, else the account's,
+   * else 9–22)? A SCHEDULED run outside the window must be a no-op: otherwise every overnight
+   * hourly run creates a post clamped to the window-open time, and they all pile up and burst
+   * the moment the window opens (the "6am flood"). A manual "run now" ignores this.
+   */
+  async isCampaignWindowOpen(userId: string, campaign: Campaign, creds?: DecryptedCredentials | null): Promise<boolean> {
+    // Resolve the window from the SAME source the scheduled_at clamp uses: the target group's
+    // hours, else the account's, else 9–22. Fetch creds if the caller didn't pass them.
+    const c = creds !== undefined ? creds : await this.credentials.getRaw(userId).catch(() => null);
+    const targets = this.parseTargetChannels(campaign.target_channels);
+    const window = targets.length
+      ? await this.channels.getScheduleWindow(userId, targets[0]).catch(() => null)
+      : null;
+    const startHour = window?.startHour ?? c?.schedule_start_hour ?? 9;
+    const endHour = window?.endHour ?? c?.schedule_end_hour ?? 22;
+    if (startHour >= endHour) return true; // 24h / misconfigured window → never block
+    const tz = process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
+    const h = this.hourInZone(new Date(), tz);
+    return h >= startHour && h < endHour;
+  }
+
+  async runCampaign(campaign: Campaign, userId: string, opts?: { fromScheduler?: boolean }): Promise<CampaignRunResult> {
     const creds = await this.credentials.getRaw(userId);
     if (!creds) throw new BadRequestException('חסרים פרטי חיבור — הגדר אותם במסך ההגדרות');
+
+    // Skip scheduled runs outside the send window so overnight runs don't pile up at open.
+    if (opts?.fromScheduler && !(await this.isCampaignWindowOpen(userId, campaign, creds))) {
+      return { queued: 0, failed: 0, keyword: '', searched: '', errors: ['מחוץ לחלון הפרסום — דילוג'] };
+    }
 
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     const keyword = campaign.keywords[Math.floor(Math.random() * campaign.keywords.length)];
