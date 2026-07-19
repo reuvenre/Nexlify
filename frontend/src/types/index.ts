@@ -286,43 +286,6 @@ export interface SupplierProduct {
   created_at: string;
 }
 
-// ─── Ads / Boost ─────────────────────────────────────────────────────────────
-
-export type AdBoostStatus = 'boosted' | 'skipped' | 'failed';
-
-export interface AdBoost {
-  id: string;
-  post_id?: string;
-  facebook_post_id?: string;
-  product_title?: string;
-  clicks: number;
-  impressions: number;
-  roas: number;
-  ad_spend: number;
-  daily_budget: number;
-  status: AdBoostStatus;
-  creative_id?: string;
-  note?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AdsSummary {
-  boosted: number;
-  published: number;
-  total_clicks: number;
-  total_ad_spend: number;
-  avg_roas: number;
-  total_revenue: number;
-}
-
-export interface PerformanceRunResult {
-  evaluated: number;
-  boosted: number;
-  skipped: number;
-  details: { title: string; clicks: number; roas: number; status: string }[];
-}
-
 // ─── Discovery ───────────────────────────────────────────────────────────────
 
 export interface HuntResult {

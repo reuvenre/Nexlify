@@ -18,13 +18,10 @@ export function IntegrationsForm() {
   const [fbPageId, setFbPageId] = useState('');
   const [fbToken, setFbToken] = useState('');
   const [showFbToken, setShowFbToken] = useState(false);
-  const [metaAdAccount, setMetaAdAccount] = useState('');
   const [pubTelegram, setPubTelegram] = useState(true);
   const [pubFacebook, setPubFacebook] = useState(false);
   const [facebookOk, setFacebookOk] = useState<boolean | null>(null);
   const [facebookError, setFacebookError] = useState<string | null>(null);
-  const [adAccountOk, setAdAccountOk] = useState<boolean | null>(null);
-  const [adAccountError, setAdAccountError] = useState<string | null>(null);
 
   // Instagram (reuses the Facebook Page token)
   const [igBusinessId, setIgBusinessId] = useState('');
@@ -53,7 +50,6 @@ export function IntegrationsForm() {
       .then((c) => {
         setDefaultChannel(c.telegram_channel_id || '');
         setFbPageId(c.facebook_page_id || '');
-        setMetaAdAccount(c.meta_ad_account_id || '');
         setIgBusinessId(c.instagram_business_id || '');
         setPubTelegram(c.publish_telegram ?? true);
         setPubFacebook(c.publish_facebook ?? false);
@@ -84,7 +80,6 @@ export function IntegrationsForm() {
         openai_api_key: '',
         facebook_page_id: fbPageId,
         facebook_page_token: fbToken,
-        meta_ad_account_id: metaAdAccount,
         instagram_business_id: igBusinessId,
         publish_telegram: pubTelegram,
         publish_facebook: pubFacebook,
@@ -122,8 +117,6 @@ export function IntegrationsForm() {
       setFacebookError(res.facebook ? null : res.errors?.facebook || null);
       setInstagramOk(res.instagram);
       setInstagramError(res.instagram ? null : res.errors?.instagram || null);
-      setAdAccountOk(res.metaAdAccount);
-      setAdAccountError(res.metaAdAccount ? null : res.errors?.metaAdAccount || null);
     } finally {
       setVerifying(false);
     }
@@ -286,26 +279,6 @@ export function IntegrationsForm() {
           {facebookError && (
             <p className="text-2xs text-red-400 -mt-2">⚠️ חיבור הדף: {facebookError}</p>
           )}
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5 flex items-center gap-1.5">
-              Meta Ad Account ID <span className="text-white/25">(ל-Boost)</span>
-              {adAccountOk !== null && (
-                adAccountOk
-                  ? <CheckCircle2 size={12} className="text-emerald-400" />
-                  : <XCircle size={12} className="text-red-400" />
-              )}
-            </label>
-            <input
-              value={metaAdAccount}
-              onChange={(e) => setMetaAdAccount(e.target.value)}
-              placeholder="act_1234567890"
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
-              dir="ltr"
-            />
-            {adAccountError && (
-              <p className="text-2xs text-red-400 mt-1">⚠️ חשבון פרסום: {adAccountError}</p>
-            )}
-          </div>
         </div>
         <div className="flex items-center gap-3 mt-4">
           <button onClick={handleSave} disabled={saving}

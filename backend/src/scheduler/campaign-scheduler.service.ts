@@ -7,7 +7,6 @@ import { CredentialsService } from '../credentials/credentials.service';
 import { ChannelsService } from '../channels/channels.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OrchestratorAgent } from '../agents/orchestrator.agent';
-import { AdsService } from '../ads/ads.service';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
 import { EarningsService } from '../earnings/earnings.service';
 
@@ -17,7 +16,6 @@ export class CampaignSchedulerService {
   private running = new Set<string>();
   private sendingScheduled = false;
   private processingQueue = false;
-  private boosting = false;
   private syncingSuppliers = false;
   private syncingEarnings = false;
 
@@ -28,7 +26,6 @@ export class CampaignSchedulerService {
     private readonly channels: ChannelsService,
     private readonly notifications: NotificationsService,
     @Optional() private readonly orchestrator: OrchestratorAgent,
-    @Optional() private readonly ads: AdsService,
     @Optional() private readonly supplierProducts: SupplierProductsService,
     @Optional() private readonly earnings: EarningsService,
   ) {}
@@ -231,23 +228,6 @@ export class CampaignSchedulerService {
       return n === 24 ? 0 : n; // some environments render midnight as "24"
     } catch {
       return date.getHours(); // invalid tz → fall back to server local
-    }
-  }
-
-  /**
-   * Runs hourly — evaluates published Facebook posts and auto-boosts the
-   * strong performers for every user who enabled auto-boost. (Nexlify Performance)
-   */
-  @Cron(CronExpression.EVERY_HOUR)
-  async runAutoBoost() {
-    if (!this.ads || this.boosting) return;
-    this.boosting = true;
-    try {
-      await this.ads.runAllEnabled();
-    } catch (err: any) {
-      this.logger.error(`Auto-boost tick failed: ${err.message}`);
-    } finally {
-      this.boosting = false;
     }
   }
 

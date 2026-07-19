@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut,
   ShoppingCart, Sun, Moon, Sparkles, Package,
-  Rocket, Shield, Ticket,
+  Shield, Ticket,
 } from 'lucide-react';
 
 const NAV_SECTIONS = [
@@ -33,7 +33,6 @@ const NAV_SECTIONS = [
   {
     title: 'נתונים',
     items: [
-      { href: '/ads',     label: 'מודעות Boost', icon: Rocket },
       { href: '/orders',  label: 'הזמנות', icon: ShoppingCart },
       { href: '/reports', label: 'דוחות',  icon: BarChart3 },
     ],

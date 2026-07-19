@@ -24,9 +24,6 @@ import type {
   ResyncJob,
   CatalogStatus,
   VerifyResult,
-  AdBoost,
-  AdsSummary,
-  PerformanceRunResult,
   HuntResult,
   ValidateResult,
   AdminUser,
@@ -240,14 +237,6 @@ export const credentialsApi = {
 export const usageApi = {
   /** Per-day AI token consumption + monthly budget gauge for the dashboard. */
   ai: (days?: number) => http.get<AiUsageSummary>('/ai/usage', { params: days ? { days } : undefined }).then(extract),
-};
-
-// ─── Ads / Boost API ─────────────────────────────────────────────────────────
-
-export const adsApi = {
-  list: () => http.get<AdBoost[]>('/ads').then(extract),
-  summary: () => http.get<AdsSummary>('/ads/summary').then(extract),
-  run: () => http.post<PerformanceRunResult>('/ads/run').then(extract),
 };
 
 // ─── Admin API ───────────────────────────────────────────────────────────────
