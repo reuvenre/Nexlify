@@ -14,6 +14,7 @@ import { EarningsService } from '../earnings/earnings.service';
 export class CampaignSchedulerService {
   private readonly logger = new Logger(CampaignSchedulerService.name);
   private running = new Set<string>();
+  private ticking = false;
   private sendingScheduled = false;
   private processingQueue = false;
   private syncingSuppliers = false;
@@ -244,6 +245,18 @@ export class CampaignSchedulerService {
   /** Runs every minute — checks which active campaigns are due */
   @Cron(CronExpression.EVERY_MINUTE)
   async tick() {
+    // Overlap guard: campaigns now run sequentially (below), so a busy minute can outlast the
+    // tick interval. Without this, the next tick would start alongside this one.
+    if (this.ticking) return;
+    this.ticking = true;
+    try {
+      await this.runDueCampaigns();
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private async runDueCampaigns() {
     let active: any[];
     try {
       active = await this.campaigns.findAllActive();
@@ -279,15 +292,20 @@ export class CampaignSchedulerService {
         // fromScheduler: skip runs outside the send window so overnight runs don't pile up.
         return this.posts.runCampaign(campaign, campaign.user_id, { fromScheduler: true });
       };
-      const runner = this.campaigns.markRun(campaign.id).then(runOnce);
-
-      runner
-        .catch((err) => {
-          this.logger.error(`Campaign ${campaign.id} failed: ${err.message}`);
-          // A campaign dying silently server-side is invisible to the owner — tell them.
-          void this.notifications.notifyCampaignError(campaign.user_id, campaign.name, err.message);
-        })
-        .finally(() => this.running.delete(campaign.id));
+      // AWAIT each campaign before starting the next. Running them concurrently
+      // (fire-and-forget) let two campaigns targeting the SAME group both read nextGroupSlot
+      // before either saved its post → both grabbed the same slot → two posts to the group a
+      // minute apart. Sequential execution makes the first's scheduled post visible to the
+      // second's spacing, so they land one interval apart as intended.
+      try {
+        await this.campaigns.markRun(campaign.id).then(runOnce);
+      } catch (err: any) {
+        this.logger.error(`Campaign ${campaign.id} failed: ${err.message}`);
+        // A campaign dying silently server-side is invisible to the owner — tell them.
+        void this.notifications.notifyCampaignError(campaign.user_id, campaign.name, err.message);
+      } finally {
+        this.running.delete(campaign.id);
+      }
     }
   }
 }
