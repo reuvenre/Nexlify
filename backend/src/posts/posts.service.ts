@@ -895,7 +895,13 @@ export class PostsService {
     }
 
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
-    const keyword = campaign.keywords[Math.floor(Math.random() * campaign.keywords.length)];
+    // Round-robin through the keywords so EVERY keyword gets equal airtime and consecutive
+    // runs use a different one — random selection over-used some and rarely touched others
+    // (the "it ignores my keywords / repeats the same things" complaint). Advance the cursor
+    // immediately (before the search) so a dead/empty keyword is skipped next run, not stuck on.
+    const kwIndex = (campaign.keyword_cursor ?? 0) % campaign.keywords.length;
+    const keyword = campaign.keywords[kwIndex];
+    this.campaignRepo.increment({ id: campaign.id }, 'keyword_cursor', 1).catch(() => {});
     if (!keyword?.trim()) throw new BadRequestException('לקמפיין אין מילות מפתח');
 
     const searched = await this.searchKeyword(keyword, creds);

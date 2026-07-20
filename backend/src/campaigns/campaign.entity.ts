@@ -44,6 +44,14 @@ export class Campaign {
   @Column('text', { array: true, default: '{}' })
   keywords: string[];
 
+  /**
+   * Round-robin pointer into `keywords`: each run uses keywords[cursor % len] then advances,
+   * so every keyword gets equal airtime and consecutive runs differ. Replaces the old random
+   * pick, which over-used some keywords and rarely touched others.
+   */
+  @Column({ type: 'int', default: 0 })
+  keyword_cursor: number;
+
   @Column({ nullable: true })
   category_id: string;
 
