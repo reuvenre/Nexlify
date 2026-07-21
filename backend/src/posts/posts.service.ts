@@ -1904,6 +1904,26 @@ export class PostsService {
    * product's main photo. The image URL must be publicly reachable (AliExpress URLs
    * and our Yupoo image proxy both are).
    */
+  /**
+   * Instagram feed captions render URLs as DEAD, non-tappable text — and a bare link can
+   * suppress reach — so pasting the affiliate/Telegram links there is pure downside. For IG
+   * we drop every line carrying a URL and end with a "link in bio" call-to-action; the bio
+   * should point at the user's ClickLead landing page (which aggregates the product links).
+   */
+  private instagramCaption(message: string, post: Post): string {
+    const noHtml = message.replace(/<\/?[^>]+>/g, '');
+    // A line is a "link line" if it contains any URL/short-link/Telegram-join form.
+    const urlLine = /(https?:\/\/|www\.|t\.me\/|s\.click\.|aliexpress\.|bit\.ly\/)/i;
+    let kept = noHtml
+      .split('\n')
+      .filter((line) => !urlLine.test(line))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    if (!kept) kept = (post.product_title || '').trim();
+    return `${kept}\n\n🛍️ לרכישה — הלינק בביו 🔗`.trim();
+  }
+
   private async sendToInstagram(post: Post, creds: DecryptedCredentials, message: string) {
     const igId = creds?.instagram_business_id;
     const token = creds?.facebook_page_token;
@@ -1917,7 +1937,7 @@ export class PostsService {
     } catch { /* ignore */ }
     if (!image) throw new Error('אין תמונת מוצר לפרסום באינסטגרם');
 
-    const caption = message.replace(/<\/?[^>]+>/g, ''); // IG shows no HTML
+    const caption = this.instagramCaption(message, post);
     const base = `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`;
 
     // 1) Create the media container.
