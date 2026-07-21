@@ -210,6 +210,19 @@ export class PostsService {
   }
 
   /**
+   * The FIRST published post for a product (matched by product_id) — lets a REPOST reuse the
+   * original copy + images verbatim instead of regenerating them. Null if never posted.
+   * Used by the FLYLINK runner so re-posts stay identical to the first publish.
+   */
+  async findOriginalPost(userId: string, productId: string): Promise<Post | null> {
+    if (!productId) return null;
+    return this.repo.findOne({
+      where: { user_id: userId, product_id: String(productId), status: 'sent' },
+      order: { created_at: 'ASC' },
+    });
+  }
+
+  /**
    * The user's default BODY template — the writing style their hand-published posts use.
    * The composer sends the template down with each request; a campaign runs headless and
    * has no composer, so without this it silently fell back to the generic built-in voice.

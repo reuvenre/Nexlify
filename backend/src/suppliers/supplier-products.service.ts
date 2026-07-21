@@ -514,22 +514,47 @@ export class SupplierProductsService {
         const { slot, skip } = await this.posts.nextGroupSlot(userId, targets[0], times[i]);
         if (skip && opts?.fromScheduler) { skipped++; continue; }
 
-        const gallery = this.selectGallery(p, undefined, 10);
-        const image = gallery[0] || this.proxyImage(p.image_url) || '';
-        const { price, currency } = await this.pricing(userId, p.price);
-        const product = this.toPostProduct(p, image, price, currency);
+        const productKey = String(p.sku || p.id);
+        const original = await this.posts.findOriginalPost(userId, productKey);
 
-        // AI copy in the group's voice (charges one generation credit); createQueuedPost
-        // then reuses this text via textOverride, so it is NOT generated twice. Use VISION:
-        // the Yupoo title is just a code, so the AI must write from the PHOTOS or it
-        // hallucinates the product (a swimsuit was described as "storage"). this.preview
-        // fetches the images and forces vision even under the group's template.
-        const preview = await this.preview(userId, p.id, { language: 'he', template: template || undefined, vision: true });
-        const text = preview?.generated_text || p.description || undefined;
-
-        // SCHEDULE in the group's next free slot + attribute to the campaign.
-        await this.posts.createQueuedPost(userId, product, undefined, text, targets[0], gallery, undefined, targets,
-          { scheduledAt: slot, campaignId: campaign.id });
+        if (original) {
+          // REPOST: republish the ORIGINAL post VERBATIM — same copy, same images. No AI
+          // rewrite, no gallery re-pick. The user wants a re-post to be an exact re-run of
+          // the first publish (the AI rewrites came out wrong, and re-selecting the gallery
+          // dumped every catalog image). textOverride skips generation; the original gallery
+          // is passed as-is so no extra images are added.
+          let origGallery: string[] = [];
+          try { origGallery = original.gallery_json ? JSON.parse(original.gallery_json) : []; } catch { origGallery = []; }
+          if (!origGallery.length && original.product_image) origGallery = [original.product_image];
+          const displayCcy = (creds?.currency_pair || 'USD_ILS').split('_')[1] || 'ILS';
+          const product = {
+            product_id: productKey,
+            title: original.product_title,
+            image_url: original.product_image || origGallery[0] || '',
+            affiliate_url: original.affiliate_url,
+            sale_price: original.price_ils ?? 0,      // already in display currency → not re-converted
+            original_price: original.price_ils ?? 0,
+            currency: displayCcy,
+            discount_percent: 0,
+            orders_count: 0,
+            rating: 0,
+          };
+          await this.posts.createQueuedPost(userId, product, undefined, original.generated_text || undefined, targets[0], origGallery, undefined, targets,
+            { scheduledAt: slot, campaignId: campaign.id });
+        } else {
+          // FIRST TIME for this product: write fresh AI copy in the group's voice (one
+          // generation credit; createQueuedPost reuses it via textOverride, not twice). Use
+          // VISION — the Yupoo title is just a code, so the AI must write from the PHOTOS or
+          // it hallucinates the product (a swimsuit was described as "storage").
+          const gallery = this.selectGallery(p, undefined, 10);
+          const image = gallery[0] || this.proxyImage(p.image_url) || '';
+          const { price, currency } = await this.pricing(userId, p.price);
+          const product = this.toPostProduct(p, image, price, currency);
+          const preview = await this.preview(userId, p.id, { language: 'he', template: template || undefined, vision: true });
+          const text = preview?.generated_text || p.description || undefined;
+          await this.posts.createQueuedPost(userId, product, undefined, text, targets[0], gallery, undefined, targets,
+            { scheduledAt: slot, campaignId: campaign.id });
+        }
 
         p.has_post = true;
         p.last_posted_at = now; // advance the rotation cursor
