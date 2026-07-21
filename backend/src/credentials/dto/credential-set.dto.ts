@@ -114,6 +114,12 @@ export class CredentialSetDto {
   // ── Scaffolded integrations (stored; activation pending external accounts) ──
   @IsOptional() @IsString() whatsapp_phone_number_id?: string;
   @IsOptional() @IsString() whatsapp_access_token?: string;
+  @IsOptional() @IsString() whatsapp_provider?: string;
+  @IsOptional() @IsString() green_api_url?: string;
+  @IsOptional() @IsString() green_api_instance_id?: string;
+  @IsOptional() @IsString() green_api_token?: string;
+  @IsOptional() @IsString() whatsapp_group_id?: string;
+  @IsOptional() @IsBoolean() publish_whatsapp?: boolean;
   @IsOptional() @IsString() amazon_access_key?: string;
   @IsOptional() @IsString() amazon_secret_key?: string;
   @IsOptional() @IsString() amazon_partner_tag?: string;

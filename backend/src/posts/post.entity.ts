@@ -65,6 +65,10 @@ export class Post {
   @Column({ nullable: true })
   pinterest_post_id: string;
 
+  /** WhatsApp message id once published (Green API idMessage) */
+  @Column({ nullable: true })
+  whatsapp_message_id: string;
+
   /** Marks this post as the canonical template a FLYLINK re-post clones for its product
    *  (overrides the default "earliest sent post"). At most one per product per user. */
   @Column({ default: false })

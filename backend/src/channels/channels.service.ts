@@ -337,6 +337,53 @@ export class ChannelsService {
     }
   }
 
+  /**
+   * Verify the WhatsApp publishing setup. For Green API this checks the instance is
+   * AUTHORIZED (QR-linked) — the precondition for sending to a group. For the official
+   * Cloud API it confirms the Phone Number ID + token resolve.
+   */
+  async testWhatsApp(userId: string) {
+    const creds = await this.credentials.getRaw(userId).catch(() => null);
+    const provider = creds?.whatsapp_provider || 'green';
+
+    if (provider === 'green') {
+      const instance = (creds?.green_api_instance_id || '').trim();
+      const token = creds?.green_api_token || '';
+      if (!instance || !token) {
+        return { ok: false, error: 'לא הוגדרו Instance ID / Token של Green API בהגדרות ← אינטגרציות.' };
+      }
+      const base = (creds?.green_api_url || 'https://api.green-api.com').replace(/\/$/, '');
+      try {
+        const res = await axios.get(`${base}/waInstance${instance}/getStateInstance/${token}`, { timeout: 8000, validateStatus: () => true });
+        if (res.status === 401 || res.status === 403) {
+          return { ok: false, error: 'ה-Instance ID או ה-Token של Green API אינם תקינים.' };
+        }
+        const state = res.data?.stateInstance;
+        if (state === 'authorized') return { ok: true, state };
+        return { ok: false, error: `ה-instance במצב "${state || `HTTP ${res.status}`}" — סרוק את קוד ה-QR בקונסולת Green API כדי לחבר את מספר הוואטסאפ.` };
+      } catch (err: any) {
+        return { ok: false, error: err?.response?.data?.message || err?.message || 'הבדיקה נכשלה.' };
+      }
+    }
+
+    // Official WhatsApp Cloud API.
+    const phoneId = (creds?.whatsapp_phone_number_id || '').trim();
+    const token = creds?.whatsapp_access_token || '';
+    if (!phoneId || !token) {
+      return { ok: false, error: 'לא הוגדרו Phone Number ID / Access Token של WhatsApp Cloud API.' };
+    }
+    try {
+      const res = await axios.get(
+        `https://graph.facebook.com/${GRAPH_VERSION}/${phoneId}`,
+        { params: { fields: 'display_phone_number,verified_name', access_token: token }, timeout: 6000, validateStatus: () => true },
+      );
+      if (res.data?.error) return { ok: false, error: res.data.error.message };
+      return { ok: true, state: res.data?.display_phone_number || 'official' };
+    } catch (err: any) {
+      return { ok: false, error: err?.response?.data?.error?.message || err?.message || 'הבדיקה נכשלה.' };
+    }
+  }
+
   /** When this group's Facebook PAGE last received a post — the FB throttle clock. */
   async getFacebookLastSent(userId: string, channelId: string): Promise<Date | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });

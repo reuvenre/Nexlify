@@ -124,6 +124,30 @@ export class CredentialSet {
   @Column({ nullable: true })
   whatsapp_access_token_enc: string;
 
+  /** Which WhatsApp provider to publish through: 'official' (Cloud API — direct messages
+   *  only, needs approved templates) or 'green' (Green API — CAN post to groups). */
+  @Column({ default: 'green' })
+  whatsapp_provider: string;
+
+  /** Green API base URL for this instance (from the Green API console, e.g.
+   *  https://7105.api.greenapi.com). Defaults to the universal host when empty. */
+  @Column({ nullable: true })
+  green_api_url: string;
+
+  @Column({ nullable: true })
+  green_api_instance_id: string;
+
+  @Column({ nullable: true })
+  green_api_token_enc: string;
+
+  /** Target WhatsApp chat to publish to — a group id (e.g. 120363...@g.us) or a number. */
+  @Column({ nullable: true })
+  whatsapp_group_id: string;
+
+  /** Whether every post also fans out to WhatsApp. */
+  @Column({ default: false })
+  publish_whatsapp: boolean;
+
   // Amazon Associates (PA-API)
   @Column({ nullable: true })
   amazon_access_key: string;

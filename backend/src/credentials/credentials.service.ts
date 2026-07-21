@@ -39,6 +39,15 @@ export interface DecryptedCredentials {
   pinterest_access_token?: string;
   pinterest_board_id?: string;
   publish_pinterest?: boolean;
+  // WhatsApp (official Cloud API or Green API — the latter can post to groups)
+  whatsapp_phone_number_id?: string;
+  whatsapp_access_token?: string;
+  whatsapp_provider?: string;
+  green_api_url?: string;
+  green_api_instance_id?: string;
+  green_api_token?: string;
+  whatsapp_group_id?: string;
+  publish_whatsapp?: boolean;
   make_webhook_url?: string;
   publish_via_make?: boolean;
   image_enhance_enabled?: boolean;
@@ -172,6 +181,12 @@ export class CredentialsService {
     // Scaffolded integrations — non-secret ids (direct) + secret tokens (encrypted).
     if (dto.whatsapp_phone_number_id?.trim()) cred.whatsapp_phone_number_id = dto.whatsapp_phone_number_id.trim();
     if (dto.whatsapp_access_token?.trim())    cred.whatsapp_access_token_enc = encrypt(dto.whatsapp_access_token.trim());
+    if (dto.whatsapp_provider?.trim())        cred.whatsapp_provider = dto.whatsapp_provider.trim();
+    if (dto.green_api_url?.trim())            cred.green_api_url = dto.green_api_url.trim();
+    if (dto.green_api_instance_id?.trim())    cred.green_api_instance_id = dto.green_api_instance_id.trim();
+    if (dto.green_api_token?.trim())          cred.green_api_token_enc = encrypt(dto.green_api_token.trim());
+    if (dto.whatsapp_group_id?.trim())        cred.whatsapp_group_id = dto.whatsapp_group_id.trim();
+    if (dto.publish_whatsapp !== undefined)   cred.publish_whatsapp = dto.publish_whatsapp;
     if (dto.amazon_access_key?.trim())        cred.amazon_access_key = dto.amazon_access_key.trim();
     if (dto.amazon_secret_key?.trim())        cred.amazon_secret_key_enc = encrypt(dto.amazon_secret_key.trim());
     if (dto.amazon_partner_tag?.trim())       cred.amazon_partner_tag = dto.amazon_partner_tag.trim();
@@ -363,6 +378,14 @@ export class CredentialsService {
       pinterest_access_token: decrypt(cred.pinterest_access_token_enc),
       pinterest_board_id: cred.pinterest_board_id,
       publish_pinterest: cred.publish_pinterest,
+      whatsapp_phone_number_id: cred.whatsapp_phone_number_id,
+      whatsapp_access_token: decrypt(cred.whatsapp_access_token_enc),
+      whatsapp_provider: cred.whatsapp_provider,
+      green_api_url: cred.green_api_url,
+      green_api_instance_id: cred.green_api_instance_id,
+      green_api_token: decrypt(cred.green_api_token_enc),
+      whatsapp_group_id: cred.whatsapp_group_id,
+      publish_whatsapp: cred.publish_whatsapp,
       make_webhook_url: cred.make_webhook_url,
       publish_via_make: cred.publish_via_make,
       image_enhance_enabled: cred.image_enhance_enabled,
@@ -486,6 +509,12 @@ export class CredentialsService {
       // Scaffolded integrations (ids direct, secrets masked)
       whatsapp_phone_number_id: cred.whatsapp_phone_number_id || '',
       whatsapp_access_token: cred.whatsapp_access_token_enc ? mask(decrypt(cred.whatsapp_access_token_enc)) : '',
+      whatsapp_provider: cred.whatsapp_provider || 'green',
+      green_api_url: cred.green_api_url || '',
+      green_api_instance_id: cred.green_api_instance_id || '',
+      green_api_token: cred.green_api_token_enc ? mask(decrypt(cred.green_api_token_enc)) : '',
+      whatsapp_group_id: cred.whatsapp_group_id || '',
+      publish_whatsapp: cred.publish_whatsapp ?? false,
       amazon_access_key: cred.amazon_access_key || '',
       amazon_secret_key: cred.amazon_secret_key_enc ? mask(decrypt(cred.amazon_secret_key_enc)) : '',
       amazon_partner_tag: cred.amazon_partner_tag || '',

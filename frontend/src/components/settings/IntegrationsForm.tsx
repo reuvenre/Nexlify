@@ -44,6 +44,15 @@ export function IntegrationsForm() {
   // Scaffolded integrations (credentials stored; activation pending external accounts)
   const [waPhoneId, setWaPhoneId] = useState('');
   const [waToken, setWaToken] = useState('');
+  const [waProvider, setWaProvider] = useState('green');
+  const [greenUrl, setGreenUrl] = useState('');
+  const [greenInstance, setGreenInstance] = useState('');
+  const [greenToken, setGreenToken] = useState('');
+  const [waGroupId, setWaGroupId] = useState('');
+  const [pubWhatsapp, setPubWhatsapp] = useState(false);
+  const [whatsappOk, setWhatsappOk] = useState<boolean | null>(null);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [testingWa, setTestingWa] = useState(false);
   const [pinBoardId, setPinBoardId] = useState('');
   const [pinToken, setPinToken] = useState('');
   const [pubPinterest, setPubPinterest] = useState(false);
@@ -74,6 +83,11 @@ export function IntegrationsForm() {
         setMakeUrl(c.make_webhook_url || '');
         setPubViaMake(c.publish_via_make ?? false);
         setWaPhoneId(c.whatsapp_phone_number_id || '');
+        setWaProvider(c.whatsapp_provider || 'green');
+        setGreenUrl(c.green_api_url || '');
+        setGreenInstance(c.green_api_instance_id || '');
+        setWaGroupId(c.whatsapp_group_id || '');
+        setPubWhatsapp(c.publish_whatsapp ?? false);
         setPinBoardId(c.pinterest_board_id || '');
         setPubPinterest(c.publish_pinterest ?? false);
         setAmzAccess(c.amazon_access_key || '');
@@ -109,6 +123,12 @@ export function IntegrationsForm() {
         publish_via_make: pubViaMake,
         whatsapp_phone_number_id: waPhoneId,
         whatsapp_access_token: waToken,
+        whatsapp_provider: waProvider,
+        green_api_url: greenUrl,
+        green_api_instance_id: greenInstance,
+        green_api_token: greenToken,
+        whatsapp_group_id: waGroupId,
+        publish_whatsapp: pubWhatsapp,
         pinterest_board_id: pinBoardId,
         pinterest_access_token: pinToken,
         publish_pinterest: pubPinterest,
@@ -116,7 +136,7 @@ export function IntegrationsForm() {
         amazon_secret_key: amzSecret,
         amazon_partner_tag: amzPartner,
       });
-      setWaToken(''); setPinToken(''); setAmzSecret('');
+      setWaToken(''); setPinToken(''); setAmzSecret(''); setGreenToken('');
       setSaved(true);
       setBotToken('');
       setFbToken('');
@@ -201,6 +221,23 @@ export function IntegrationsForm() {
     }
   };
 
+  const handleTestWhatsApp = async () => {
+    setTestingWa(true);
+    try {
+      // Persist freshly-typed WhatsApp/Green settings first so the test checks the saved state.
+      if (greenToken.trim() || greenInstance.trim() || waGroupId.trim() || waToken.trim()) await handleSave();
+      const res = await channelsApi.testWhatsApp();
+      setWhatsappOk(res.ok);
+      setWhatsappError(res.ok ? null : res.error || 'הבדיקה נכשלה.');
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setWhatsappOk(false);
+      setWhatsappError(err?.response?.data?.message || 'הבדיקה נכשלה.');
+    } finally {
+      setTestingWa(false);
+    }
+  };
+
   const handleDeleteChannel = async (id: string) => {
     if (!confirm('למחוק את הערוץ?')) return;
     await channelsApi.delete(id).catch(() => {});
@@ -263,30 +300,90 @@ export function IntegrationsForm() {
         </div>
       </section>
 
-      {/* WhatsApp Business — credentials stored; activation pending a WhatsApp Business
-          Account + Meta-approved message templates. */}
+      {/* WhatsApp — Green API (posts to GROUPS) or the official Cloud API (direct messages). */}
       <section className="bg-surface-secondary border border-edge rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <span className="text-lg">💬</span> WhatsApp Business
-          </h3>
-          <span className="text-2xs bg-blue-500/15 text-blue-300 border border-blue-500/25 rounded-full px-2.5 py-0.5 font-medium">דרוש חשבון WhatsApp Business</span>
-        </div>
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-1">
+          <span className="text-lg">💬</span> WhatsApp
+          {whatsappOk === true && <CheckCircle2 size={14} className="text-emerald-400" />}
+          {whatsappOk === false && <XCircle size={14} className="text-red-400" />}
+        </h3>
         <p className="text-xs text-white/35 mb-4">
-          שמור כאן את פרטי WhatsApp Cloud API. הפרסום יופעל לאחר שיהיה לך WhatsApp Business Account עם תבניות הודעה מאושרות ע&quot;י Meta.
+          פרסום מוצרים לוואטסאפ. <span className="text-white/60">Green API</span> יכול לפרסם ל<span className="text-white/60">קבוצה</span> (מומלץ); ה-API הרשמי של Meta שולח הודעות ישירות בלבד (לא לקבוצות).
         </p>
-        <div className="grid grid-cols-1 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5">Phone Number ID</label>
-            <input value={waPhoneId} onChange={(e) => setWaPhoneId(e.target.value)} placeholder="1050000000000000" dir="ltr"
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-white/50 mb-1.5">Access Token</label>
-            <input value={waToken} onChange={(e) => setWaToken(e.target.value)} type="password" placeholder="EAAG..." dir="ltr"
-              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
-          </div>
+
+        {/* Provider toggle */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {([
+            { key: 'green', label: 'Green API', desc: 'פרסום לקבוצה' },
+            { key: 'official', label: 'Meta רשמי', desc: 'הודעה ישירה' },
+          ] as const).map((opt) => (
+            <button key={opt.key} type="button" onClick={() => setWaProvider(opt.key)}
+              className={`p-2.5 rounded-lg border text-right transition-all ${waProvider === opt.key ? 'bg-blue-600/20 border-blue-500/50' : 'bg-white/5 border-edge hover:bg-white/10'}`}>
+              <p className={`text-sm font-medium ${waProvider === opt.key ? 'text-blue-200' : 'text-white/70'}`}>{opt.label}</p>
+              <p className="text-2xs text-white/35 mt-0.5">{opt.desc}</p>
+            </button>
+          ))}
         </div>
+
+        {waProvider === 'green' ? (
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">ID Instance</label>
+              <input value={greenInstance} onChange={(e) => setGreenInstance(e.target.value)} placeholder="1101000001" dir="ltr"
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">API Token Instance</label>
+              <input value={greenToken} onChange={(e) => setGreenToken(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">מזהה קבוצת יעד (Group ID)</label>
+              <input value={waGroupId} onChange={(e) => setWaGroupId(e.target.value)} placeholder="120363XXXXXXXXXXXX@g.us" dir="ltr"
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+              <p className="text-2xs text-white/30 mt-1.5">מזהה הקבוצה מקונסולת Green API (או השדה getChatId). ניתן להדביק עם או בלי הסיומת <span dir="ltr">@g.us</span>.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">API URL (אופציונלי)</label>
+              <input value={greenUrl} onChange={(e) => setGreenUrl(e.target.value)} placeholder="https://api.green-api.com" dir="ltr"
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+              <p className="text-2xs text-white/30 mt-1.5">ריק = ברירת המחדל. אם ה-instance שלך משתמש בכתובת אחרת (למשל <span dir="ltr">https://7105.api.greenapi.com</span>) — הדבק אותה כאן.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">Phone Number ID</label>
+              <input value={waPhoneId} onChange={(e) => setWaPhoneId(e.target.value)} placeholder="1050000000000000" dir="ltr"
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">Access Token</label>
+              <input value={waToken} onChange={(e) => setWaToken(e.target.value)} type="password" placeholder="EAAG..." dir="ltr"
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">מספר יעד (Recipient)</label>
+              <input value={waGroupId} onChange={(e) => setWaGroupId(e.target.value)} placeholder="972500000000" dir="ltr"
+                className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+              <p className="text-2xs text-white/30 mt-1.5">ה-API הרשמי שולח למספר בודד (שפנה לעסק ב-24 השעות האחרונות / דרך תבנית מאושרת). אין תמיכה בקבוצות.</p>
+            </div>
+          </div>
+        )}
+
+        <label className="flex items-center gap-2.5 mt-4 cursor-pointer select-none">
+          <input type="checkbox" checked={pubWhatsapp} onChange={(e) => setPubWhatsapp(e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
+          <span className="text-sm text-white/80">פרסם כל פוסט גם לוואטסאפ</span>
+        </label>
+
+        {whatsappError && <p className="text-2xs text-red-400 mt-3">⚠️ {whatsappError}</p>}
+        {whatsappOk === true && <p className="text-2xs text-emerald-400 mt-3">✅ החיבור תקין — מוכן לפרסום.</p>}
+
+        <button type="button" onClick={handleTestWhatsApp} disabled={testingWa}
+          className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-white/5 border border-edge-hover text-white/80 hover:bg-white/10 disabled:opacity-50 transition-colors">
+          {testingWa ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+          בדוק תקינות וואטסאפ
+        </button>
       </section>
 
       {/* Pinterest — live. Pins carry a real clickable affiliate link (unlike Instagram). */}

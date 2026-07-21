@@ -1392,6 +1392,12 @@ export class PostsService {
         .then(() => { anySuccess = true; })
         .catch((err: any) => { errors.push(`Pinterest: ${err?.response?.data?.message || err?.response?.data?.error?.message || err.message}`); }));
     }
+    if (want.has('whatsapp')) {
+      const body = await this.buildPostBody(post, creds, targetList[0]);
+      tasks.push(this.sendToWhatsApp(post, creds, body)
+        .then(() => { anySuccess = true; })
+        .catch((err: any) => { errors.push(`WhatsApp: ${err?.response?.data?.error?.message || err?.response?.data?.message || err.message}`); }));
+    }
     await Promise.all(tasks);
 
     // Merge into the existing error_message: drop old lines for the platforms we just
@@ -1401,6 +1407,7 @@ export class PostsService {
     if (want.has('facebook')) attemptedTokens.push('Facebook', 'Make');
     if (want.has('instagram')) attemptedTokens.push('Instagram');
     if (want.has('pinterest')) attemptedTokens.push('Pinterest');
+    if (want.has('whatsapp')) attemptedTokens.push('WhatsApp');
     const kept = (post.error_message || '').split('|').map((s) => s.trim()).filter(Boolean)
       .filter((line) => !attemptedTokens.some((tok) => new RegExp(`^${tok}:`, 'i').test(line)));
     const merged = [...kept, ...errors].filter(Boolean);
@@ -1430,6 +1437,7 @@ export class PostsService {
     post.facebook_post_id = null;
     post.instagram_post_id = null;
     post.pinterest_post_id = null;
+    post.whatsapp_message_id = null;
 
     if (scheduledAt) {
       post.status = 'scheduled';
@@ -1546,10 +1554,11 @@ export class PostsService {
     const wantFacebook = creds?.publish_facebook === true;
     const wantInstagram = creds?.publish_instagram === true;
     const wantPinterest = creds?.publish_pinterest === true;
+    const wantWhatsapp = creds?.publish_whatsapp === true;
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
-    if (!wantTelegram && !wantFacebook && !wantInstagram && !wantPinterest && !makeRelay) {
+    if (!wantTelegram && !wantFacebook && !wantInstagram && !wantPinterest && !wantWhatsapp && !makeRelay) {
       post.status = 'failed';
       post.error_message = 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
       await this.repo.save(post);
@@ -1657,6 +1666,16 @@ export class PostsService {
         this.sendToPinterest(post, creds, body)
           .then(() => { anySuccess = true; })
           .catch((err: any) => { errors.push(`Pinterest: ${err?.response?.data?.message || err?.response?.data?.error?.message || err.message}`); }),
+      );
+    }
+
+    // WhatsApp: a single target group (Green API) — no per-Telegram-group fan-out.
+    if (wantWhatsapp) {
+      const body = await this.buildPostBody(post, creds, targets[0]);
+      tasks.push(
+        this.sendToWhatsApp(post, creds, body)
+          .then(() => { anySuccess = true; })
+          .catch((err: any) => { errors.push(`WhatsApp: ${err?.response?.data?.error?.message || err?.response?.data?.message || err.message}`); }),
       );
     }
 
@@ -2056,6 +2075,70 @@ export class PostsService {
       throw new Error(res.data?.message || res.data?.error?.message || 'Pinterest publish failed');
     }
     post.pinterest_post_id = res.data.id;
+  }
+
+  /** Normalize a WhatsApp target into a chatId. A value already carrying '@' is used as-is;
+   *  a bare id is treated as a GROUP (…@g.us) — the intended publishing target. */
+  private normalizeWaChatId(v: string): string {
+    const s = (v || '').trim();
+    if (!s) return '';
+    if (s.includes('@')) return s;
+    return `${s.replace(/\D/g, '')}@g.us`;
+  }
+
+  /**
+   * Publishes the post to WhatsApp. The 'green' provider (Green API) CAN post to a GROUP
+   * (chatId …@g.us) — unlike the official Cloud API, which only sends direct messages to a
+   * number that messaged the business (and needs approved templates for the first contact).
+   * Sends the product image + caption; falls back to a text message when there's no image.
+   */
+  private async sendToWhatsApp(post: Post, creds: DecryptedCredentials, message: string) {
+    const caption = message.replace(/<\/?[^>]+>/g, ''); // WhatsApp renders plain text (links are clickable)
+    const provider = creds?.whatsapp_provider || 'green';
+
+    let image = post.product_image || '';
+    try {
+      const g = post.gallery_json ? JSON.parse(post.gallery_json) : [];
+      if (Array.isArray(g) && g[0]) image = g[0];
+    } catch { /* ignore */ }
+
+    if (provider === 'green') {
+      const instance = creds?.green_api_instance_id;
+      const token = creds?.green_api_token;
+      const chat = this.normalizeWaChatId(creds?.whatsapp_group_id || '');
+      if (!instance || !token || !chat) throw new Error('חסרים פרטי Green API (instance / token / מזהה קבוצה)');
+      const base = (creds?.green_api_url || 'https://api.green-api.com').replace(/\/$/, '');
+
+      if (image) {
+        const res = await axios.post(
+          `${base}/waInstance${instance}/sendFileByUrl/${token}`,
+          { chatId: chat, urlFile: image, fileName: 'product.jpg', caption },
+          { timeout: 20000 },
+        );
+        post.whatsapp_message_id = res.data?.idMessage || null;
+      } else {
+        const res = await axios.post(
+          `${base}/waInstance${instance}/sendMessage/${token}`,
+          { chatId: chat, message: caption },
+          { timeout: 15000 },
+        );
+        post.whatsapp_message_id = res.data?.idMessage || null;
+      }
+      return;
+    }
+
+    // Official WhatsApp Cloud API — direct message to a recipient number (no group support).
+    const phoneId = creds?.whatsapp_phone_number_id;
+    const token = creds?.whatsapp_access_token;
+    const to = (creds?.whatsapp_group_id || '').replace(/\D/g, '');
+    if (!phoneId || !token || !to) throw new Error('חסרים פרטי WhatsApp Cloud API (Phone Number ID / Token / מספר יעד)');
+    const res = await axios.post(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${phoneId}/messages`,
+      { messaging_product: 'whatsapp', to, type: 'text', text: { body: caption } },
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 },
+    );
+    if (res.data?.error) throw new Error(res.data.error.message);
+    post.whatsapp_message_id = res.data?.messages?.[0]?.id || null;
   }
 
   /**

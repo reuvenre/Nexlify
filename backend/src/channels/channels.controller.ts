@@ -57,4 +57,11 @@ export class ChannelsController {
   testPinterest(@Req() req: any) {
     return this.service.testPinterest(req.user.id);
   }
+
+  /** Verify the account's WhatsApp setup (Green API instance authorized / Cloud API token). */
+  @Post('test-whatsapp')
+  @HttpCode(200)
+  testWhatsApp(@Req() req: any) {
+    return this.service.testWhatsApp(req.user.id);
+  }
 }

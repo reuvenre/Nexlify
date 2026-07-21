@@ -145,6 +145,12 @@ export interface CredentialSet {
   // Scaffolded integrations (activation pending external accounts)
   whatsapp_phone_number_id: string;
   whatsapp_access_token: string;  // masked
+  whatsapp_provider: string;
+  green_api_url: string;
+  green_api_instance_id: string;
+  green_api_token: string;  // masked
+  whatsapp_group_id: string;
+  publish_whatsapp: boolean;
   amazon_access_key: string;
   amazon_secret_key: string;      // masked
   amazon_partner_tag: string;
@@ -208,6 +214,12 @@ export interface CredentialSetInput {
   // Scaffolded integrations
   whatsapp_phone_number_id?: string;
   whatsapp_access_token?: string;
+  whatsapp_provider?: string;
+  green_api_url?: string;
+  green_api_instance_id?: string;
+  green_api_token?: string;
+  whatsapp_group_id?: string;
+  publish_whatsapp?: boolean;
   amazon_access_key?: string;
   amazon_secret_key?: string;
   amazon_partner_tag?: string;

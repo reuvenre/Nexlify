@@ -508,6 +508,10 @@ export const channelsApi = {
   /** Verify the account's Pinterest access token + target board (account-global). */
   testPinterest: () =>
     http.post<{ ok: boolean; error?: string; board_name?: string }>(`/channels/test-pinterest`).then(extract),
+
+  /** Verify the account's WhatsApp setup (Green API authorized / Cloud API token). */
+  testWhatsApp: () =>
+    http.post<{ ok: boolean; error?: string; state?: string }>(`/channels/test-whatsapp`).then(extract),
 };
 
 // ─── Amazon (PA-API) ─────────────────────────────────────────────────────────
