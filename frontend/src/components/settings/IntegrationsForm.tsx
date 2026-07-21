@@ -155,6 +155,9 @@ export function IntegrationsForm() {
       const res = await channelsApi.testInstagram();
       setInstagramOk(res.ok);
       setInstagramError(res.ok ? null : res.error || 'הבדיקה נכשלה.');
+      // The test can auto-discover the correct IG id linked to the page — pre-fill it so the
+      // user only has to press Save (the error text already tells them what happened).
+      if (!res.ok && res.suggested_id) setIgBusinessId(res.suggested_id);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
       setInstagramOk(false);

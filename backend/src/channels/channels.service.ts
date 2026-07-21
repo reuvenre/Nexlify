@@ -208,6 +208,7 @@ export class ChannelsService {
     if (!token) {
       return { ok: false, error: 'לא הוגדר Page Access Token של פייסבוק (אינסטגרם משתמש בטוקן של הדף המקושר).' };
     }
+    const pageId = (creds?.facebook_page_id || '').trim();
     try {
       // Ask for the IG account's own fields. This only resolves when the token belongs to
       // the Facebook Page that the IG Business account is linked to — exactly what publish needs.
@@ -216,12 +217,28 @@ export class ChannelsService {
         { params: { fields: 'username,name,profile_picture_url', access_token: token }, timeout: 6000, validateStatus: () => true },
       );
       if (res.data?.error) {
+        // The entered ID didn't resolve. Try to DISCOVER the IG account actually linked to the
+        // page whose token was entered — this turns a vague "does not exist" into an exact answer:
+        // wrong ID (here's the right one), missing permission, or no IG linked to the page.
+        const linked = await this.discoverLinkedIg(pageId, token).catch(() => null);
+        if (linked && linked.id !== igId) {
+          return {
+            ok: false,
+            error: `ה-ID שהוזן (${igId}) אינו נגיש, אבל מצאתי שחשבון האינסטגרם המקושר לדף הוא @${linked.username || ''} עם המזהה ${linked.id}. הזן את המזהה הזה בשדה ושמור.`,
+            suggested_id: linked.id,
+            suggested_username: linked.username || null,
+          };
+        }
+        if (linked && linked.id === igId) {
+          return { ok: false, error: 'ה-ID נכון והחשבון מקושר לדף, אך לטוקן חסרה הרשאה. צור מחדש Page Access Token עם ההרשאות instagram_basic ו-instagram_content_publish (וגם pages_manage_posts).' };
+        }
+        // Couldn't discover a linked IG account on the page.
         const msg = res.data.error.message || 'unknown error';
         return {
           ok: false,
-          error: /nonexisting|does not exist|Unsupported|cannot be loaded|Object with ID/i.test(msg)
-            ? `${msg} — ודא שה-ID הוא ה-Instagram Business Account ID (מ-Meta Business Suite ← הגדרות ← חשבונות Instagram), ושחשבון האינסטגרם מקושר לדף הפייסבוק שהטוקן שלו הוזן.`
-            : msg,
+          error: pageId
+            ? `לא נמצא חשבון Instagram מקושר לדף הפייסבוק (${pageId}). קשר את חשבון האינסטגרם העסקי לדף ב-Meta Business Suite ← הגדרות ← חשבונות מקושרים, ואז נסה שוב. (שגיאת Graph: ${msg})`
+            : `${msg} — ודא שה-ID הוא ה-Instagram Business Account ID, ושחשבון האינסטגרם מקושר לדף שהטוקן שלו הוזן. הגדר גם Page ID בקטע פייסבוק כדי שאוכל לזהות אוטומטית את המזהה הנכון.`,
         };
       }
       if (!res.data?.username) {
@@ -231,6 +248,17 @@ export class ChannelsService {
     } catch (err: any) {
       return { ok: false, error: err?.response?.data?.error?.message || err?.message || 'הבדיקה נכשלה.' };
     }
+  }
+
+  /** Discover the IG Business account linked to a Facebook Page (via its token), or null. */
+  private async discoverLinkedIg(pageId: string, token: string): Promise<{ id: string; username?: string } | null> {
+    if (!pageId || !token) return null;
+    const res = await axios.get(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}`,
+      { params: { fields: 'instagram_business_account{id,username}', access_token: token }, timeout: 6000, validateStatus: () => true },
+    );
+    const iba = res.data?.instagram_business_account;
+    return iba?.id ? { id: String(iba.id), username: iba.username } : null;
   }
 
   /**
