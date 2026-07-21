@@ -38,7 +38,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
     features: [
       { label: 'גילוי מוצרים AI' },
       { label: 'סוכני AI לניהול הטייס האוטומטי' },
-      { label: 'אינטגרציית אמזון', soon: true },
+      { label: 'אינטגרציית אמזון' },
     ],
   },
   scale: {
@@ -61,7 +61,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'וואטסאפ', soon: true },
       { label: 'אינסטגרם' },
       { label: 'משפר תמונות AI' },
-      { label: 'אינטגרציית אמזון', soon: true },
+      { label: 'אינטגרציית אמזון' },
       { label: 'פינטרסט' },
     ],
   },

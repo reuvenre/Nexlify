@@ -506,6 +506,14 @@ export const channelsApi = {
     http.post<{ ok: boolean; error?: string; board_name?: string }>(`/channels/test-pinterest`).then(extract),
 };
 
+// ─── Amazon (PA-API) ─────────────────────────────────────────────────────────
+
+export const amazonApi = {
+  /** Verify the account's Amazon PA-API credentials with a minimal live SearchItems call. */
+  test: () =>
+    http.post<{ ok: boolean; error?: string; sample?: string; count?: number }>(`/amazon/test`).then(extract),
+};
+
 // ─── Templates API ──────────────────────────────────────────────────────────
 
 export const templatesApi = {

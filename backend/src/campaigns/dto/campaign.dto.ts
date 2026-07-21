@@ -6,7 +6,7 @@ export class CampaignDto {
 
   /** 'aliexpress' (keyword search) or 'flylink' (rotate linked supplier catalog). */
   @IsOptional()
-  @IsIn(['aliexpress', 'flylink'])
+  @IsIn(['aliexpress', 'flylink', 'amazon'])
   source?: string;
 
   // Optional: a FLYLINK campaign has no keywords. The per-source requirement (AliExpress

@@ -397,6 +397,16 @@ export class CredentialsService {
     return { phoneNumberId, token };
   }
 
+  /** Amazon PA-API credentials (secret decrypted), or null when not fully configured. */
+  async getAmazon(userId: string): Promise<{ accessKey: string; secretKey: string; partnerTag: string } | null> {
+    const cred = await this.repo.findOne({ where: { user_id: userId } });
+    const accessKey = cred?.amazon_access_key?.trim();
+    const partnerTag = cred?.amazon_partner_tag?.trim();
+    const secretKey = cred?.amazon_secret_key_enc ? decrypt(cred.amazon_secret_key_enc) : '';
+    if (!accessKey || !secretKey || !partnerTag) return null;
+    return { accessKey, secretKey, partnerTag };
+  }
+
   /** The user's default Telegram bot token (decrypted) — used as a broadcast fallback. */
   async getTelegramToken(userId: string): Promise<string | null> {
     const cred = await this.repo.findOne({ where: { user_id: userId } });

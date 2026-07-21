@@ -8,9 +8,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { AgentsModule } from '../agents/agents.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { EarningsModule } from '../earnings/earnings.module';
+import { AmazonModule } from '../amazon/amazon.module';
 
 @Module({
-  imports: [CampaignsModule, PostsModule, CredentialsModule, ChannelsModule, NotificationsModule, AgentsModule, SuppliersModule, EarningsModule],
+  imports: [CampaignsModule, PostsModule, CredentialsModule, ChannelsModule, NotificationsModule, AgentsModule, SuppliersModule, EarningsModule, AmazonModule],
   providers: [CampaignSchedulerService],
 })
 export class SchedulerModule {}

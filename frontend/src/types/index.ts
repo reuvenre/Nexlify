@@ -310,7 +310,7 @@ export interface ValidateResult {
 
 export type CampaignStatus = 'active' | 'paused' | 'draft' | 'error';
 
-export type CampaignSource = 'aliexpress' | 'flylink';
+export type CampaignSource = 'aliexpress' | 'flylink' | 'amazon';
 
 export interface Campaign {
   id: string;

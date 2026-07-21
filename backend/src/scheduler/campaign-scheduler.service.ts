@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { OrchestratorAgent } from '../agents/orchestrator.agent';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
 import { EarningsService } from '../earnings/earnings.service';
+import { AmazonService } from '../amazon/amazon.service';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -29,6 +30,7 @@ export class CampaignSchedulerService {
     @Optional() private readonly orchestrator: OrchestratorAgent,
     @Optional() private readonly supplierProducts: SupplierProductsService,
     @Optional() private readonly earnings: EarningsService,
+    @Optional() private readonly amazon: AmazonService,
   ) {}
 
   /**
@@ -287,6 +289,9 @@ export class CampaignSchedulerService {
       const runOnce = (): Promise<unknown> => {
         if (campaign.source === 'flylink' && this.supplierProducts) {
           return this.supplierProducts.runFlylinkCampaign(campaign, campaign.user_id, { fromScheduler: true });
+        }
+        if (campaign.source === 'amazon' && this.amazon) {
+          return this.amazon.runAmazonCampaign(campaign, campaign.user_id, { fromScheduler: true });
         }
         if (useAgents) return this.orchestrator.run(campaign, campaign.user_id);
         // fromScheduler: skip runs outside the send window so overnight runs don't pile up.

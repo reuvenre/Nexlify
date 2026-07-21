@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CampaignsService } from './campaigns.service';
 import { PostsService } from '../posts/posts.service';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
+import { AmazonService } from '../amazon/amazon.service';
 import { CampaignDto } from './dto/campaign.dto';
 
 @Controller('campaigns')
@@ -16,6 +17,7 @@ export class CampaignsController {
     private readonly svc: CampaignsService,
     private readonly posts: PostsService,
     private readonly suppliers: SupplierProductsService,
+    private readonly amazon: AmazonService,
   ) {}
 
   private uid(req: Request) { return (req.user as any).id; }
@@ -73,10 +75,11 @@ export class CampaignsController {
   @HttpCode(200)
   async runNow(@Req() req: Request, @Param('id') id: string) {
     const campaign = await this.svc.get(this.uid(req), id);
-    // FLYLINK campaigns rotate the linked supplier catalog; AliExpress ones keyword-search.
-    return campaign.source === 'flylink'
-      ? this.suppliers.runFlylinkCampaign(campaign, this.uid(req))
-      : this.posts.runCampaign(campaign, this.uid(req));
+    // FLYLINK rotates the linked supplier catalog; Amazon keyword-searches PA-API; AliExpress
+    // keyword-searches the affiliate API.
+    if (campaign.source === 'flylink') return this.suppliers.runFlylinkCampaign(campaign, this.uid(req));
+    if (campaign.source === 'amazon') return this.amazon.runAmazonCampaign(campaign, this.uid(req));
+    return this.posts.runCampaign(campaign, this.uid(req));
   }
 
   @Get(':id/posts')

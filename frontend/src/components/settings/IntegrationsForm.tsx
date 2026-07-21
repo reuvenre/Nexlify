@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, CheckCircle2, XCircle, Loader2, Save, Plus, Trash2 } from 'lucide-react';
-import { credentialsApi, channelsApi } from '@/lib/api-client';
+import { credentialsApi, channelsApi, amazonApi } from '@/lib/api-client';
 import type { Channel } from '@/types';
 
 export function IntegrationsForm() {
@@ -50,6 +50,12 @@ export function IntegrationsForm() {
   const [pinterestOk, setPinterestOk] = useState<boolean | null>(null);
   const [pinterestError, setPinterestError] = useState<string | null>(null);
   const [testingPin, setTestingPin] = useState(false);
+  const [amzAccess, setAmzAccess] = useState('');
+  const [amzSecret, setAmzSecret] = useState('');
+  const [amzPartner, setAmzPartner] = useState('');
+  const [amazonOk, setAmazonOk] = useState<boolean | null>(null);
+  const [amazonError, setAmazonError] = useState<string | null>(null);
+  const [testingAmz, setTestingAmz] = useState(false);
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loadingChannels, setLoadingChannels] = useState(true);
@@ -70,6 +76,8 @@ export function IntegrationsForm() {
         setWaPhoneId(c.whatsapp_phone_number_id || '');
         setPinBoardId(c.pinterest_board_id || '');
         setPubPinterest(c.publish_pinterest ?? false);
+        setAmzAccess(c.amazon_access_key || '');
+        setAmzPartner(c.amazon_partner_tag || '');
       })
       .catch(() => {});
 
@@ -104,8 +112,11 @@ export function IntegrationsForm() {
         pinterest_board_id: pinBoardId,
         pinterest_access_token: pinToken,
         publish_pinterest: pubPinterest,
+        amazon_access_key: amzAccess,
+        amazon_secret_key: amzSecret,
+        amazon_partner_tag: amzPartner,
       });
-      setWaToken(''); setPinToken('');
+      setWaToken(''); setPinToken(''); setAmzSecret('');
       setSaved(true);
       setBotToken('');
       setFbToken('');
@@ -167,6 +178,23 @@ export function IntegrationsForm() {
       setPinterestError(err?.response?.data?.message || 'הבדיקה נכשלה.');
     } finally {
       setTestingPin(false);
+    }
+  };
+
+  const handleTestAmazon = async () => {
+    setTestingAmz(true);
+    try {
+      // Persist freshly-typed Amazon keys first so the live test checks the saved state.
+      if (amzAccess.trim() || amzSecret.trim() || amzPartner.trim()) await handleSave();
+      const res = await amazonApi.test();
+      setAmazonOk(res.ok);
+      setAmazonError(res.ok ? null : res.error || 'הבדיקה נכשלה.');
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setAmazonOk(false);
+      setAmazonError(err?.response?.data?.message || 'הבדיקה נכשלה.');
+    } finally {
+      setTestingAmz(false);
     }
   };
 
@@ -298,6 +326,48 @@ export function IntegrationsForm() {
         >
           {testingPin ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
           בדוק תקינות פינטרסט
+        </button>
+      </section>
+
+      {/* Amazon (PA-API) — product SOURCE: the autopilot can search Amazon by keyword. */}
+      <section className="bg-surface-secondary border border-edge rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-1">
+          <span className="text-lg">🛒</span> Amazon
+          {amazonOk === true && <CheckCircle2 size={14} className="text-emerald-400" />}
+          {amazonOk === false && <XCircle size={14} className="text-red-400" />}
+        </h3>
+        <p className="text-xs text-white/35 mb-4">
+          מקור מוצרים נוסף לטייס האוטומטי — חיפוש מוצרי אמזון לפי מילות מפתח (Product Advertising API). דרוש חשבון <span dir="ltr">Amazon Associates</span> מאושר עם גישת PA-API. צור טייס אוטומטי עם מקור &quot;Amazon&quot;.
+        </p>
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">Access Key</label>
+            <input value={amzAccess} onChange={(e) => setAmzAccess(e.target.value)} placeholder="AKIA..." dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">Secret Key</label>
+            <input value={amzSecret} onChange={(e) => setAmzSecret(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">Partner Tag (Associate Tag)</label>
+            <input value={amzPartner} onChange={(e) => setAmzPartner(e.target.value)} placeholder="mytag-20" dir="ltr"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
+          </div>
+        </div>
+
+        {amazonError && <p className="text-2xs text-red-400 mt-3">⚠️ {amazonError}</p>}
+        {amazonOk === true && <p className="text-2xs text-emerald-400 mt-3">✅ החיבור ל-Amazon PA-API תקין — מוכן לחיפוש מוצרים.</p>}
+
+        <button
+          type="button"
+          onClick={handleTestAmazon}
+          disabled={testingAmz}
+          className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-white/5 border border-edge-hover text-white/80 hover:bg-white/10 disabled:opacity-50 transition-colors"
+        >
+          {testingAmz ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+          בדוק תקינות אמזון
         </button>
       </section>
 

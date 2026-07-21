@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Plus, X, Loader2, Save, Search, Package } from 'lucide-react';
+import { ArrowRight, Plus, X, Loader2, Save, Search, Package, ShoppingCart } from 'lucide-react';
 import { channelsApi } from '@/lib/api-client';
 import { GroupMultiSelect, type GroupOption } from '@/components/GroupMultiSelect';
 import type { Campaign, CampaignInput, CampaignSource } from '@/types';
@@ -39,6 +39,9 @@ export function CampaignForm({
 
   const source: CampaignSource = form.source ?? 'aliexpress';
   const isFlylink = source === 'flylink';
+  const isAmazon = source === 'amazon';
+  const needsKeywords = !isFlylink;            // AliExpress + Amazon keyword-search
+  const needsGroups = isFlylink || isAmazon;   // FLYLINK + Amazon require a target group
 
   // Groups are only needed to pick FLYLINK targets, but loading them upfront keeps the
   // toggle instant.
@@ -63,12 +66,11 @@ export function CampaignForm({
     e.preventDefault();
     // Each source has its own required input: AliExpress searches keywords, FLYLINK rotates
     // a catalog into chosen groups.
-    if (isFlylink) {
-      if (!form.target_channels?.length) {
-        setError('בחר לפחות קבוצת יעד אחת לפרסום');
-        return;
-      }
-    } else if (form.keywords.length === 0) {
+    if (needsGroups && !form.target_channels?.length) {
+      setError('בחר לפחות קבוצת יעד אחת לפרסום');
+      return;
+    }
+    if (needsKeywords && form.keywords.length === 0) {
       setError('יש להוסיף לפחות מילת מפתח אחת');
       return;
     }
@@ -76,10 +78,14 @@ export function CampaignForm({
     setIsLoading(true);
     try {
       // Send only the fields relevant to the chosen source so a leftover keyword/group from
-      // toggling back and forth doesn't get persisted for the wrong source.
+      // toggling back and forth doesn't get persisted for the wrong source. Amazon is a hybrid:
+      // it keyword-searches (like AliExpress) but publishes to a chosen group (like FLYLINK),
+      // and PA-API exposes no rating/discount, so those filters are dropped.
       const payload: CampaignInput = isFlylink
         ? { ...form, source: 'flylink', keywords: [], min_price: undefined, max_price: undefined, min_discount: undefined }
-        : { ...form, source: 'aliexpress', target_channels: form.target_channels ?? [] };
+        : isAmazon
+          ? { ...form, source: 'amazon', target_channels: form.target_channels ?? [], min_discount: undefined, min_rating: undefined }
+          : { ...form, source: 'aliexpress', target_channels: form.target_channels ?? [] };
       const c = await onSubmit(payload);
       router.push(`/campaigns/${c.id}`);
     } catch (err: unknown) {
@@ -111,12 +117,15 @@ export function CampaignForm({
           <p className="text-2xs text-white/35 mb-4">
             {isFlylink
               ? 'הטייס האוטומטי מסובב את מוצרי FLYLINK שכבר קישרת — אין חיפוש, רק המוצרים שבחרת.'
-              : 'הטייס האוטומטי מחפש מוצרים חדשים ב-AliExpress לפי מילות מפתח.'}
+              : isAmazon
+                ? 'הטייס האוטומטי מחפש מוצרים ב-Amazon לפי מילות מפתח ומפרסם לקבוצה שתבחר. הפין/הפוסט נושא את קישור השותפים שלך.'
+                : 'הטייס האוטומטי מחפש מוצרים חדשים ב-AliExpress לפי מילות מפתח.'}
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {([
               { key: 'aliexpress', label: 'AliExpress', desc: 'חיפוש לפי מילות מפתח', icon: Search },
               { key: 'flylink', label: 'FLYLINK', desc: 'סבב הקטלוג המקושר', icon: Package },
+              { key: 'amazon', label: 'Amazon', desc: 'חיפוש PA-API לפי מילות מפתח', icon: ShoppingCart },
             ] as const).map((opt) => (
               <button
                 key={opt.key}
@@ -174,12 +183,14 @@ export function CampaignForm({
           </div>
         </div>
 
-        {/* FLYLINK: pick which group(s) the rotated products publish to. */}
-        {isFlylink && (
+        {/* FLYLINK / Amazon: pick which group(s) the products publish to. */}
+        {needsGroups && (
           <div className="bg-surface-secondary border border-edge rounded-xl p-5">
             <h2 className="text-sm font-semibold text-white mb-1">קבוצות יעד *</h2>
             <p className="text-2xs text-white/35 mb-4">
-              המוצרים המקושרים יתפרסמו לקבוצות שתבחר, בסגנון הכתיבה של הקבוצה. הטקסט נכתב מחדש ב-AI לכל פוסט.
+              {isAmazon
+                ? 'מוצרי אמזון שיימצאו יתפרסמו לקבוצות שתבחר, בסגנון הכתיבה של הקבוצה.'
+                : 'המוצרים המקושרים יתפרסמו לקבוצות שתבחר, בסגנון הכתיבה של הקבוצה. הטקסט נכתב מחדש ב-AI לכל פוסט.'}
             </p>
             <GroupMultiSelect
               channels={channels}
@@ -273,6 +284,7 @@ export function CampaignForm({
                 className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/60 transition-colors"
               />
             </div>
+            {!isAmazon && (
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">הנחה מינ׳ (%)</label>
               <input
@@ -285,10 +297,16 @@ export function CampaignForm({
                 className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/60 transition-colors"
               />
             </div>
+            )}
           </div>
+          {isAmazon && (
+            <p className="text-2xs text-white/30 mt-3">אמזון (PA-API) תומך בסינון טווח מחירים בלבד — דירוג/הנחה אינם זמינים דרך ה-API.</p>
+          )}
 
           {/* Minimum rating — enforced against each product's AliExpress feedback score.
-              Best-sellers cluster at 4.5–4.9★, so these thresholds actually filter. */}
+              Best-sellers cluster at 4.5–4.9★, so these thresholds actually filter.
+              Hidden for Amazon: PA-API doesn't expose a star rating. */}
+          {!isAmazon && (
           <div className="mt-4">
             <label className="block text-xs font-medium text-white/50 mb-1.5">דירוג מינימלי</label>
             <div className="flex gap-2 flex-wrap">
@@ -318,6 +336,7 @@ export function CampaignForm({
               רק מוצרים בדירוג הזה ומעלה יפורסמו. אם אף מוצר לא עומד בסף, ההרצה תיכשל בהודעה ברורה במקום לפרסם מוצר לא מתאים.
             </p>
           </div>
+          )}
         </div>
         )}
 

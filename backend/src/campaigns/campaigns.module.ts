@@ -5,6 +5,7 @@ import { CampaignsService } from './campaigns.service';
 import { CampaignsController } from './campaigns.controller';
 import { PostsModule } from '../posts/posts.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
+import { AmazonModule } from '../amazon/amazon.module';
 
 @Module({
   imports: [
@@ -13,6 +14,9 @@ import { SuppliersModule } from '../suppliers/suppliers.module';
     // For FLYLINK campaigns, which run through SupplierProductsService. No cycle:
     // SuppliersModule imports PostsModule, not CampaignsModule.
     SuppliersModule,
+    // For Amazon campaigns, which run through AmazonService. No cycle: AmazonModule imports
+    // PostsModule + the Campaign repo, not CampaignsModule.
+    AmazonModule,
   ],
   providers: [CampaignsService],
   controllers: [CampaignsController],
