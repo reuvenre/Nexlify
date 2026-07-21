@@ -14,12 +14,27 @@ const ALI_API = 'https://api-sg.aliexpress.com/sync';
  * status per call, so a full sync loops over all of them (estimated orders that
  * later settle get UPDATED because the settled pass runs after the estimated one).
  */
-const ORDER_STATUSES: { api: string; local: 'estimated' | 'settled' | 'cancelled' }[] = [
-  { api: 'Payment Completed', local: 'estimated' },
-  { api: 'Buyer Confirmed Goods Receipt', local: 'estimated' },
-  { api: 'Completed Settlement', local: 'settled' },
-  { api: 'Invalid', local: 'cancelled' },
+/**
+ * Each status carries how far back to look. This matters: AliExpress only moves a
+ * commission to "Completed Settlement" (the "approved" money the Reports screen sums)
+ * roughly 60+ days AFTER the order — so a 60-day window for that pass would keep missing
+ * settlements right as they mature, and the row would stay 'estimated' forever. The
+ * settled/cancelled passes therefore reach back much further than the estimated ones.
+ * The gateway limits the span PER call, so doSync walks each lookback in ≤30-day chunks.
+ */
+const ORDER_STATUSES: { api: string; local: 'estimated' | 'settled' | 'cancelled'; lookbackDays: number }[] = [
+  { api: 'Payment Completed', local: 'estimated', lookbackDays: 60 },
+  { api: 'Buyer Confirmed Goods Receipt', local: 'estimated', lookbackDays: 90 },
+  { api: 'Completed Settlement', local: 'settled', lookbackDays: 210 },
+  { api: 'Invalid', local: 'cancelled', lookbackDays: 150 },
 ];
+
+/** Max span AliExpress accepts per order.list call — walk longer lookbacks in slices this size. */
+const WINDOW_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Per-status outcome of one sync, returned to the UI so an empty 'settled' is explainable. */
+type StatusDiag = { found: number; new: number; updated: number; error?: string };
 
 /** The API wants 'yyyy-MM-dd HH:mm:ss' (date-only returns code 407 invalid-pattern). */
 function apiTime(d: Date): string {
@@ -162,7 +177,7 @@ export class EarningsService {
    * are integer CENTS of settled_currency; times are 'yyyy-MM-dd HH:mm:ss';
    * the query window is limited, so we fetch the last 60 days per run.
    */
-  async sync(userId: string): Promise<{ synced: number; updated: number }> {
+  async sync(userId: string): Promise<{ synced: number; updated: number; by_status?: Record<string, StatusDiag> }> {
     const creds = await this.credentials.getRaw(userId);
     if (!creds?.aliexpress_app_key || !creds?.aliexpress_app_secret) {
       throw new BadRequestException('מפתחות AliExpress לא מוגדרים — הגדר אותם בהגדרות ← שווקים');
@@ -202,101 +217,120 @@ export class EarningsService {
     return { users: userIds.length, synced, updated };
   }
 
-  private async doSync(userId: string, creds: any): Promise<{ synced: number; updated: number }> {
+  private async doSync(userId: string, creds: any): Promise<{ synced: number; updated: number; by_status: Record<string, StatusDiag> }> {
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     let synced = 0;
     let updated = 0;
-    const errors: string[] = [];
-
-    const end = new Date();
-    const start = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    const now = Date.now();
+    // Per-status diagnostics so "why is 'approved/settled' still 0?" is answerable from
+    // the sync result instead of a black box — did that pass error, or genuinely find none?
+    const byStatus: Record<string, StatusDiag> = {};
 
     for (const st of ORDER_STATUSES) {
-      for (let pageNo = 1; pageNo <= 5; pageNo++) {
-        try {
-          // Pace calls — the gateway bans bursts (>~1 req/sec → ApiCallLimit).
-          await new Promise((r) => setTimeout(r, 1100));
+      const diag: StatusDiag = { found: 0, new: 0, updated: 0 };
+      byStatus[st.api] = diag;
 
-          const signed = signAliexpress({
-            method: 'aliexpress.affiliate.order.list',
-            app_key: creds.aliexpress_app_key,
-            status: st.api,
-            start_time: apiTime(start),
-            end_time: apiTime(end),
-            page_no: pageNo,
-            page_size: 50,
-          }, creds.aliexpress_app_secret);
+      // Walk the lookback in ≤30-day slices (the gateway caps the span per call). Newest
+      // slice first; each slice is [start, end).
+      const chunks = Math.ceil(st.lookbackDays / WINDOW_DAYS);
+      for (let c = 0; c < chunks; c++) {
+        const end = new Date(now - c * WINDOW_DAYS * DAY_MS);
+        const start = new Date(now - Math.min((c + 1) * WINDOW_DAYS, st.lookbackDays) * DAY_MS);
 
-          const res = await axios.get(ALI_API, { params: signed, timeout: 15000 });
-          if (res.data?.error_response) {
-            errors.push(`${st.api}: ${res.data.error_response.msg || res.data.error_response.code}`);
+        for (let pageNo = 1; pageNo <= 5; pageNo++) {
+          try {
+            // Pace calls — the gateway bans bursts (>~1 req/sec → ApiCallLimit).
+            await new Promise((r) => setTimeout(r, 1100));
+
+            const signed = signAliexpress({
+              method: 'aliexpress.affiliate.order.list',
+              app_key: creds.aliexpress_app_key,
+              status: st.api,
+              start_time: apiTime(start),
+              end_time: apiTime(end),
+              page_no: pageNo,
+              page_size: 50,
+            }, creds.aliexpress_app_secret);
+
+            const res = await axios.get(ALI_API, { params: signed, timeout: 15000 });
+            if (res.data?.error_response) {
+              diag.error = res.data.error_response.msg || res.data.error_response.code;
+              break;
+            }
+
+            const result = res.data?.aliexpress_affiliate_order_list_response?.resp_result?.result;
+            const orders: any[] = result?.orders?.order || [];
+            diag.found += orders.length;
+
+            for (const order of orders) {
+              // sub_order_id is the per-item grain (one parent order can hold several
+              // commissionable items) — use it as the unique key.
+              const orderKey = String(order.sub_order_id || order.order_id);
+              const commissionUsd = +(((parseFloat(order.estimated_finished_commission) || parseFloat(order.estimated_paid_commission) || 0) / 100)).toFixed(2);
+              const amountUsd = +(((parseFloat(order.finished_amount) || parseFloat(order.paid_amount) || 0) / 100)).toFixed(2);
+              const settleAt = order.completed_settlement_time ? new Date(order.completed_settlement_time) : null;
+
+              const exists = await this.repo.findOne({ where: { order_id: orderKey, user_id: userId } });
+              if (exists) {
+                // Status/commission transitions (estimated → settled/cancelled).
+                if (exists.status !== st.local || Math.abs((exists.commission_usd || 0) - commissionUsd) > 0.001) {
+                  exists.status = st.local;
+                  exists.order_amount_usd = amountUsd;
+                  exists.commission_usd = commissionUsd;
+                  exists.commission_ils = +(commissionUsd * rate).toFixed(2);
+                  exists.settlement_date = settleAt;
+                  await this.repo.save(exists);
+                  updated++;
+                  diag.updated++;
+                }
+                continue;
+              }
+
+              const earning = this.repo.create({
+                user_id: userId,
+                order_id: orderKey,
+                product_id: String(order.product_id || 'unknown'),
+                order_amount_usd: amountUsd,
+                commission_usd: commissionUsd,
+                commission_ils: +(commissionUsd * rate).toFixed(2),
+                status: st.local,
+                order_date: order.created_time ? new Date(order.created_time) : new Date(),
+                settlement_date: settleAt,
+              });
+              try {
+                await this.repo.save(earning);
+                synced++;
+                diag.new++;
+              } catch (e: any) {
+                // Unique (user_id, order_id) violation → a concurrent pass already
+                // inserted it; safe to skip rather than duplicate.
+                if (e?.code === '23505') continue;
+                throw e;
+              }
+            }
+
+            if (!result || pageNo >= (result.total_page_no || 1)) break;
+          } catch (err: any) {
+            diag.error = err?.message || 'request failed';
+            this.logger.error(`Earnings sync (${st.api}) failed: ${err?.message}`);
             break;
           }
-
-          const result = res.data?.aliexpress_affiliate_order_list_response?.resp_result?.result;
-          const orders: any[] = result?.orders?.order || [];
-
-          for (const order of orders) {
-            // sub_order_id is the per-item grain (one parent order can hold several
-            // commissionable items) — use it as the unique key.
-            const orderKey = String(order.sub_order_id || order.order_id);
-            const commissionUsd = +(((parseFloat(order.estimated_finished_commission) || parseFloat(order.estimated_paid_commission) || 0) / 100)).toFixed(2);
-            const amountUsd = +(((parseFloat(order.finished_amount) || parseFloat(order.paid_amount) || 0) / 100)).toFixed(2);
-            const settleAt = order.completed_settlement_time ? new Date(order.completed_settlement_time) : null;
-
-            const exists = await this.repo.findOne({ where: { order_id: orderKey, user_id: userId } });
-            if (exists) {
-              // Status/commission transitions (estimated → settled/cancelled).
-              if (exists.status !== st.local || Math.abs((exists.commission_usd || 0) - commissionUsd) > 0.001) {
-                exists.status = st.local;
-                exists.order_amount_usd = amountUsd;
-                exists.commission_usd = commissionUsd;
-                exists.commission_ils = +(commissionUsd * rate).toFixed(2);
-                exists.settlement_date = settleAt;
-                await this.repo.save(exists);
-                updated++;
-              }
-              continue;
-            }
-
-            const earning = this.repo.create({
-              user_id: userId,
-              order_id: orderKey,
-              product_id: String(order.product_id || 'unknown'),
-              order_amount_usd: amountUsd,
-              commission_usd: commissionUsd,
-              commission_ils: +(commissionUsd * rate).toFixed(2),
-              status: st.local,
-              order_date: order.created_time ? new Date(order.created_time) : new Date(),
-              settlement_date: settleAt,
-            });
-            try {
-              await this.repo.save(earning);
-              synced++;
-            } catch (e: any) {
-              // Unique (user_id, order_id) violation → a concurrent pass already
-              // inserted it; safe to skip rather than duplicate.
-              if (e?.code === '23505') continue;
-              throw e;
-            }
-          }
-
-          if (!result || pageNo >= (result.total_page_no || 1)) break;
-        } catch (err: any) {
-          errors.push(`${st.api}: ${err?.message || 'request failed'}`);
-          this.logger.error(`Earnings sync (${st.api}) failed: ${err?.message}`);
-          break;
         }
+        if (diag.error) break; // don't keep hammering the same failing status across slices
       }
     }
 
-    // Surface failures instead of pretending "0 new orders": if NOTHING worked and
-    // there were errors, the user must see why (bad keys, missing permission, etc.).
-    if (synced === 0 && updated === 0 && errors.length === ORDER_STATUSES.length) {
-      throw new BadRequestException(`סנכרון הרווחים נכשל: ${errors[0]}`);
+    this.logger.log(`Earnings sync for ${userId}: ${JSON.stringify(byStatus)}`);
+
+    // Surface failures instead of pretending "0 new orders": only fail loudly when EVERY
+    // status errored (bad keys, missing permission, API limit) and nothing synced. A status
+    // that simply found 0 orders is a legitimate empty result, not a failure.
+    if (synced === 0 && updated === 0 && ORDER_STATUSES.every((st) => byStatus[st.api]?.error)) {
+      const firstErr = ORDER_STATUSES.map((st) => byStatus[st.api]?.error).find(Boolean);
+      throw new BadRequestException(`סנכרון הרווחים נכשל: ${firstErr}`);
     }
 
-    return { synced, updated };
+    return { synced, updated, by_status: byStatus };
   }
 
   private periodStart(period: string): Date | null {
