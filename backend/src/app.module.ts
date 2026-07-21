@@ -25,6 +25,7 @@ import { DiscoveryModule } from './discovery/discovery.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { CustomPostsModule } from './custom-posts/custom-posts.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -86,6 +87,7 @@ import { HealthController } from './health.controller';
     SubscriptionModule,
     SuppliersModule,
     IntegrationsModule,
+    CustomPostsModule,
   ],
   controllers: [HealthController],
 })

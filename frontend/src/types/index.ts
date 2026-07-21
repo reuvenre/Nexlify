@@ -388,6 +388,35 @@ export interface AliProduct {
   currency: string;
 }
 
+// ─── Scheduled custom posts ──────────────────────────────────────────────────
+
+export type CustomPostRepeat = 'none' | 'daily' | 'weekly';
+
+export interface CustomPost {
+  id: string;
+  name: string;
+  body: string;
+  image_urls: string[] | null;
+  target_channels: string[] | null;
+  send_at: string;
+  repeat: CustomPostRepeat;
+  enabled: boolean;
+  next_send_at: string | null;
+  last_sent_at: string | null;
+  sent_count: number;
+  created_at: string;
+}
+
+export interface CustomPostInput {
+  name?: string;
+  body: string;
+  image_urls?: string[];
+  target_channels: string[];
+  send_at: string;
+  repeat?: CustomPostRepeat;
+  enabled?: boolean;
+}
+
 // ─── Catalog ─────────────────────────────────────────────────────────────────
 
 export type CatalogStatus = 'pending' | 'approved' | 'rejected';

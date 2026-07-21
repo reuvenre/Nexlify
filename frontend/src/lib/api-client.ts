@@ -38,6 +38,8 @@ import type {
   SupplierCatalog,
   SupplierProduct,
   AiUsageSummary,
+  CustomPost,
+  CustomPostInput,
 } from '@/types';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -305,6 +307,16 @@ export const subscriptionApi = {
   plans: () => http.get<PlanDef[]>('/subscription/plans').then(extract),
   // No self-service switchPlan: plans are paid and there's no payment gateway yet, so
   // upgrades are handled by an admin (PATCH /admin/users/:id/subscription) until billing lands.
+};
+
+// ─── Scheduled custom posts API ──────────────────────────────────────────────
+
+export const customPostsApi = {
+  list: () => http.get<CustomPost[]>('/custom-posts').then(extract),
+  create: (data: CustomPostInput) => http.post<CustomPost>('/custom-posts', data).then(extract),
+  update: (id: string, data: Partial<CustomPostInput>) =>
+    http.patch<CustomPost>(`/custom-posts/${id}`, data).then(extract),
+  remove: (id: string) => http.delete(`/custom-posts/${id}`).then(extract),
 };
 
 // ─── Integrations API ────────────────────────────────────────────────────────

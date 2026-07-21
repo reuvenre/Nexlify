@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut,
   ShoppingCart, Sun, Moon, Sparkles, Package,
-  Shield, Ticket, LayoutTemplate, ExternalLink,
+  Shield, Ticket, LayoutTemplate, ExternalLink, CalendarClock,
 } from 'lucide-react';
 
 // The user's landing-page system (ClickLead), unlocked for the top plan. Override in
@@ -23,6 +23,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard',  label: 'דשבורד',    icon: LayoutDashboard },
       { href: '/campaigns',  label: 'הטייס האוטומטי', icon: Megaphone },
       { href: '/quick-post', label: 'פוסט מהיר',  icon: Zap },
+      { href: '/scheduled',  label: 'פוסטים מתוזמנים', icon: CalendarClock },
       { href: '/posts',      label: 'פוסטים',     icon: FileText },
     ],
   },

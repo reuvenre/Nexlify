@@ -1695,6 +1695,12 @@ export class PostsService {
     }
 
     const image = m.kind === 'single' ? m.image : post.product_image;
+    // Text-only post (e.g. a custom scheduled announcement with no image): sendPhoto would
+    // reject an empty photo, so send the caption as a plain message instead.
+    if (!image) {
+      await this.sendTelegramText(token, channel, caption);
+      return;
+    }
     const url = `https://api.telegram.org/bot${token}/sendPhoto`;
     try {
       const res = await axios.post(
