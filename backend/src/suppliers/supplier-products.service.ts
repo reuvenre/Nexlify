@@ -469,17 +469,25 @@ export class SupplierProductsService {
     // Oldest-first rotation: NULLS FIRST puts never-posted products at the head, so a fresh
     // catalog publishes everything once before anything repeats. in_stock IS DISTINCT FROM
     // false keeps NULL (never-checked) AND true, dropping only confirmed-dead links.
-    const products = await this.repo.createQueryBuilder('p')
+    const candidates = await this.repo.createQueryBuilder('p')
       .where('p.user_id = :userId', { userId })
       .andWhere('p.status = :status', { status: 'active' })
       .andWhere('p.in_stock IS DISTINCT FROM false')
       .andWhere("p.flylink_url IS NOT NULL AND p.flylink_url <> ''")
       .orderBy('p.last_posted_at', 'ASC', 'NULLS FIRST')
       .addOrderBy('p.created_at', 'ASC')
-      .take(limit)
+      .take(Math.max(limit * 5, 50)) // room to skip products this campaign already posted
       .getMany();
 
-    if (!products.length) throw new BadRequestException('אין מוצרי FLYLINK זמינים במלאי לפרסום');
+    if (!candidates.length) throw new BadRequestException('אין מוצרי FLYLINK זמינים במלאי לפרסום');
+
+    // Explicit dedup — the SAME signal the AliExpress runner uses (and why it never repeats):
+    // skip products this campaign already posted. last_posted_at ordering alone let a product
+    // get re-selected on the next run (observed: WT1463 posted at 06:00 AND 09:00). Fall back
+    // to the full list only once the whole catalog has been cycled through.
+    const postedIds = await this.posts.postedProductIds(campaign.id).catch(() => new Set<string>());
+    const fresh = candidates.filter((p) => !postedIds.has(String(p.sku || p.id)));
+    const products = (fresh.length ? fresh : candidates).slice(0, limit);
 
     // Copy style of the group the campaign posts to (first target) — e.g. the "מאמא מותגים"
     // hidden-product template. Empty → the built-in voice.

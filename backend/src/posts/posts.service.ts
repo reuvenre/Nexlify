@@ -772,6 +772,17 @@ export class PostsService {
     post.status = 'pending';
     await this.repo.save(post);
     await this.sendToTelegram(post, creds, post.channel_override || undefined);
+    // Share ONE clock per group. Scheduled (campaign) posts and the manual auto-send queue
+    // used to run on SEPARATE clocks, so a manually-queued post fired in-between the autopilot
+    // posts. Advancing the group's queue clock here — the same one processQueue checks — makes
+    // a manual post wait a full interval after this post, so everything to the group interleaves
+    // one per interval. null override = the default channel → the account's global clock.
+    const now = new Date();
+    if (post.channel_override) {
+      await this.channels.markSent(post.user_id, [post.channel_override], now).catch(() => {});
+    } else {
+      await this.credentials.updateLastSent(post.user_id, now).catch(() => {});
+    }
   }
 
   // ── Run campaign ──────────────────────────────────────────────────────────
@@ -817,6 +828,16 @@ export class PostsService {
     const times: Date[] = [];
     for (let i = 0; i < Math.max(1, count); i++) times.push(new Date(first.getTime() + i * gapMs));
     return times;
+  }
+
+  /** The distinct product_ids this campaign has already posted (any status) — the explicit
+   *  dedup signal the runners use so a campaign cycles through its catalog before repeating. */
+  async postedProductIds(campaignId: string): Promise<Set<string>> {
+    const rows = await this.repo.createQueryBuilder('p')
+      .select('DISTINCT p.product_id', 'product_id')
+      .where('p.campaign_id = :cid', { cid: campaignId })
+      .getRawMany();
+    return new Set(rows.map((r) => String(r.product_id)));
   }
 
   /**
