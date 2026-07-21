@@ -217,28 +217,46 @@ export class ChannelsService {
         { params: { fields: 'username,name,profile_picture_url', access_token: token }, timeout: 6000, validateStatus: () => true },
       );
       if (res.data?.error) {
-        // The entered ID didn't resolve. Try to DISCOVER the IG account actually linked to the
-        // page whose token was entered — this turns a vague "does not exist" into an exact answer:
-        // wrong ID (here's the right one), missing permission, or no IG linked to the page.
-        const linked = await this.discoverLinkedIg(pageId, token).catch(() => null);
-        if (linked && linked.id !== igId) {
+        // The entered ID didn't resolve. Turn the vague "does not exist" into an exact answer:
+        // scan EVERY page the token administers and their linked IG accounts, so we can say
+        // precisely which page the IG account is (or isn't) connected to.
+        const linkedOnConfigured = await this.discoverLinkedIg(pageId, token).catch(() => null);
+        const pages = await this.scanTokenPages(token).catch(() => []);
+
+        // (a) The entered IG id IS linked — but to a DIFFERENT page than the token/id configured.
+        //     Tell the user which page's token to use.
+        const hostPage = pages.find((p) => p.ig?.id === igId);
+        if (hostPage) {
           return {
             ok: false,
-            error: `ה-ID שהוזן (${igId}) אינו נגיש, אבל מצאתי שחשבון האינסטגרם המקושר לדף הוא @${linked.username || ''} עם המזהה ${linked.id}. הזן את המזהה הזה בשדה ושמור.`,
-            suggested_id: linked.id,
-            suggested_username: linked.username || null,
+            error: `המזהה של האינסטגרם (${igId}) נכון, אבל הוא מקושר לדף הפייסבוק "${hostPage.name}" (${hostPage.id}) — לא לדף שהטוקן שלו הוזן. הזן בקטע פייסבוק את ה-Page ID והטוקן של הדף "${hostPage.name}", ואז נסה שוב.`,
+            suggested_page_id: hostPage.id,
           };
         }
-        if (linked && linked.id === igId) {
-          return { ok: false, error: 'ה-ID נכון והחשבון מקושר לדף, אך לטוקן חסרה הרשאה. צור מחדש Page Access Token עם ההרשאות instagram_basic ו-instagram_content_publish (וגם pages_manage_posts).' };
+
+        // (b) The configured page IS linked to some IG account, just not the id entered →
+        //     the entered id is wrong; offer the right one.
+        if (linkedOnConfigured && linkedOnConfigured.id !== igId) {
+          return {
+            ok: false,
+            error: `ה-ID שהוזן (${igId}) אינו מקושר לדף. חשבון האינסטגרם המקושר לדף הזה הוא @${linkedOnConfigured.username || ''} עם המזהה ${linkedOnConfigured.id}. מילאתי אותו עבורך — לחץ שמור ובדוק שוב.`,
+            suggested_id: linkedOnConfigured.id,
+            suggested_username: linkedOnConfigured.username || null,
+          };
         }
-        // Couldn't discover a linked IG account on the page.
+
+        // (c) The token reaches pages, but NONE is linked to any IG account.
+        const withIg = pages.filter((p) => p.ig?.id);
         const msg = res.data.error.message || 'unknown error';
+        if (pages.length && !withIg.length) {
+          return { ok: false, error: `הטוקן מגיע ל-${pages.length} דפי פייסבוק, אך אף אחד מהם אינו מקושר לחשבון Instagram עסקי. קשר את @החשבון לדף ב-Meta Business Suite ← הגדרות הדף ← חשבונות מקושרים ← Instagram, ואז נסה שוב.` };
+        }
+        // (d) Fallback — couldn't enumerate pages (page-scoped token) or nothing linked.
         return {
           ok: false,
           error: pageId
-            ? `לא נמצא חשבון Instagram מקושר לדף הפייסבוק (${pageId}). קשר את חשבון האינסטגרם העסקי לדף ב-Meta Business Suite ← הגדרות ← חשבונות מקושרים, ואז נסה שוב. (שגיאת Graph: ${msg})`
-            : `${msg} — ודא שה-ID הוא ה-Instagram Business Account ID, ושחשבון האינסטגרם מקושר לדף שהטוקן שלו הוזן. הגדר גם Page ID בקטע פייסבוק כדי שאוכל לזהות אוטומטית את המזהה הנכון.`,
+            ? `לא נמצא חשבון Instagram מקושר לדף (${pageId}) דרך הטוקן הזה. ודא ש-@החשבון מקושר לדף ב-Meta Business Suite, ושהטוקן הוא Page Access Token של אותו דף עם ההרשאות instagram_basic + instagram_content_publish. (Graph: ${msg})`
+            : `${msg} — הגדר Page ID בקטע פייסבוק כדי שאוכל לזהות אוטומטית לאיזה דף האינסטגרם מקושר.`,
         };
       }
       if (!res.data?.username) {
@@ -259,6 +277,27 @@ export class ChannelsService {
     );
     const iba = res.data?.instagram_business_account;
     return iba?.id ? { id: String(iba.id), username: iba.username } : null;
+  }
+
+  /**
+   * List every Facebook Page the token administers, each with its linked IG account (if any).
+   * Works with a user token (returns all pages) and often with a page token (returns that page).
+   * Returns [] when the token can't enumerate — the caller then falls back to page-scoped hints.
+   */
+  private async scanTokenPages(token: string): Promise<Array<{ id: string; name: string; ig?: { id: string; username?: string } }>> {
+    if (!token) return [];
+    const res = await axios.get(
+      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts`,
+      { params: { fields: 'name,instagram_business_account{id,username}', limit: 100, access_token: token }, timeout: 8000, validateStatus: () => true },
+    );
+    const rows: any[] = res.data?.data || [];
+    return rows.map((p) => ({
+      id: String(p.id),
+      name: p.name || String(p.id),
+      ig: p.instagram_business_account?.id
+        ? { id: String(p.instagram_business_account.id), username: p.instagram_business_account.username }
+        : undefined,
+    }));
   }
 
   /**
