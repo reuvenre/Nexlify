@@ -496,6 +496,10 @@ export const channelsApi = {
   /** Verify the channel's Facebook page (valid token + publish permission). */
   testFacebook: (id: string) =>
     http.post<{ ok: boolean; error?: string; page_name?: string }>(`/channels/${id}/test-facebook`).then(extract),
+
+  /** Verify the account's Instagram Business account + linked Page token (account-global). */
+  testInstagram: () =>
+    http.post<{ ok: boolean; error?: string; username?: string; name?: string | null }>(`/channels/test-instagram`).then(extract),
 };
 
 // ─── Templates API ──────────────────────────────────────────────────────────

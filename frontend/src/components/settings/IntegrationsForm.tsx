@@ -28,6 +28,7 @@ export function IntegrationsForm() {
   const [pubInstagram, setPubInstagram] = useState(false);
   const [instagramOk, setInstagramOk] = useState<boolean | null>(null);
   const [instagramError, setInstagramError] = useState<string | null>(null);
+  const [testingIg, setTestingIg] = useState(false);
 
   // Auto image enhancement (local sharp pass, applied on the Telegram album)
   const [imageEnhance, setImageEnhance] = useState(false);
@@ -125,6 +126,24 @@ export function IntegrationsForm() {
       setInstagramError(res.instagram ? null : res.errors?.instagram || null);
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const handleTestInstagram = async () => {
+    setTestingIg(true);
+    try {
+      // Tests the SAVED credentials — persist a freshly-typed IG id / Page token first,
+      // otherwise it checks the old saved state and confusingly reports "not entered".
+      if (igBusinessId.trim() || fbToken.trim()) await handleSave();
+      const res = await channelsApi.testInstagram();
+      setInstagramOk(res.ok);
+      setInstagramError(res.ok ? null : res.error || 'הבדיקה נכשלה.');
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setInstagramOk(false);
+      setInstagramError(err?.response?.data?.message || 'הבדיקה נכשלה.');
+    } finally {
+      setTestingIg(false);
     }
   };
 
@@ -418,6 +437,17 @@ export function IntegrationsForm() {
             מזהה חשבון האינסטגרם העסקי המקושר לדף (נמצא ב-Meta Business Suite ← הגדרות ← חשבונות Instagram).
           </p>
           {instagramError && <p className="text-2xs text-red-400 mt-2">⚠️ {instagramError}</p>}
+          {instagramOk === true && <p className="text-2xs text-emerald-400 mt-2">✅ החשבון תקין ומקושר — מוכן לפרסום.</p>}
+
+          <button
+            type="button"
+            onClick={handleTestInstagram}
+            disabled={testingIg}
+            className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-white/5 border border-edge-hover text-white/80 hover:bg-white/10 disabled:opacity-50 transition-colors"
+          >
+            {testingIg ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+            בדוק תקינות אינסטגרם
+          </button>
         </div>
       </section>
 

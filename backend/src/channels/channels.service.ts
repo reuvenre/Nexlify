@@ -192,6 +192,47 @@ export class ChannelsService {
     }
   }
 
+  /**
+   * Verify the Instagram Business account is reachable with the linked Page token —
+   * the same pair the real publish uses (`instagram_business_id` + the Page's
+   * `facebook_page_token`). Instagram publishing is account-global (not per-channel),
+   * so this reads the account from Settings ← Integrations, ignoring the channel id.
+   */
+  async testInstagram(userId: string) {
+    const creds = await this.credentials.getRaw(userId).catch(() => null);
+    const igId = (creds?.instagram_business_id || '').trim();
+    const token = creds?.facebook_page_token || '';
+    if (!igId) {
+      return { ok: false, error: 'לא הוגדר Instagram Business Account ID בהגדרות ← אינטגרציות.' };
+    }
+    if (!token) {
+      return { ok: false, error: 'לא הוגדר Page Access Token של פייסבוק (אינסטגרם משתמש בטוקן של הדף המקושר).' };
+    }
+    try {
+      // Ask for the IG account's own fields. This only resolves when the token belongs to
+      // the Facebook Page that the IG Business account is linked to — exactly what publish needs.
+      const res = await axios.get(
+        `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`,
+        { params: { fields: 'username,name,profile_picture_url', access_token: token }, timeout: 6000, validateStatus: () => true },
+      );
+      if (res.data?.error) {
+        const msg = res.data.error.message || 'unknown error';
+        return {
+          ok: false,
+          error: /nonexisting|does not exist|Unsupported|cannot be loaded|Object with ID/i.test(msg)
+            ? `${msg} — ודא שה-ID הוא ה-Instagram Business Account ID (מ-Meta Business Suite ← הגדרות ← חשבונות Instagram), ושחשבון האינסטגרם מקושר לדף הפייסבוק שהטוקן שלו הוזן.`
+            : msg,
+        };
+      }
+      if (!res.data?.username) {
+        return { ok: false, error: 'ה-ID נמצא אך אינו חשבון Instagram Business תקין (אין username). ודא שהחשבון מסוג Business/Creator ומקושר לדף.' };
+      }
+      return { ok: true, username: res.data.username, name: res.data?.name || null };
+    } catch (err: any) {
+      return { ok: false, error: err?.response?.data?.error?.message || err?.message || 'הבדיקה נכשלה.' };
+    }
+  }
+
   /** When this group's Facebook PAGE last received a post — the FB throttle clock. */
   async getFacebookLastSent(userId: string, channelId: string): Promise<Date | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });

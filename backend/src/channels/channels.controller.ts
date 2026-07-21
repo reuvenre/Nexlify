@@ -43,4 +43,11 @@ export class ChannelsController {
   testFacebook(@Req() req: any, @Param('id') id: string) {
     return this.service.testFacebook(req.user.id, id);
   }
+
+  /** Verify the account's Instagram Business account + linked Page token (account-global). */
+  @Post('test-instagram')
+  @HttpCode(200)
+  testInstagram(@Req() req: any) {
+    return this.service.testInstagram(req.user.id);
+  }
 }
