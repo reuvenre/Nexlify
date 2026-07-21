@@ -123,12 +123,12 @@ export class UsersService implements OnModuleInit {
     return null; // never registered → do NOT create; the callback redirects to register
   }
 
-  async create(email: string, password: string): Promise<User> {
+  async create(email: string, password: string, name?: string): Promise<User> {
     const exists = await this.repo.findOne({ where: { email } });
     if (exists) throw new ConflictException('Email already registered');
     const password_hash = await bcrypt.hash(password, 12);
     const role = email.toLowerCase() === ADMIN_EMAIL ? 'admin' : 'user';
-    const user = this.repo.create({ email, password_hash, role });
+    const user = this.repo.create({ email, password_hash, role, name: name?.trim() || null });
     return this.repo.save(user);
   }
 
@@ -194,6 +194,7 @@ export class UsersService implements OnModuleInit {
     return {
       id: user.id,
       email: user.email,
+      name: user.name || null,
       role: user.role || 'user',
       footer_text: user.footer_text,
       subscription_plan: user.subscription_plan || 'starter',

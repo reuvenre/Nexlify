@@ -11,6 +11,10 @@ export class User {
   @Column({ unique: true })
   email: string;
 
+  /** Display name the user chose at registration. Shown in the UI instead of the email prefix. */
+  @Column({ nullable: true })
+  name: string;
+
   @Column()
   password_hash: string;
 

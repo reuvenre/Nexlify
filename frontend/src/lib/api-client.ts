@@ -194,8 +194,8 @@ export const authApi = {
   enable2fa: (code: string) => http.post<{ enabled: true }>('/auth/2fa/enable', { code }).then(extract),
   disable2fa: (code: string) => http.post<{ enabled: false }>('/auth/2fa/disable', { code }).then(extract),
 
-  register: (email: string, password: string) =>
-    http.post<AuthResponse>('/auth/register', { email, password }).then(extract),
+  register: (email: string, password: string, name?: string) =>
+    http.post<AuthResponse>('/auth/register', { email, password, name }).then(extract),
 
   logout: () => http.post('/auth/logout').then(extract),
 

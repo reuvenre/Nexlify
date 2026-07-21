@@ -3,6 +3,7 @@
 export interface User {
   id: string;
   email: string;
+  name?: string | null;
   role?: 'user' | 'admin';
   footer_text?: string;
   subscription_plan?: PlanId;

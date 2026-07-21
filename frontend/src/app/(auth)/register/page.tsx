@@ -7,6 +7,7 @@ import { Loader2, AlertCircle, CheckCircle2, Zap, TrendingUp, Globe } from 'luci
 
 export default function RegisterPage() {
   const { register } = useAuth();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -27,7 +28,7 @@ export default function RegisterPage() {
     { label: 'סיסמאות תואמות', ok: password === confirm && confirm.length > 0 },
   ];
 
-  const isValid = requirements.every((r) => r.ok) && email.includes('@');
+  const isValid = requirements.every((r) => r.ok) && email.includes('@') && name.trim().length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +36,7 @@ export default function RegisterPage() {
     setError('');
     setIsLoading(true);
     try {
-      await register(email, password);
+      await register(email, password, name.trim() || undefined);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string }; status?: number }; message?: string };
       if (!e.response) {
@@ -72,6 +73,20 @@ export default function RegisterPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">שם מלא</label>
+              <input
+                type="text"
+                name="name"
+                autoComplete="name"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="השם שיוצג בחשבון"
+                className="w-full bg-white/5 border border-edge-hover rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-blue-500/60 transition-all"
+              />
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">אימייל</label>
               <input

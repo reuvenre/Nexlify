@@ -12,7 +12,7 @@ interface AuthState {
   /** Returns { mfaToken } when the account has 2FA — the caller must then call completeMfa. */
   login: (email: string, password: string) => Promise<{ mfaToken?: string }>;
   completeMfa: (mfaToken: string, code: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 

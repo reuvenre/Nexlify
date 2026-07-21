@@ -24,7 +24,7 @@ export class AuthController {
 
   @Post('register')
   register(@Body() dto: AuthDto, @Res({ passthrough: true }) res: Response) {
-    return this.auth.register(dto.email, dto.password, res);
+    return this.auth.register(dto.email, dto.password, dto.name, res);
   }
 
   @Post('login')

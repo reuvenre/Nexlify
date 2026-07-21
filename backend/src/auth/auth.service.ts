@@ -73,8 +73,8 @@ export class AuthService {
 
   // ── Public methods ─────────────────────────────────────────────────────────
 
-  async register(email: string, password: string, res: any) {
-    const user = await this.users.create(email, password);
+  async register(email: string, password: string, name: string | undefined, res: any) {
+    const user = await this.users.create(email, password, name);
     return this.issueTokens(user, res);
   }
 

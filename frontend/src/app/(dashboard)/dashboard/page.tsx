@@ -63,7 +63,7 @@ export default function DashboardPage() {
   const [steps, setSteps] = useState<SetupStep[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const displayName = user?.email?.split('@')[0] || 'משתמש';
+  const displayName = user?.name?.trim() || user?.email?.split('@')[0] || 'משתמש';
 
   const load = async () => {
     setIsLoading(true);
@@ -128,7 +128,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">שלום, {displayName}! 👋</h1>
+          <h1 className="text-2xl font-bold text-white">שלום, {displayName}!</h1>
           <p className="text-sm text-white/40 mt-1">
             {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>

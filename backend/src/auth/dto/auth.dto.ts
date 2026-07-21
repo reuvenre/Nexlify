@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class AuthDto {
   @IsEmail()
@@ -7,4 +7,10 @@ export class AuthDto {
   @IsString()
   @MinLength(8)
   password: string;
+
+  /** Display name (registration only; ignored on login). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  name?: string;
 }

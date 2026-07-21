@@ -57,7 +57,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     (href === '/products' && pathname.startsWith('/suppliers'));
 
   const initials = user?.email?.[0]?.toUpperCase() ?? '?';
-  const username = user?.email?.split('@')[0] ?? '';
+  const username = user?.name?.trim() || user?.email?.split('@')[0] || '';
 
   // Open ClickLead. Open the tab SYNCHRONOUSLY (in the click) to dodge popup blockers,
   // then ask the backend for an SSO token and point the tab at it — /sso#token signs the
