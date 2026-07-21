@@ -35,6 +35,10 @@ export interface DecryptedCredentials {
   publish_telegram?: boolean;
   publish_facebook?: boolean;
   publish_instagram?: boolean;
+  // Pinterest (Pins carry a real clickable destination link)
+  pinterest_access_token?: string;
+  pinterest_board_id?: string;
+  publish_pinterest?: boolean;
   make_webhook_url?: string;
   publish_via_make?: boolean;
   image_enhance_enabled?: boolean;
@@ -111,6 +115,7 @@ export class CredentialsService {
     if (dto.publish_telegram !== undefined)  cred.publish_telegram = dto.publish_telegram;
     if (dto.publish_facebook !== undefined)  cred.publish_facebook = dto.publish_facebook;
     if (dto.publish_instagram !== undefined) cred.publish_instagram = dto.publish_instagram;
+    if (dto.publish_pinterest !== undefined) cred.publish_pinterest = dto.publish_pinterest;
     if (dto.make_webhook_url !== undefined)  cred.make_webhook_url = dto.make_webhook_url.trim() || null;
     if (dto.publish_via_make !== undefined)  cred.publish_via_make = dto.publish_via_make;
     if (dto.image_enhance_enabled !== undefined) cred.image_enhance_enabled = dto.image_enhance_enabled;
@@ -355,6 +360,9 @@ export class CredentialsService {
       publish_telegram: cred.publish_telegram,
       publish_facebook: cred.publish_facebook,
       publish_instagram: cred.publish_instagram,
+      pinterest_access_token: decrypt(cred.pinterest_access_token_enc),
+      pinterest_board_id: cred.pinterest_board_id,
+      publish_pinterest: cred.publish_pinterest,
       make_webhook_url: cred.make_webhook_url,
       publish_via_make: cred.publish_via_make,
       image_enhance_enabled: cred.image_enhance_enabled,
@@ -458,6 +466,7 @@ export class CredentialsService {
       publish_telegram: cred.publish_telegram ?? true,
       publish_facebook: cred.publish_facebook ?? false,
       publish_instagram: cred.publish_instagram ?? false,
+      publish_pinterest: cred.publish_pinterest ?? false,
       make_webhook_url: cred.make_webhook_url || '',
       publish_via_make: cred.publish_via_make ?? false,
       image_enhance_enabled: cred.image_enhance_enabled ?? false,

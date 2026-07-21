@@ -50,4 +50,11 @@ export class ChannelsController {
   testInstagram(@Req() req: any) {
     return this.service.testInstagram(req.user.id);
   }
+
+  /** Verify the account's Pinterest access token + target board (account-global). */
+  @Post('test-pinterest')
+  @HttpCode(200)
+  testPinterest(@Req() req: any) {
+    return this.service.testPinterest(req.user.id);
+  }
 }

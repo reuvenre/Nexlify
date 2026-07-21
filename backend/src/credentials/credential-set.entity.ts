@@ -87,6 +87,10 @@ export class CredentialSet {
   @Column({ default: false })
   publish_instagram: boolean;
 
+  /** Whether every post also fans out to Pinterest (needs pinterest_access_token + board). */
+  @Column({ default: false })
+  publish_pinterest: boolean;
+
   /** Make.com incoming-webhook URL. When publish_via_make is on, Facebook posts are
    *  delivered by POSTing the post to this webhook (which drives the user's own Make
    *  scenario + its authorized Facebook connection) instead of our direct Graph API. */

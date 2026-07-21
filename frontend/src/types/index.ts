@@ -135,6 +135,7 @@ export interface CredentialSet {
   publish_telegram: boolean;
   publish_facebook: boolean;
   publish_instagram: boolean;
+  publish_pinterest: boolean;
   make_webhook_url: string;
   publish_via_make: boolean;
   image_enhance_enabled: boolean;
@@ -197,6 +198,7 @@ export interface CredentialSetInput {
   publish_telegram?: boolean;
   publish_facebook?: boolean;
   publish_instagram?: boolean;
+  publish_pinterest?: boolean;
   make_webhook_url?: string;
   publish_via_make?: boolean;
   image_enhance_enabled?: boolean;

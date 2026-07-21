@@ -500,6 +500,10 @@ export const channelsApi = {
   /** Verify the account's Instagram Business account + linked Page token (account-global). */
   testInstagram: () =>
     http.post<{ ok: boolean; error?: string; username?: string; name?: string | null }>(`/channels/test-instagram`).then(extract),
+
+  /** Verify the account's Pinterest access token + target board (account-global). */
+  testPinterest: () =>
+    http.post<{ ok: boolean; error?: string; board_name?: string }>(`/channels/test-pinterest`).then(extract),
 };
 
 // ─── Templates API ──────────────────────────────────────────────────────────

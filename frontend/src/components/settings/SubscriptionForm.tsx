@@ -62,7 +62,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'אינסטגרם' },
       { label: 'משפר תמונות AI' },
       { label: 'אינטגרציית אמזון', soon: true },
-      { label: 'פינטרסט', soon: true },
+      { label: 'פינטרסט' },
     ],
   },
 };

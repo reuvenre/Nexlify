@@ -61,6 +61,10 @@ export class Post {
   @Column({ nullable: true })
   instagram_post_id: string;
 
+  /** Pinterest Pin id once published */
+  @Column({ nullable: true })
+  pinterest_post_id: string;
+
   @Column({ default: 'pending' })
   status: PostStatus;
 

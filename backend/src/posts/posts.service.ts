@@ -1349,6 +1349,12 @@ export class PostsService {
         .then(() => { anySuccess = true; })
         .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }));
     }
+    if (want.has('pinterest')) {
+      const body = await this.buildPostBody(post, creds, targetList[0]);
+      tasks.push(this.sendToPinterest(post, creds, body)
+        .then(() => { anySuccess = true; })
+        .catch((err: any) => { errors.push(`Pinterest: ${err?.response?.data?.message || err?.response?.data?.error?.message || err.message}`); }));
+    }
     await Promise.all(tasks);
 
     // Merge into the existing error_message: drop old lines for the platforms we just
@@ -1357,6 +1363,7 @@ export class PostsService {
     if (want.has('telegram')) attemptedTokens.push('Telegram');
     if (want.has('facebook')) attemptedTokens.push('Facebook', 'Make');
     if (want.has('instagram')) attemptedTokens.push('Instagram');
+    if (want.has('pinterest')) attemptedTokens.push('Pinterest');
     const kept = (post.error_message || '').split('|').map((s) => s.trim()).filter(Boolean)
       .filter((line) => !attemptedTokens.some((tok) => new RegExp(`^${tok}:`, 'i').test(line)));
     const merged = [...kept, ...errors].filter(Boolean);
@@ -1385,6 +1392,7 @@ export class PostsService {
     post.telegram_message_id = null;
     post.facebook_post_id = null;
     post.instagram_post_id = null;
+    post.pinterest_post_id = null;
 
     if (scheduledAt) {
       post.status = 'scheduled';
@@ -1500,10 +1508,11 @@ export class PostsService {
     const makeRelay = creds?.publish_via_make === true && !!creds?.make_webhook_url;
     const wantFacebook = creds?.publish_facebook === true;
     const wantInstagram = creds?.publish_instagram === true;
+    const wantPinterest = creds?.publish_pinterest === true;
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
-    if (!wantTelegram && !wantFacebook && !wantInstagram && !makeRelay) {
+    if (!wantTelegram && !wantFacebook && !wantInstagram && !wantPinterest && !makeRelay) {
       post.status = 'failed';
       post.error_message = 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
       await this.repo.save(post);
@@ -1601,6 +1610,16 @@ export class PostsService {
         this.sendToInstagram(post, creds, body)
           .then(() => { anySuccess = true; })
           .catch((err: any) => { errors.push(`Instagram: ${err?.response?.data?.error?.message || err.message}`); }),
+      );
+    }
+
+    // Pinterest: a single board (no per-group fan-out). The Pin's link is the affiliate URL.
+    if (wantPinterest) {
+      const body = await this.buildPostBody(post, creds, targets[0]);
+      tasks.push(
+        this.sendToPinterest(post, creds, body)
+          .then(() => { anySuccess = true; })
+          .catch((err: any) => { errors.push(`Pinterest: ${err?.response?.data?.message || err?.response?.data?.error?.message || err.message}`); }),
       );
     }
 
@@ -1958,6 +1977,48 @@ export class PostsService {
     );
     if (publish.data?.error) throw new Error(publish.data.error.message);
     post.instagram_post_id = publish.data?.id || null;
+  }
+
+  /**
+   * Publishes the post as a Pinterest Pin (API v5). Unlike Instagram, a Pin carries a real
+   * CLICKABLE destination link — we set it to the affiliate URL, so the Pin drives straight
+   * to the product. Needs a Pinterest access token (scopes: boards:read, pins:read,
+   * pins:write) and a target board id, both from Settings ← Integrations. Requires an image.
+   */
+  private async sendToPinterest(post: Post, creds: DecryptedCredentials, message: string) {
+    const token = creds?.pinterest_access_token;
+    const boardId = creds?.pinterest_board_id;
+    if (!token || !boardId) throw new Error('Missing Pinterest credentials');
+
+    // First gallery image, else the main product image.
+    let image = post.product_image || '';
+    try {
+      const g = post.gallery_json ? JSON.parse(post.gallery_json) : [];
+      if (Array.isArray(g) && g[0]) image = g[0];
+    } catch { /* ignore */ }
+    if (!image) throw new Error('אין תמונת מוצר לפרסום בפינטרסט');
+
+    const plain = message.replace(/<\/?[^>]+>/g, '').trim(); // Pinterest shows no HTML
+    // Pinterest caps: title ≤100 chars, description ≤500. The affiliate link rides the
+    // dedicated `link` field (clickable), so it need not sit in the description text.
+    const title = (post.product_title || plain.split('\n')[0] || 'מוצר').slice(0, 100);
+    const description = plain.slice(0, 500);
+
+    const res = await axios.post(
+      'https://api.pinterest.com/v5/pins',
+      {
+        board_id: boardId,
+        title,
+        description,
+        link: post.affiliate_url || undefined,
+        media_source: { source_type: 'image_url', url: image },
+      },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 20000 },
+    );
+    if (res.data?.error || !res.data?.id) {
+      throw new Error(res.data?.message || res.data?.error?.message || 'Pinterest publish failed');
+    }
+    post.pinterest_post_id = res.data.id;
   }
 
   /**

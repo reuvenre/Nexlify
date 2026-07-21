@@ -46,6 +46,10 @@ export function IntegrationsForm() {
   const [waToken, setWaToken] = useState('');
   const [pinBoardId, setPinBoardId] = useState('');
   const [pinToken, setPinToken] = useState('');
+  const [pubPinterest, setPubPinterest] = useState(false);
+  const [pinterestOk, setPinterestOk] = useState<boolean | null>(null);
+  const [pinterestError, setPinterestError] = useState<string | null>(null);
+  const [testingPin, setTestingPin] = useState(false);
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loadingChannels, setLoadingChannels] = useState(true);
@@ -65,6 +69,7 @@ export function IntegrationsForm() {
         setPubViaMake(c.publish_via_make ?? false);
         setWaPhoneId(c.whatsapp_phone_number_id || '');
         setPinBoardId(c.pinterest_board_id || '');
+        setPubPinterest(c.publish_pinterest ?? false);
       })
       .catch(() => {});
 
@@ -98,6 +103,7 @@ export function IntegrationsForm() {
         whatsapp_access_token: waToken,
         pinterest_board_id: pinBoardId,
         pinterest_access_token: pinToken,
+        publish_pinterest: pubPinterest,
       });
       setWaToken(''); setPinToken('');
       setSaved(true);
@@ -144,6 +150,23 @@ export function IntegrationsForm() {
       setInstagramError(err?.response?.data?.message || 'הבדיקה נכשלה.');
     } finally {
       setTestingIg(false);
+    }
+  };
+
+  const handleTestPinterest = async () => {
+    setTestingPin(true);
+    try {
+      // Persist a freshly-typed token / board first so the test checks the saved state.
+      if (pinToken.trim() || pinBoardId.trim()) await handleSave();
+      const res = await channelsApi.testPinterest();
+      setPinterestOk(res.ok);
+      setPinterestError(res.ok ? null : res.error || 'הבדיקה נכשלה.');
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setPinterestOk(false);
+      setPinterestError(err?.response?.data?.message || 'הבדיקה נכשלה.');
+    } finally {
+      setTestingPin(false);
     }
   };
 
@@ -235,16 +258,15 @@ export function IntegrationsForm() {
         </div>
       </section>
 
-      {/* Pinterest — credentials stored; activation pending a Pinterest app + API access. */}
+      {/* Pinterest — live. Pins carry a real clickable affiliate link (unlike Instagram). */}
       <section className="bg-surface-secondary border border-edge rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <span className="text-lg">📌</span> Pinterest
-          </h3>
-          <span className="text-2xs bg-blue-500/15 text-blue-300 border border-blue-500/25 rounded-full px-2.5 py-0.5 font-medium">דרוש אפליקציית Pinterest</span>
-        </div>
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-1">
+          <span className="text-lg">📌</span> Pinterest
+          {pinterestOk === true && <CheckCircle2 size={14} className="text-emerald-400" />}
+          {pinterestOk === false && <XCircle size={14} className="text-red-400" />}
+        </h3>
         <p className="text-xs text-white/35 mb-4">
-          שמור כאן את פרטי Pinterest API. יצירת פינים אוטומטית תופעל לאחר אישור אפליקציית ה-API שלך אצל Pinterest.
+          פרסום פינים לחשבון Pinterest — הפין נושא <span className="text-white/60">לינק לחיץ</span> ישירות למוצר (יתרון על אינסטגרם). דרוש Access Token מ-Pinterest Developer עם ההרשאות <span dir="ltr">boards:read, pins:write</span> ומזהה לוח (Board).
         </p>
         <div className="grid grid-cols-1 gap-3">
           <div>
@@ -258,6 +280,25 @@ export function IntegrationsForm() {
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
           </div>
         </div>
+
+        <label className="flex items-center gap-2.5 mt-4 cursor-pointer select-none">
+          <input type="checkbox" checked={pubPinterest} onChange={(e) => setPubPinterest(e.target.checked)}
+            className="w-4 h-4 rounded accent-blue-500" />
+          <span className="text-sm text-white/80">פרסם כל פוסט גם לפינטרסט</span>
+        </label>
+
+        {pinterestError && <p className="text-2xs text-red-400 mt-3">⚠️ {pinterestError}</p>}
+        {pinterestOk === true && <p className="text-2xs text-emerald-400 mt-3">✅ הלוח נגיש והטוקן תקין — מוכן לפרסום.</p>}
+
+        <button
+          type="button"
+          onClick={handleTestPinterest}
+          disabled={testingPin}
+          className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-white/5 border border-edge-hover text-white/80 hover:bg-white/10 disabled:opacity-50 transition-colors"
+        >
+          {testingPin ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+          בדוק תקינות פינטרסט
+        </button>
       </section>
 
       {/* Facebook / Meta — live */}

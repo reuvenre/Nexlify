@@ -233,6 +233,43 @@ export class ChannelsService {
     }
   }
 
+  /**
+   * Verify the Pinterest access token + target board are usable for publishing — the same
+   * pair the real Pin publish uses (`pinterest_access_token` + `pinterest_board_id`).
+   * Account-global (Pinterest isn't per-channel), so it reads Settings ← Integrations.
+   */
+  async testPinterest(userId: string) {
+    const creds = await this.credentials.getRaw(userId).catch(() => null);
+    const token = creds?.pinterest_access_token || '';
+    const boardId = (creds?.pinterest_board_id || '').trim();
+    if (!token) {
+      return { ok: false, error: 'לא הוגדר Pinterest Access Token בהגדרות ← אינטגרציות (נדרשות הרשאות boards:read, pins:write).' };
+    }
+    if (!boardId) {
+      return { ok: false, error: 'לא הוגדר מזהה לוח (Board ID) לפרסום בפינטרסט.' };
+    }
+    try {
+      // Reading the specific board confirms BOTH that the token is valid AND that it can
+      // reach the exact board we'll pin to — the precise precondition for publishing.
+      const res = await axios.get(
+        `https://api.pinterest.com/v5/boards/${boardId}`,
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 8000, validateStatus: () => true },
+      );
+      if (res.status === 401) {
+        return { ok: false, error: 'הטוקן לא תקין או פג תוקף. צור Access Token חדש ב-Pinterest Developer עם ההרשאות boards:read, pins:write.' };
+      }
+      if (res.status === 404) {
+        return { ok: false, error: `לא נמצא לוח עם המזהה ${boardId}. ודא שזה ה-Board ID הנכון ושהוא שייך לחשבון של הטוקן.` };
+      }
+      if (res.status !== 200 || res.data?.code) {
+        return { ok: false, error: res.data?.message || `הבדיקה נכשלה (HTTP ${res.status}).` };
+      }
+      return { ok: true, board_name: res.data?.name || boardId };
+    } catch (err: any) {
+      return { ok: false, error: err?.response?.data?.message || err?.message || 'הבדיקה נכשלה.' };
+    }
+  }
+
   /** When this group's Facebook PAGE last received a post — the FB throttle clock. */
   async getFacebookLastSent(userId: string, channelId: string): Promise<Date | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
