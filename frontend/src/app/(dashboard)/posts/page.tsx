@@ -5,7 +5,7 @@ import {
   FileText, RefreshCw, Loader2, RotateCcw,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, Settings2,
   ListOrdered, Trash2, Package, AlertTriangle, Pencil, X, Save, SendHorizontal, Eye, Users, Megaphone,
-  ExternalLink, Wand2, Copy, Check,
+  ExternalLink, Wand2, Copy, Check, Star,
 } from 'lucide-react';
 import Link from 'next/link';
 import { postsApi, credentialsApi, channelsApi } from '@/lib/api-client';
@@ -415,6 +415,15 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
   const [retrying, setRetrying] = useState(false);
   const [retryingFailed, setRetryingFailed] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [isSource, setIsSource] = useState(!!post.is_repost_source);
+  const [settingSrc, setSettingSrc] = useState(false);
+
+  const handleSetSource = async () => {
+    setSettingSrc(true);
+    try { await postsApi.setRepostSource(post.id); setIsSource(true); }
+    catch { /* surfaced by the disabled state resetting */ }
+    finally { setSettingSrc(false); }
+  };
   const cfg = STATUS_CONFIG[post.status] || STATUS_CONFIG.pending;
   // A 'sent' post that still carries an error published to SOME channels but failed on
   // another → offer a retry that hits ONLY the platform(s) that didn't go out.
@@ -506,6 +515,12 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
           <button onClick={() => onRepublish(post)} title="פרסם מחדש — לתור או בתזמון"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-violet-400/70 hover:text-violet-400 hover:bg-violet-500/10 transition-all">
             <RefreshCw size={13} />
+          </button>
+          <button onClick={handleSetSource} disabled={settingSrc || isSource}
+            title={isSource ? 'זה פוסט המקור — פרסומים חוזרים של FLYLINK ישכפלו אותו בדיוק' : 'קבע כפוסט מקור — פרסומים חוזרים של FLYLINK ישכפלו את הטקסט והתמונות של הפוסט הזה'}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-100
+              ${isSource ? 'text-amber-400' : 'text-amber-400/50 hover:text-amber-400 hover:bg-amber-500/10'}`}>
+            {settingSrc ? <Loader2 size={13} className="animate-spin" /> : <Star size={13} fill={isSource ? 'currentColor' : 'none'} />}
           </button>
           <button onClick={() => onEdit(post)} title="ערוך פוסט"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition-all">

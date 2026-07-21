@@ -502,6 +502,8 @@ export interface Post {
   channel_override?: string | null;
   /** JSON array of channel_ids when the post fans out to several groups at once. */
   channel_overrides?: string | null;
+  /** Pinned as the template FLYLINK re-posts clone for this product. */
+  is_repost_source?: boolean;
   created_at: string;
 }
 

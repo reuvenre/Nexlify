@@ -216,10 +216,34 @@ export class PostsService {
    */
   async findOriginalPost(userId: string, productId: string): Promise<Post | null> {
     if (!productId) return null;
+    const key = String(productId);
+    // A post the user explicitly pinned as the source wins over the default (earliest sent).
+    const pinned = await this.repo.findOne({
+      where: { user_id: userId, product_id: key, is_repost_source: true },
+    });
+    if (pinned) return pinned;
     return this.repo.findOne({
-      where: { user_id: userId, product_id: String(productId), status: 'sent' },
+      where: { user_id: userId, product_id: key, status: 'sent' },
       order: { created_at: 'ASC' },
     });
+  }
+
+  /**
+   * Pin ONE post as the template FLYLINK re-posts clone for its product (same copy + images).
+   * Clears the flag on any other post of the same product so there's exactly one source.
+   */
+  async setRepostSource(userId: string, postId: string): Promise<Post> {
+    const post = await this.repo.findOne({ where: { id: postId, user_id: userId } });
+    if (!post) throw new NotFoundException('פוסט לא נמצא');
+    if (!post.product_id) throw new BadRequestException('לפוסט אין מזהה מוצר — לא ניתן לקבוע אותו כמקור');
+    // Exactly one source per product: clear the others first.
+    await this.repo.update(
+      { user_id: userId, product_id: post.product_id },
+      { is_repost_source: false },
+    );
+    post.is_repost_source = true;
+    await this.repo.save(post);
+    return post;
   }
 
   /**

@@ -438,6 +438,10 @@ export const postsApi = {
   push: (id: string, platforms: ('telegram' | 'facebook' | 'instagram')[], channels?: string[]) =>
     http.post<Post>(`/posts/${id}/push`, { platforms, channels }, { timeout: AI_TIMEOUT }).then(extract),
 
+  /** Pin this post as the template FLYLINK re-posts clone for its product (copy + images). */
+  setRepostSource: (id: string) =>
+    http.post<Post>(`/posts/${id}/repost-source`).then(extract),
+
   /** Full post edit: text, title, price, image, affiliate link, and/or scheduled time. */
   update: (id: string, data: {
     text?: string; scheduled_at?: string;

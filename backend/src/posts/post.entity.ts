@@ -65,6 +65,11 @@ export class Post {
   @Column({ nullable: true })
   pinterest_post_id: string;
 
+  /** Marks this post as the canonical template a FLYLINK re-post clones for its product
+   *  (overrides the default "earliest sent post"). At most one per product per user. */
+  @Column({ default: false })
+  is_repost_source: boolean;
+
   @Column({ default: 'pending' })
   status: PostStatus;
 

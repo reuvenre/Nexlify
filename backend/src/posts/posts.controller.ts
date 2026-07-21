@@ -105,6 +105,13 @@ export class PostsController {
     return this.svc.pushToPlatforms(this.uid(req), id, platforms, channels);
   }
 
+  /** Pin this post as the template FLYLINK re-posts clone for its product (copy + images). */
+  @Post(':id/repost-source')
+  @HttpCode(200)
+  setRepostSource(@Req() req: Request, @Param('id') id: string) {
+    return this.svc.setRepostSource(this.uid(req), id);
+  }
+
   // ── Queue ──────────────────────────────────────────────────────────────────
 
   @Get('queue')
