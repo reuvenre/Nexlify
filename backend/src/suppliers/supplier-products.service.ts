@@ -287,11 +287,12 @@ export class SupplierProductsService {
 
     // Vision: fetch SEVERAL of the real product photos so the AI can identify the item
     // reliably — a single first image is often a cover/size-chart/logo and makes the model
-    // write about the wrong thing (flip-flops → "lighting"). Skipped when a template is
-    // active (template wording is authoritative). A user hint overrides the model entirely.
+    // write about the wrong thing (flip-flops → "lighting"). For Yupoo/FLYLINK the "title" is
+    // just a CODE (e.g. "MM-2642001DP"), so the image is the ONLY product identity — vision
+    // must run EVEN with a template (the template gives the voice, vision gives the subject).
     let images: GenerateImage[] | undefined;
     let visionUsed = false;
-    if (opts?.vision && !opts?.template?.trim()) {
+    if (opts?.vision) {
       images = await this.fetchImagesBase64(this.rawGallery(p), 3);
       visionUsed = images.length > 0;
     }
@@ -303,6 +304,7 @@ export class SupplierProductsService {
 
     const result = await this.posts.preview(
       userId, p.sku || p.id, opts?.language || 'he', product, opts?.template, images, opts?.hint,
+      !!opts?.vision, // forceVision: keep vision on even under a template (code-only titles)
     );
     return { ...result, gallery, vision_used: visionUsed };
   }
@@ -518,8 +520,11 @@ export class SupplierProductsService {
         const product = this.toPostProduct(p, image, price, currency);
 
         // AI copy in the group's voice (charges one generation credit); createQueuedPost
-        // then reuses this text via textOverride, so it is NOT generated twice.
-        const preview = await this.posts.preview(userId, p.sku || p.id, 'he', product, template || undefined);
+        // then reuses this text via textOverride, so it is NOT generated twice. Use VISION:
+        // the Yupoo title is just a code, so the AI must write from the PHOTOS or it
+        // hallucinates the product (a swimsuit was described as "storage"). this.preview
+        // fetches the images and forces vision even under the group's template.
+        const preview = await this.preview(userId, p.id, { language: 'he', template: template || undefined, vision: true });
         const text = preview?.generated_text || p.description || undefined;
 
         // SCHEDULE in the group's next free slot + attribute to the campaign.

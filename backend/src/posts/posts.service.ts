@@ -255,7 +255,7 @@ export class PostsService {
 
   // ── Preview ───────────────────────────────────────────────────────────────
 
-  async preview(userId: string, productId: string, language = 'he', customProduct?: any, template?: string, images?: GenerateImage[], hint?: string) {
+  async preview(userId: string, productId: string, language = 'he', customProduct?: any, template?: string, images?: GenerateImage[], hint?: string, forceVision = false) {
     const creds = await this.credentials.getRaw(userId);
     const rate = await this.rates.getRate(creds?.currency_pair || 'USD_ILS');
     const product = customProduct || await this.searchProduct(productId, creds);
@@ -271,6 +271,7 @@ export class PostsService {
       priceAlreadyConverted ? product.sale_price : undefined,
       images,
       hint,
+      forceVision,
     );
 
     // The coupon line the send path WOULD append, so the composer shows what actually
@@ -2119,7 +2120,7 @@ export class PostsService {
 
   // ── OpenAI text generation ────────────────────────────────────────────────
 
-  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string): Promise<string> {
+  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false): Promise<string> {
     // Use direct local price if already converted, otherwise multiply by rate
     const priceLocal = priceLocalOverride !== undefined
       ? priceLocalOverride.toFixed(0)
@@ -2167,15 +2168,20 @@ export class PostsService {
       systemPrompt += `\n\nסוג/שם המוצר (מקור אמת מוחלט): "${h}". כתוב/כתבי אך ורק על המוצר הזה. אם התמונות נראות כמו משהו אחר — התעלם/י והתבסס/י על סוג המוצר שצוין. אסור בשום אופן לכתוב על קטגוריה אחרת.`;
     }
 
-    // Vision is for FREE-FORM generation (no template) — it grounds the copy in what's
-    // actually in the photo. With a template, the template's wording is authoritative and
-    // must stay verbatim, so injecting image details would corrupt fixed lines. Use vision
-    // ONLY when there's no template.
-    const visionImages = hasTemplate ? undefined : images;
+    // Vision grounds the copy in what's actually in the photo. Normally it's for free-form
+    // generation only — with a template the template wording is authoritative. BUT for
+    // Yupoo/FLYLINK the product "title" is just a CODE, so the image is the only identity:
+    // forceVision keeps vision on under a template (the template gives the voice/structure,
+    // vision gives the subject).
+    const visionImages = (hasTemplate && !forceVision) ? undefined : images;
     if (visionImages?.length) {
-      systemPrompt += h
-        ? '\n\nמצורפות תמונות המוצר — השתמש/י בהן רק כדי לדייק פרטים ויזואליים (צבע, חומר, סגנון) של המוצר שצוין למעלה. אל תשנה/י את סוג המוצר.'
-        : '\n\nמצורפות תמונות המוצר. שלב 1: זהה/י מהו המוצר לפי מה שנראה בתמונות (רוב התמונות מציגות את אותו פריט — התעלם/י מתמונות שער/מידות/לוגו). שלב 2: כתוב/כתבי על המוצר שזיהית. אל תמציא/י קטגוריה שאינה נראית בבירור; אם באמת לא ברור מהו המוצר — תאר/י אותו כללית (צבע/סגנון/שימוש) בלי לנחש קטגוריה ספציפית שעלולה להיות שגויה.';
+      if (h) {
+        systemPrompt += '\n\nמצורפות תמונות המוצר — השתמש/י בהן רק כדי לדייק פרטים ויזואליים (צבע, חומר, סגנון) של המוצר שצוין למעלה. אל תשנה/י את סוג המוצר.';
+      } else if (hasTemplate) {
+        systemPrompt += '\n\nמצורפות תמונות המוצר, וכותרת הטקסט היא רק קוד — לכן זהה/י מהתמונות מהו המוצר בפועל ופרטיו (צבע/חומר/סגנון) וכתוב/כתבי עליו. שמור/י על מבנה התבנית והשורות הקבועות בדיוק. אל תמציא/י קטגוריה שאינה נראית בבירור בתמונות.';
+      } else {
+        systemPrompt += '\n\nמצורפות תמונות המוצר. שלב 1: זהה/י מהו המוצר לפי מה שנראה בתמונות (רוב התמונות מציגות את אותו פריט — התעלם/י מתמונות שער/מידות/לוגו). שלב 2: כתוב/כתבי על המוצר שזיהית. אל תמציא/י קטגוריה שאינה נראית בבירור; אם באמת לא ברור מהו המוצר — תאר/י אותו כללית (צבע/סגנון/שימוש) בלי לנחש קטגוריה ספציפית שעלולה להיות שגויה.';
+      }
     }
 
     const userPrompt = hasTemplate
