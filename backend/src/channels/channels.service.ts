@@ -257,7 +257,19 @@ export class ChannelsService {
   }
 
   async resolveSendTarget(userId: string, channelId: string): Promise<{ token: string | null; chatId: string } | null> {
-    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    // Exact match first (the common case — the id came from a saved channel row).
+    let c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
+    // Fall back to a NORMALIZED match so a saved channel still resolves when the caller
+    // passed the id in a different form (e.g. "@name" vs "-100…", stray whitespace). This
+    // keeps the ownership gate in sendToTelegramChannel from wrongly rejecting a legit
+    // saved target on a formatting difference.
+    if (!c) {
+      const target = normalizeTelegramChatId((channelId || '').trim());
+      if (target) {
+        const owned = await this.repo.find({ where: { user_id: userId } });
+        c = owned.find((ch) => normalizeTelegramChatId(ch.channel_id) === target) || null;
+      }
+    }
     if (!c) return null;
     return {
       token: c.bot_token_enc ? decrypt(c.bot_token_enc) : null,

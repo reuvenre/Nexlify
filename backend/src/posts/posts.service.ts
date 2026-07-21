@@ -1666,8 +1666,15 @@ export class PostsService {
       if (target) {
         channel = target.chatId;
         if (target.token) token = target.token;
-      } else {
+      } else if (normalizeTelegramChatId(channelOverride) === normalizeTelegramChatId(creds?.telegram_channel_id)) {
+        // The override IS the account's own default chat (passed explicitly) — allowed,
+        // sent with the default bot token.
         channel = normalizeTelegramChatId(channelOverride);
+      } else {
+        // SECURITY (ownership gate): never post to a chat the user hasn't saved as one of
+        // their channels. Without this, an authenticated caller could pass an arbitrary
+        // chat_id and post there with their own bot. Fail the send loudly instead.
+        throw new Error(`יעד פרסום לא מאושר — הערוץ (${channelOverride}) אינו שמור בחשבון שלך`);
       }
     }
     if (!token || !channel) throw new Error('Missing Telegram credentials');
