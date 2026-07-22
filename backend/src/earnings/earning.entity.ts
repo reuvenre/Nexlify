@@ -24,6 +24,15 @@ export class Earning {
   @Column({ nullable: true })
   campaign_id: string;
 
+  /** The post that drove this commission (attribution: same product, published before
+   *  the order in a 30-day window; most-clicked post wins). null = not yet matched. */
+  @Column({ type: 'uuid', nullable: true })
+  post_id: string | null;
+
+  /** Search keyword inherited from the attributed post — powers the money-per-keyword report. */
+  @Column({ nullable: true, type: 'varchar' })
+  keyword: string | null;
+
   @Column()
   order_id: string;
 

@@ -5,7 +5,7 @@ import {
   BarChart3, TrendingUp, TrendingDown, Loader2,
   DollarSign, FileText, Award, Calendar,
 } from 'lucide-react';
-import { earningsApi, postsApi, pinterestApi, type PinterestAnalytics } from '@/lib/api-client';
+import { earningsApi, postsApi, pinterestApi, type PinterestAnalytics, type AttributionSummary } from '@/lib/api-client';
 import type { EarningsSummary } from '@/types';
 
 const UNIQUE_PERIODS = [
@@ -231,8 +231,94 @@ export default function ReportsPage() {
             </div>
           )}
 
+          <AttributionPanel />
           <PinterestPanel />
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Revenue attribution ──────────────────────────────────────────────────────
+
+/**
+ * "What actually earns": commissions matched back to the keyword/campaign that drove
+ * them, side-by-side with short-link clicks — the money table decisions get made on.
+ */
+function AttributionPanel() {
+  const [data, setData] = useState<AttributionSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    earningsApi.attribution()
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading || !data) return null;
+  const hasAny = data.by_keyword.length > 0 || data.by_campaign.length > 0;
+
+  return (
+    <div className="bg-surface-secondary border border-edge rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-lg">💰</span>
+        <h2 className="text-sm font-semibold text-white">מה מכניס כסף — לפי מילת מפתח</h2>
+      </div>
+      {!hasAny ? (
+        <p className="text-xs text-white/35 mt-2">
+          עדיין אין נתוני שיוך — ברגע שפוסטים חדשים יצברו קליקים והזמנות, תראה כאן בדיוק אילו
+          מילות מפתח וקמפיינים מייצרים עמלות.
+        </p>
+      ) : (
+        <>
+          <div className="overflow-x-auto mt-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-2xs text-white/30 border-b border-edge">
+                  <th className="text-right py-2 px-2 font-medium">מילת מפתח</th>
+                  <th className="text-right py-2 px-2 font-medium">עמלות</th>
+                  <th className="text-right py-2 px-2 font-medium">הזמנות</th>
+                  <th className="text-right py-2 px-2 font-medium">קליקים</th>
+                  <th className="text-right py-2 px-2 font-medium">פוסטים</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.by_keyword.slice(0, 12).map((k) => (
+                  <tr key={k.keyword} className="border-b border-edge/50">
+                    <td className="py-2 px-2 text-white/80">{k.keyword}</td>
+                    <td className={`py-2 px-2 font-semibold ${k.revenue_ils > 0 ? 'text-emerald-400' : 'text-white/30'}`}>
+                      ₪{k.revenue_ils.toFixed(2)}
+                    </td>
+                    <td className="py-2 px-2 text-white/50">{k.orders}</td>
+                    <td className="py-2 px-2 text-white/50">{k.clicks}</td>
+                    <td className="py-2 px-2 text-white/30">{k.posts}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {data.by_campaign.length > 0 && (
+            <div className="mt-4">
+              <p className="text-2xs text-white/30 mb-2">לפי טייס אוטומטי</p>
+              <div className="flex flex-wrap gap-2">
+                {data.by_campaign.map((c) => (
+                  <span key={c.campaign_id} className="text-xs bg-white/5 border border-edge rounded-lg px-3 py-1.5 text-white/70">
+                    {c.name}: <b className="text-emerald-400">₪{c.revenue_ils.toFixed(2)}</b> · {c.orders} הזמנות
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {data.unattributed.orders > 0 && (
+            <p className="text-2xs text-white/25 mt-3">
+              {data.unattributed.orders} הזמנות (₪{data.unattributed.revenue_ils.toFixed(2)}) ללא שיוך לפוסט —
+              בעיקר הזמנות מלפני הפעלת המעקב.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

@@ -33,4 +33,10 @@ export class EarningsController {
   sync(@Req() req: Request) {
     return this.svc.sync((req.user as any).id);
   }
+
+  /** "What actually earns" — commissions by keyword/campaign merged with click data. */
+  @Get('attribution')
+  attribution(@Req() req: Request) {
+    return this.svc.attributionSummary((req.user as any).id);
+  }
 }

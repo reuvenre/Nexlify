@@ -78,6 +78,11 @@ export class Post {
   @Column({ type: 'int', default: 0 })
   clicks_count: number;
 
+  /** The campaign search keyword that produced this post — attribution inherits it, so
+   *  revenue can be reported per keyword. null for manual/non-campaign posts. */
+  @Column({ nullable: true, type: 'varchar' })
+  keyword: string | null;
+
   /** Marks this post as the canonical template a FLYLINK re-post clones for its product
    *  (overrides the default "earliest sent post"). At most one per product per user. */
   @Column({ default: false })

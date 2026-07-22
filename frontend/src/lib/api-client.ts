@@ -469,6 +469,14 @@ export const postsApi = {
     ).then(extract),
 };
 
+// ─── Revenue attribution API ─────────────────────────────────────────────────
+
+export interface AttributionSummary {
+  by_keyword: Array<{ keyword: string; orders: number; revenue_ils: number; clicks: number; posts: number }>;
+  by_campaign: Array<{ campaign_id: string; name: string; orders: number; revenue_ils: number }>;
+  unattributed: { orders: number; revenue_ils: number };
+}
+
 // ─── Pinterest analytics API ─────────────────────────────────────────────────
 
 export interface PinAnalyticsRow {
@@ -493,6 +501,9 @@ export const pinterestApi = {
 export const earningsApi = {
   summary: (params?: { period?: '7d' | '30d' | '90d' | 'all' }) =>
     http.get<EarningsSummary>('/earnings/summary', { params }).then(extract),
+
+  /** "What actually earns" — commissions by keyword/campaign + clicks. */
+  attribution: () => http.get<AttributionSummary>('/earnings/attribution').then(extract),
 
   list: (params?: { page?: number; limit?: number; status?: string; from?: string; to?: string }) =>
     http.get<PaginatedResponse<Earning> & {

@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, IsNull, Repository } from 'typeorm';
 import { Earning } from './earning.entity';
+import { Post } from '../posts/post.entity';
+import { Campaign } from '../campaigns/campaign.entity';
 import { CredentialsService } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
 import { signAliexpress } from '../common/aliexpress-sign';
@@ -51,9 +53,125 @@ export class EarningsService {
   constructor(
     @InjectRepository(Earning)
     private readonly repo: Repository<Earning>,
+    @InjectRepository(Post)
+    private readonly postsRepo: Repository<Post>,
+    @InjectRepository(Campaign)
+    private readonly campaignsRepo: Repository<Campaign>,
     private readonly credentials: CredentialsService,
     private readonly rates: RatesService,
   ) {}
+
+  // ── Revenue attribution ───────────────────────────────────────────────────
+
+  /**
+   * Match unattributed commissions to the post that drove them: same product,
+   * published (sent) before the order inside a 30-day window. When several posts
+   * promoted the product, the one with the most short-link clicks wins (then the
+   * most recent) — clicks are the only honest tiebreaker we have. From the post
+   * we inherit keyword + campaign, which powers the "what actually earns" report.
+   */
+  async attributeEarnings(userId: string): Promise<number> {
+    const unattributed = await this.repo.find({
+      where: { user_id: userId, post_id: IsNull() },
+      take: 500,
+    });
+    let attributed = 0;
+    for (const e of unattributed) {
+      if (!e.product_id || e.product_id === 'unknown') continue;
+      const windowStart = new Date(new Date(e.order_date).getTime() - 30 * 86_400_000);
+      const post = await this.postsRepo.findOne({
+        where: {
+          user_id: userId,
+          product_id: e.product_id,
+          status: 'sent',
+          sent_at: Between(windowStart, new Date(e.order_date)),
+        },
+        order: { clicks_count: 'DESC', sent_at: 'DESC' },
+      });
+      if (!post) continue;
+      e.post_id = post.id;
+      e.keyword = post.keyword || null;
+      if (!e.campaign_id) e.campaign_id = post.campaign_id || null;
+      await this.repo.save(e);
+      attributed++;
+    }
+    return attributed;
+  }
+
+  /** "What actually earns": commissions grouped by keyword and campaign, merged with
+   *  the click counts from the short links — the reports screen's money table. */
+  async attributionSummary(userId: string) {
+    const byKeywordRaw = await this.repo.createQueryBuilder('e')
+      .select('e.keyword', 'keyword')
+      .addSelect('COUNT(*)', 'orders')
+      .addSelect('SUM(e.commission_ils)', 'revenue_ils')
+      .where('e.user_id = :u', { u: userId })
+      .andWhere("e.status != 'cancelled'")
+      .andWhere('e.post_id IS NOT NULL')
+      .groupBy('e.keyword')
+      .orderBy('SUM(e.commission_ils)', 'DESC')
+      .limit(25)
+      .getRawMany();
+
+    const clicksRaw = await this.postsRepo.createQueryBuilder('p')
+      .select('p.keyword', 'keyword')
+      .addSelect('SUM(p.clicks_count)', 'clicks')
+      .addSelect('COUNT(*)', 'posts')
+      .where('p.user_id = :u', { u: userId })
+      .andWhere('p.keyword IS NOT NULL')
+      .groupBy('p.keyword')
+      .getRawMany();
+    const clicksBy = new Map(clicksRaw.map((r) => [r.keyword, r]));
+
+    const by_keyword = byKeywordRaw.map((r) => ({
+      keyword: r.keyword || '(ללא מילת מפתח)',
+      orders: Number(r.orders) || 0,
+      revenue_ils: +(Number(r.revenue_ils) || 0).toFixed(2),
+      clicks: Number(clicksBy.get(r.keyword)?.clicks) || 0,
+      posts: Number(clicksBy.get(r.keyword)?.posts) || 0,
+    }));
+    // Keywords with clicks but no revenue yet — shown so dead spenders are visible too.
+    for (const r of clicksRaw) {
+      if (!byKeywordRaw.some((k) => k.keyword === r.keyword)) {
+        by_keyword.push({ keyword: r.keyword, orders: 0, revenue_ils: 0, clicks: Number(r.clicks) || 0, posts: Number(r.posts) || 0 });
+      }
+    }
+
+    const byCampaignRaw = await this.repo.createQueryBuilder('e')
+      .select('e.campaign_id', 'campaign_id')
+      .addSelect('COUNT(*)', 'orders')
+      .addSelect('SUM(e.commission_ils)', 'revenue_ils')
+      .where('e.user_id = :u', { u: userId })
+      .andWhere("e.status != 'cancelled'")
+      .andWhere('e.campaign_id IS NOT NULL')
+      .groupBy('e.campaign_id')
+      .orderBy('SUM(e.commission_ils)', 'DESC')
+      .limit(15)
+      .getRawMany();
+    const campaigns = byCampaignRaw.length
+      ? await this.campaignsRepo.findByIds(byCampaignRaw.map((r) => r.campaign_id))
+      : [];
+    const nameBy = new Map(campaigns.map((c) => [c.id, c.name]));
+    const by_campaign = byCampaignRaw.map((r) => ({
+      campaign_id: r.campaign_id,
+      name: nameBy.get(r.campaign_id) || 'קמפיין שנמחק',
+      orders: Number(r.orders) || 0,
+      revenue_ils: +(Number(r.revenue_ils) || 0).toFixed(2),
+    }));
+
+    const un = await this.repo.createQueryBuilder('e')
+      .select('COUNT(*)', 'orders')
+      .addSelect('SUM(e.commission_ils)', 'revenue_ils')
+      .where('e.user_id = :u AND e.post_id IS NULL', { u: userId })
+      .andWhere("e.status != 'cancelled'")
+      .getRawOne();
+
+    return {
+      by_keyword,
+      by_campaign,
+      unattributed: { orders: Number(un?.orders) || 0, revenue_ils: +(Number(un?.revenue_ils) || 0).toFixed(2) },
+    };
+  }
 
   async summary(userId: string, period: '7d' | '30d' | '90d' | 'all' = '30d') {
     const from = this.periodStart(period);
@@ -190,7 +308,12 @@ export class EarningsService {
     }
     this.syncing.add(userId);
     try {
-      return await this.doSync(userId, creds);
+      const result = await this.doSync(userId, creds);
+      // Attribution rides every sync: fresh orders get matched to the posts that drove
+      // them while the data is hot. Best-effort — a matching failure must not fail the sync.
+      await this.attributeEarnings(userId).catch((err: any) =>
+        this.logger.warn(`attribution failed for ${userId}: ${err?.message}`));
+      return result;
     } finally {
       this.syncing.delete(userId);
     }

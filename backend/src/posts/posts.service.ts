@@ -1073,13 +1073,19 @@ export class PostsService {
       poolCursor.set(kw, i);
       return null;
     };
-    const toPost: any[] = [];
+    // Track WHICH keyword actually supplied each product (a borrowed slot carries the
+    // donor keyword) — persisted on the post so revenue attribution can report per keyword.
+    const toPost: Array<{ product: any; kw: string }> = [];
     for (const kw of slotKeywords) {
       let product = takeFrom(kw);
+      let source = kw;
       if (!product) {
-        for (const alt of poolBy.keys()) { product = takeFrom(alt); if (product) break; }
+        for (const alt of poolBy.keys()) {
+          product = takeFrom(alt);
+          if (product) { source = alt; break; }
+        }
       }
-      if (product) toPost.push(product);
+      if (product) toPost.push({ product, kw: source });
     }
 
     // A dedicated-Pinterest campaign writes pin-optimized copy (keyword-rich description,
@@ -1121,7 +1127,7 @@ export class PostsService {
 
     let skipped = 0;
     for (let i = 0; i < toPost.length; i++) {
-      const product = toPost[i];
+      const { product, kw: slotKeyword } = toPost[i];
       try {
         // Per-group pacing: place the post in the group's next free slot (spaced by the
         // group's interval from any pending post to it, any source). On a SCHEDULED run,
@@ -1159,6 +1165,7 @@ export class PostsService {
           sale_price_usd: parts.saleUsd,
           price_ils: parts.priceIls,
           generated_text: text,
+          keyword: slotKeyword,
           status: 'scheduled',
           scheduled_at: scheduledAt,
         });
