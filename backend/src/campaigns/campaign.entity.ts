@@ -99,6 +99,23 @@ export class Campaign {
   @Column({ nullable: true })
   currency_pair: string | null;
 
+  /**
+   * Per-campaign send-window override, in `window_tz` local hours — so a US-audience
+   * Pinterest campaign can publish 17:00–22:00 New-York time while the Israeli
+   * campaigns keep the account's 9–22 Israel window. All null = the target group's
+   * window, else the account's (legacy behaviour).
+   */
+  @Column({ type: 'int', nullable: true })
+  window_start_hour: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  window_end_hour: number | null;
+
+  /** IANA timezone the window hours are read in (e.g. 'America/New_York').
+   *  null = the scheduler's default timezone (Asia/Jerusalem). */
+  @Column({ nullable: true })
+  window_tz: string | null;
+
   @Column('float', { default: 0 })
   markup_percent: number;
 

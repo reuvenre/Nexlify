@@ -71,6 +71,25 @@ export class CampaignDto {
   @IsIn(['USD_ILS', 'USD_USD', 'USD_EUR', 'USD_GBP'])
   currency_pair?: string;
 
+  /** Per-campaign send window (hours in window_tz). Omitted = group/account window. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(23)
+  window_start_hour?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(24)
+  window_end_hour?: number;
+
+  /** IANA timezone for the window hours — limited to a known set so a typo can't
+   *  silently break scheduling. */
+  @IsOptional()
+  @IsIn(['Asia/Jerusalem', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/London'])
+  window_tz?: string;
+
   @IsOptional()
   @IsNumber()
   markup_percent?: number;

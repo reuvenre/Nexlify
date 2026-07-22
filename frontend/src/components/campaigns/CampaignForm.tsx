@@ -23,6 +23,15 @@ const CURRENCIES = [
   { key: 'USD_GBP', label: '£ ליש״ט' },
 ] as const;
 
+const TIMEZONES = [
+  { key: 'Asia/Jerusalem', label: '🇮🇱 ישראל' },
+  { key: 'America/New_York', label: '🇺🇸 ניו-יורק (מזרח)' },
+  { key: 'America/Chicago', label: '🇺🇸 שיקגו (מרכז)' },
+  { key: 'America/Denver', label: '🇺🇸 דנוור (הרים)' },
+  { key: 'America/Los_Angeles', label: '🇺🇸 לוס-אנג׳לס (מערב)' },
+  { key: 'Europe/London', label: '🇬🇧 לונדון' },
+] as const;
+
 const CRON_PRESETS = [
   { label: 'כל שעה',         value: '0 * * * *' },
   { label: 'כל 3 שעות',      value: '0 */3 * * *' },
@@ -52,6 +61,10 @@ export function CampaignForm({
   const [kwInput, setKwInput] = useState('');
   const [form, setForm] = useState<CampaignInput>({ source: 'aliexpress', target_channels: [], ...initial });
   const [channels, setChannels] = useState<GroupOption[]>([]);
+  // Custom send window: on when the campaign already carries one (edit mode).
+  const [useWindow, setUseWindow] = useState(
+    initial.window_start_hour != null || initial.window_end_hour != null || !!initial.window_tz,
+  );
 
   const source: CampaignSource = form.source ?? 'aliexpress';
   const isFlylink = source === 'flylink';
@@ -97,11 +110,23 @@ export function CampaignForm({
       // toggling back and forth doesn't get persisted for the wrong source. Amazon is a hybrid:
       // it keyword-searches (like AliExpress) but publishes to a chosen group (like FLYLINK),
       // and PA-API exposes no rating/discount, so those filters are dropped.
-      const payload: CampaignInput = isFlylink
+      const base: CampaignInput = isFlylink
         ? { ...form, source: 'flylink', keywords: [], min_price: undefined, max_price: undefined, min_discount: undefined }
         : isAmazon
           ? { ...form, source: 'amazon', target_channels: form.target_channels ?? [], min_discount: undefined, min_rating: undefined }
           : { ...form, source: 'aliexpress', target_channels: form.target_channels ?? [] };
+      // Custom window off → explicit nulls so a previously-saved window is CLEARED,
+      // not silently kept. On → fill sensible defaults for anything left empty.
+      const payload: CampaignInput = {
+        ...base,
+        ...(useWindow
+          ? {
+              window_tz: form.window_tz || 'Asia/Jerusalem',
+              window_start_hour: form.window_start_hour ?? 9,
+              window_end_hour: form.window_end_hour ?? 22,
+            }
+          : { window_tz: null, window_start_hour: null, window_end_hour: null }),
+      };
       const c = await onSubmit(payload);
       router.push(`/campaigns/${c.id}`);
     } catch (err: unknown) {
@@ -474,6 +499,76 @@ export function CampaignForm({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Per-campaign send window in its own timezone — a US-audience Pinterest campaign
+            publishes on New-York evening hours while everything else stays on Israel time. */}
+        <div className="bg-surface-secondary border border-edge rounded-xl p-5">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-sm font-semibold text-white">🕐 חלון שליחה מותאם</h2>
+            <button
+              type="button"
+              onClick={() => setUseWindow((v) => !v)}
+              className={`relative w-9 h-5 rounded-full transition-colors ${useWindow ? 'bg-blue-500' : 'bg-white/15'}`}
+            >
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${useWindow ? 'right-0.5' : 'right-4'}`} />
+            </button>
+          </div>
+          <p className="text-2xs text-white/35 mb-4">
+            כבוי — הטייס מפרסם לפי חלון השליחה הכללי (הגדרות ← תזמון, שעון ישראל).
+            דלוק — הטייס הזה מקבל שעות משלו <b>באזור זמן משלו</b> — למשל ערב בארה&quot;ב לקהל אמריקאי בפינטרסט.
+          </p>
+          {useWindow && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-white/50 mb-2">אזור זמן</label>
+                <div className="flex gap-2 flex-wrap">
+                  {TIMEZONES.map((tz) => {
+                    const active = (form.window_tz || 'Asia/Jerusalem') === tz.key;
+                    return (
+                      <button
+                        key={tz.key}
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, window_tz: tz.key }))}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium transition-all
+                          ${active
+                            ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
+                            : 'bg-white/5 text-white/40 border border-edge hover:bg-white/10'}`}
+                      >
+                        {tz.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-white/50 mb-1.5">משעה</label>
+                  <input
+                    type="number" min={0} max={23}
+                    value={form.window_start_hour ?? 9}
+                    onChange={(e) => setForm((f) => ({ ...f, window_start_hour: Math.max(0, Math.min(23, +e.target.value)) }))}
+                    className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors"
+                    dir="ltr"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-white/50 mb-1.5">עד שעה</label>
+                  <input
+                    type="number" min={1} max={24}
+                    value={form.window_end_hour ?? 22}
+                    onChange={(e) => setForm((f) => ({ ...f, window_end_hour: Math.max(1, Math.min(24, +e.target.value)) }))}
+                    className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+              <p className="text-2xs text-white/30">
+                השעות נקראות באזור הזמן שנבחר. לדוגמה: ניו-יורק 17–22 = שעות הערב החזקות של פינטרסט בארה&quot;ב
+                (00:00–05:00 לפנות בוקר בישראל). הרצות של הטייס מחוץ לחלון מדולגות אוטומטית.
+              </p>
+            </div>
+          )}
         </div>
 
         {error && (

@@ -346,6 +346,10 @@ export interface Campaign {
   target_platforms: string[];
   /** Price-currency override (e.g. 'USD_USD'); null/undefined = the account's currency. */
   currency_pair?: string | null;
+  /** Per-campaign send window (hours in window_tz); null = group/account window. */
+  window_start_hour?: number | null;
+  window_end_hour?: number | null;
+  window_tz?: string | null;
   markup_percent: number;
   post_template?: string;
   last_run_at?: string;
@@ -371,6 +375,10 @@ export interface CampaignInput {
   target_platforms?: string[];
   /** null clears a previously-saved override back to the account currency. */
   currency_pair?: string | null;
+  /** Per-campaign send window; nulls clear back to the group/account window. */
+  window_start_hour?: number | null;
+  window_end_hour?: number | null;
+  window_tz?: string | null;
   markup_percent?: number;
   post_template?: string;
 }

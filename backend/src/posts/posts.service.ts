@@ -844,9 +844,12 @@ export class PostsService {
   campaignScheduleTimes(
     count: number,
     creds: DecryptedCredentials | null,
-    window?: { startHour?: number | null; endHour?: number | null },
+    window?: { startHour?: number | null; endHour?: number | null; tz?: string | null },
   ): Date[] {
-    const tz = process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
+    // The window's hours are read in ITS timezone — a campaign-level window can say
+    // "17–22 America/New_York" (US-audience Pinterest) while everything else stays on
+    // the scheduler default (Israel).
+    const tz = window?.tz || process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
     // A campaign targeting a specific group publishes in THAT group's window when it has one,
     // falling back to the account's global window, then to 9–22. This is why a group campaign
     // no longer fires at, say, 6am just because the global default did.
@@ -892,18 +895,30 @@ export class PostsService {
    * hourly run creates a post clamped to the window-open time, and they all pile up and burst
    * the moment the window opens (the "6am flood"). A manual "run now" ignores this.
    */
+  /** The campaign's own send-window override, or null when it doesn't declare one. */
+  private campaignWindow(campaign: Campaign): { startHour: number | null; endHour: number | null; tz: string | null } | null {
+    if (campaign.window_start_hour == null && campaign.window_end_hour == null && !campaign.window_tz) return null;
+    return {
+      startHour: campaign.window_start_hour ?? null,
+      endHour: campaign.window_end_hour ?? null,
+      tz: campaign.window_tz || null,
+    };
+  }
+
   async isCampaignWindowOpen(userId: string, campaign: Campaign, creds?: DecryptedCredentials | null): Promise<boolean> {
-    // Resolve the window from the SAME source the scheduled_at clamp uses: the target group's
-    // hours, else the account's, else 9–22. Fetch creds if the caller didn't pass them.
+    // Resolve the window from the SAME source the scheduled_at clamp uses: the campaign's
+    // own window (with its own timezone), else the target group's hours, else the
+    // account's, else 9–22. Fetch creds if the caller didn't pass them.
     const c = creds !== undefined ? creds : await this.credentials.getRaw(userId).catch(() => null);
+    const own = this.campaignWindow(campaign);
     const targets = this.parseTargetChannels(campaign.target_channels);
-    const window = targets.length
+    const window = own ?? (targets.length
       ? await this.channels.getScheduleWindow(userId, targets[0]).catch(() => null)
-      : null;
+      : null);
     const startHour = window?.startHour ?? c?.schedule_start_hour ?? 9;
     const endHour = window?.endHour ?? c?.schedule_end_hour ?? 22;
     if (startHour >= endHour) return true; // 24h / misconfigured window → never block
-    const tz = process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
+    const tz = (own?.tz) || process.env.SCHEDULER_TZ || 'Asia/Jerusalem';
     const h = this.hourInZone(new Date(), tz);
     return h >= startHour && h < endHour;
   }
@@ -1051,11 +1066,13 @@ export class PostsService {
 
     // Publish times for THIS run — the campaign's own cron is the cadence, so posts go out
     // now (spaced 15 min for multi-post runs), NOT re-paced by the global queue interval.
-    // Scheduled inside the TARGET group's send window when it has one, so a group campaign
-    // posts in that group's hours instead of a global default.
-    const window = targets.length
-      ? await this.channels.getScheduleWindow(userId, targets[0]).catch(() => null)
-      : null;
+    // Window precedence: the campaign's OWN window (with its own timezone — e.g. a
+    // US-audience Pinterest campaign on New-York evening hours) → the target group's
+    // window → the account's global window.
+    const window = this.campaignWindow(campaign)
+      ?? (targets.length
+        ? await this.channels.getScheduleWindow(userId, targets[0]).catch(() => null)
+        : null);
     const times = this.campaignScheduleTimes(toPost.length, creds, window || undefined);
 
     let skipped = 0;
