@@ -1775,7 +1775,7 @@ export class PostsService {
         ? mdBoldToHtml(post.generated_text)
         : await this.buildPostBody(post, creds, targets[0]);
       tasks.push(
-        this.sendToPinterest(post, creds, body)
+        this.sendToPinterest(post, creds, body, { titleFromMessage: dedicated })
           .then(() => { anySuccess = true; })
           .catch((err: any) => { errors.push(`Pinterest: ${err?.response?.data?.message || err?.response?.data?.error?.message || err.message}`); }),
       );
@@ -2186,7 +2186,7 @@ export class PostsService {
    * to the product. Needs a Pinterest access token (scopes: boards:read, pins:read,
    * pins:write) and a target board id, both from Settings ← Integrations. Requires an image.
    */
-  private async sendToPinterest(post: Post, creds: DecryptedCredentials, message: string) {
+  private async sendToPinterest(post: Post, creds: DecryptedCredentials, message: string, opts?: { titleFromMessage?: boolean }) {
     const token = creds?.pinterest_access_token;
     const boardId = creds?.pinterest_board_id;
     if (!token || !boardId) throw new Error('Missing Pinterest credentials');
@@ -2210,8 +2210,21 @@ export class PostsService {
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-    const title = (post.product_title || noLinks.split('\n')[0] || 'מוצר').slice(0, 100);
-    const description = (noLinks || plain).slice(0, 500);
+    let title = (post.product_title || noLinks.split('\n')[0] || 'מוצר').slice(0, 100);
+    let description = (noLinks || plain).slice(0, 500);
+    // A dedicated-Pinterest campaign generates its own SEO title as the FIRST LINE of
+    // the text — the raw AliExpress title is keyword-stuffed spam ("2024 New Hot
+    // Sale..."), exactly what Pinterest's ranking dislikes. Use the generated title
+    // and keep the remainder as the description.
+    if (opts?.titleFromMessage) {
+      const lines = noLinks.split('\n').map((l) => l.trim());
+      const first = lines[0] || '';
+      const rest = lines.slice(1).join('\n').trim();
+      if (first && first.length <= 100 && rest) {
+        title = first;
+        description = rest.slice(0, 500);
+      }
+    }
 
     const res = await axios.post(
       'https://api.pinterest.com/v5/pins',
@@ -2618,33 +2631,33 @@ Critical rules:
    */
   private pinterestSystemPrompt(language: string): string {
     if (language === 'he') {
-      return `אתה כותב תיאורי פינים לפינטרסט — מנוע חיפוש ויזואלי, לא פיד חברתי.
-חוקים קריטיים:
-• כתוב בעברית בלבד, טקסט רגיל בלבד — בלי HTML, בלי Markdown, בלי קישורים ובלי אימוג'י-ספאם
-• 2–3 משפטים קצרים ועשירים במילות חיפוש: מה המוצר, למי הוא מתאים, למה שווה לקנות
-• ציין את המחיר פעם אחת בלבד
-• סיים בקריאה קצרה לפעולה (הקישור כבר מוצמד לפין — אל תזכיר "לינק")
-• שורה אחרונה: 2–4 האשטגים רלוונטיים, לא יותר
-• אורך כולל: עד 450 תווים`;
+      return `אתה כותב תוכן פינים לפינטרסט — מנוע חיפוש ויזואלי, לא פיד חברתי. הטקסט הוא SEO: פינים מופיעים בחיפוש במשך חודשים.
+פורמט הפלט — טקסט רגיל בלבד (בלי HTML, בלי Markdown, בלי קישורים):
+שורה 1: כותרת מוצר נקייה ועשירה במילות חיפוש — עד 90 תווים, בלי אימוג'י ובלי מילות ספאם ("חדש!", "מבצע חם")
+שורה 2: ריקה
+ואז 2–3 משפטים (עד 420 תווים): פתח במילת החיפוש המרכזית + התועלת העיקרית; שלב בטבעיות 2–3 ביטויי חיפוש משניים (שימוש, חדר, אירוע); ציין את המחיר פעם אחת; סיים בקריאה קצרה לפעולה (אל תזכיר "לינק" — הפין עצמו הוא הקישור)
+שורה אחרונה: 3–4 האשטגים, מיקס של רחב וספציפי`;
     }
     if (language === 'ar') {
-      return `أنت تكتب أوصاف Pins لـ Pinterest — محرك بحث بصري، وليس موجزاً اجتماعياً.
-قواعد حرجة:
-• اكتب بالعربية فقط، نص عادي فقط — بدون HTML أو Markdown أو روابط
-• 2–3 جمل قصيرة غنية بكلمات البحث: ما المنتج، لمن يناسب، لماذا يستحق الشراء
-• اذكر السعر مرة واحدة فقط
-• اختم بدعوة قصيرة للعمل (الرابط مرفق بالـ Pin — لا تذكر "الرابط")
-• السطر الأخير: 2–4 هاشتاغات ذات صلة فقط
-• الطول الإجمالي: حتى 450 حرفاً`;
+      return `أنت تكتب محتوى Pins لـ Pinterest — محرك بحث بصري، وليس موجزاً اجتماعياً. النص هو SEO: الـ Pins تظهر في البحث لأشهر.
+تنسيق الإخراج — نص عادي فقط (بدون HTML أو Markdown أو روابط):
+السطر 1: عنوان منتج نظيف غني بكلمات البحث — حتى 90 حرفاً، بدون إيموجي وبدون كلمات ترويجية مبتذلة
+السطر 2: فارغ
+ثم 2–3 جمل (حتى 420 حرفاً): ابدأ بعبارة البحث الرئيسية + الفائدة الأساسية؛ اذكر السعر مرة واحدة؛ اختم بدعوة قصيرة للعمل (لا تذكر "الرابط" — الـ Pin نفسه هو الرابط)
+السطر الأخير: 3–4 هاشتاغات`;
     }
-    return `You write Pinterest pin descriptions. Pinterest is a visual SEARCH engine, not a social feed — the description is ranked by its keywords and the pin itself already carries the product link.
-Critical rules:
-• Write in English only, PLAIN TEXT only — no HTML, no Markdown, no links, no emoji spam
-• 2–3 short keyword-rich sentences: what the product is, who it's for, why it's worth buying — naturally weave in the search terms a shopper would type
-• Mention the price exactly once
-• End with a short call to action like "Tap to shop" (never say "link in bio/comments" — the pin IS the link)
-• Final line: 2–4 relevant hashtags, no more
-• Total length: under 450 characters`;
+    return `You write Pinterest pin content for a US shopping audience. Pinterest is a visual SEARCH engine, not a social feed: pins surface through keyword search for months, so this is SEO copy — helpful and specific, never hype.
+
+Output format — PLAIN TEXT only (no HTML, no Markdown, no links):
+Line 1: a clean, keyword-rich product title — 50–90 characters, Title Case, no emoji, no year, no "Hot Sale"/"New" spam. The product's real name plus its strongest search phrase (e.g. "360 Rotating Jewelry Organizer with Earring Holder").
+Line 2: empty.
+Then 2–3 sentences (300–420 characters total):
+• Open with the PRIMARY search phrase + the main benefit — the first 60 characters are all shoppers see in the feed, front-load them
+• Naturally weave in 2–3 secondary search terms a shopper would type: the use case, the room, the occasion ("small spaces", "dorm room", "gift for her")
+• American English, warm and helpful — a friend's recommendation, not an ad. No ALL-CAPS, no "Buy now!!", at most one emoji
+• Mention the price exactly once in US format ("just $12.99"); if the order count is high, add one short social-proof note ("loved by 5K+ shoppers")
+• Close with a short CTA like "Tap to shop" (never "link in bio/comments" — the pin IS the link)
+Last line: 3–4 hashtags mixing one broad and two specific (e.g. #homeorganization #jewelrystorage #vanitydecor).`;
   }
 
   /** Product facts + the "write a pin description" ask — the Pinterest counterpart of
