@@ -531,6 +531,9 @@ export interface Post {
   channel_overrides?: string | null;
   /** Pinned as the template FLYLINK re-posts clone for this product. */
   is_repost_source?: boolean;
+  /** Trackable short-link code (/r/<code>) + cached click total. */
+  short_code?: string;
+  clicks_count?: number;
   created_at: string;
 }
 

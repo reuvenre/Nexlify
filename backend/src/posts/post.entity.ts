@@ -69,6 +69,15 @@ export class Post {
   @Column({ nullable: true })
   whatsapp_message_id: string;
 
+  /** Code for the trackable /r/<code> short link — minted at first publish. Clicks on it
+   *  land in link_clicks and roll up into clicks_count. */
+  @Column({ nullable: true, unique: true })
+  short_code: string;
+
+  /** Cached click total (from link_clicks) so the posts list shows clicks without a join. */
+  @Column({ type: 'int', default: 0 })
+  clicks_count: number;
+
   /** Marks this post as the canonical template a FLYLINK re-post clones for its product
    *  (overrides the default "earliest sent post"). At most one per product per user. */
   @Column({ default: false })

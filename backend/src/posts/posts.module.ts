@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LinksModule } from '../links/links.module';
 import { Post } from './post.entity';
 import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
@@ -21,6 +22,7 @@ import { CollageModule } from '../collage/collage.module';
     TypeOrmModule.forFeature([Post, Template, Campaign]),
     CredentialsModule,
     CouponsModule,
+    LinksModule,
     RatesModule,
     AiModule,
     SubscriptionModule,

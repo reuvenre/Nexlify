@@ -482,6 +482,12 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
       </td>
       <td className="py-3 px-4 text-sm text-white/50">
         ₪{post.price_ils?.toFixed(2) || '—'}
+        {/* Click count from the trackable short link — the fast performance signal. */}
+        {(post.clicks_count ?? 0) > 0 && (
+          <span className="block text-2xs text-emerald-400 mt-0.5" title="קליקים על הלינק בפוסט">
+            🔗 {post.clicks_count} קליקים
+          </span>
+        )}
       </td>
       <td className="py-3 px-4 text-xs text-white/30">
         {post.status === 'scheduled' && post.scheduled_at ? (

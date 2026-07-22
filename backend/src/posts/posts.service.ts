@@ -14,6 +14,7 @@ import { AiService, GenerateImage } from '../ai/ai.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { ChannelsService } from '../channels/channels.service';
 import { CouponsService } from '../coupons/coupons.service';
+import { LinksService } from '../links/links.service';
 import { CollageService } from '../collage/collage.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
@@ -129,6 +130,7 @@ export class PostsService {
     private readonly channels: ChannelsService,
     private readonly collage: CollageService,
     private readonly coupons: CouponsService,
+    private readonly links: LinksService,
   ) {}
 
   /**
@@ -1293,10 +1295,22 @@ export class PostsService {
   /** Composes the final message body: affiliate link + per-channel footer + HTML
    *  normalisation. Shared by the publisher and the failed-channel retry. */
   private async buildPostBody(post: Post, creds: DecryptedCredentials, channelOverride?: string): Promise<string> {
+    // Trackable short link: the body carries our /r/<code> URL instead of the raw
+    // affiliate link, so every shopper click is recorded (minutes-fast feedback + the
+    // attribution weighting signal). Pinterest is unaffected — its Pin link rides the
+    // dedicated `link` field with the DIRECT affiliate URL (redirects in that field risk
+    // pin rejection), and Instagram strips body links entirely. Tracking must never
+    // block publishing: on any failure we fall back to the raw link.
+    let link = post.affiliate_url;
+    try {
+      const code = await this.links.ensureCode(post);
+      if (code) link = this.links.shortUrl(code);
+    } catch { /* fall back to the raw affiliate link */ }
+
     const linkAlreadyInText = post.affiliate_url && post.generated_text.includes(post.affiliate_url);
-    let body = (post.affiliate_url && !linkAlreadyInText)
-      ? `${post.generated_text}\n\n🔗 ${post.affiliate_url}`
-      : post.generated_text;
+    let body = linkAlreadyInText
+      ? post.generated_text.split(post.affiliate_url).join(link)
+      : (post.affiliate_url ? `${post.generated_text}\n\n🔗 ${link}` : post.generated_text);
 
     // Coupons are AliExpress-ONLY — the codes redeem at AliExpress checkout, so an AliExpress
     // code on a FLYLINK post is useless and misleading. Attach one only when this post's link
