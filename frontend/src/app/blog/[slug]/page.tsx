@@ -5,7 +5,7 @@ import { Clock, Check, ArrowLeft } from 'lucide-react';
 import { BLOG_POSTS, getBlogPost } from '@/lib/marketing-content';
 import { MarketingShell, CtaBand } from '@/components/marketing/MarketingShell';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexlify.app';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexlify.win-solutions.co.il';
 
 export function generateStaticParams() {
   return BLOG_POSTS.map((p) => ({ slug: p.slug }));

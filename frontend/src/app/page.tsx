@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     'אוטומציית שיווק שותפים', 'בוט אפיליאצייט עלי אקספרס', 'ערוץ דילים אוטומטי טלגרם',
     'aliexpress affiliate telegram bot', 'affiliate marketing automation', 'multi-channel affiliate',
   ],
-  alternates: { canonical: 'https://nexlify.app/' },
+  alternates: { canonical: 'https://nexlify.win-solutions.co.il/' },
   openGraph: {
     title: 'Nexlify — אוטומציית שיווק שותפים מקצה לקצה',
     description:
