@@ -2065,6 +2065,13 @@ export class PostsService {
     } catch { /* ignore */ }
     if (!image) throw new Error('אין תמונת מוצר לפרסום באינסטגרם');
 
+    // AliExpress CDN often serves ".jpg_.webp" variants; Instagram can't ingest WebP and
+    // fails the container. Cut back to the underlying JPEG/PNG URL when one is embedded.
+    if (/\.webp(\?|$)/i.test(image)) {
+      const m = image.match(/^(.*?\.(?:jpe?g|png))/i);
+      if (m) image = m[1];
+    }
+
     const caption = this.instagramCaption(message, post);
     const base = `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`;
 
@@ -2078,14 +2085,40 @@ export class PostsService {
     const creationId = create.data?.id;
     if (!creationId) throw new Error('Instagram container creation failed');
 
-    // 2) Publish the container.
-    const publish = await axios.post(
-      `${base}/media_publish`,
-      new URLSearchParams({ creation_id: creationId, access_token: token }).toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 },
-    );
-    if (publish.data?.error) throw new Error(publish.data.error.message);
-    post.instagram_post_id = publish.data?.id || null;
+    // 2) Instagram processes the container ASYNCHRONOUSLY — publishing straight away fails
+    // with "Media ID is not available". Poll the container's status_code until FINISHED
+    // (ERROR = the image itself was rejected; timeout → still try to publish below).
+    for (let i = 0; i < 10; i++) {
+      const st = await axios.get(
+        `https://graph.facebook.com/${GRAPH_VERSION}/${creationId}`,
+        { params: { fields: 'status_code', access_token: token }, timeout: 8000, validateStatus: () => true },
+      );
+      const code = st.data?.status_code;
+      if (code === 'FINISHED') break;
+      if (code === 'ERROR') {
+        throw new Error('אינסטגרם דחה את התמונה בעת העיבוד — ודא שהיא JPEG נגיש (לא WebP) וביחס גובה-רוחב נתמך');
+      }
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+
+    // 3) Publish the container. A container can report FINISHED and still need a moment —
+    // retry the known not-ready error a few times before giving up.
+    let lastErr = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const publish = await axios.post(
+        `${base}/media_publish`,
+        new URLSearchParams({ creation_id: creationId, access_token: token }).toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000, validateStatus: () => true },
+      );
+      if (!publish.data?.error && publish.data?.id) {
+        post.instagram_post_id = publish.data.id;
+        return;
+      }
+      lastErr = publish.data?.error?.message || 'Instagram publish failed';
+      if (!/Media ID is not available/i.test(lastErr)) break; // a different error won't heal with retries
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+    throw new Error(lastErr);
   }
 
   /**
