@@ -69,6 +69,19 @@ export class CredentialSet {
   @Column({ nullable: true })
   facebook_page_token_enc: string;
 
+  /** When the saved Facebook Page token expires (resolved via Graph debug_token at save
+   *  time). Meta tokens die silently after ~60 days and Instagram/Facebook publishing
+   *  starts failing with "Session has expired" — this drives the renew-reminder cron and
+   *  the countdown badge in Settings. null = unknown or a never-expiring token. */
+  @Column({ nullable: true })
+  facebook_token_expires_at: Date;
+
+  /** Last time an expiry-warning email was sent — throttles the daily cron to one
+   *  reminder per few days instead of mailing every morning. Reset when a new token
+   *  is saved. */
+  @Column({ nullable: true })
+  facebook_token_notified_at: Date;
+
   @Column({ nullable: true })
   meta_ad_account_id: string;
 

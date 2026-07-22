@@ -62,6 +62,9 @@ export default function DashboardPage() {
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [steps, setSteps] = useState<SetupStep[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Facebook token countdown — a dead token silently kills IG/FB publishing, so the
+  // dashboard warns from 14 days out.
+  const [tokenDaysLeft, setTokenDaysLeft] = useState<number | null>(null);
 
   const displayName = user?.name?.trim() || user?.email?.split('@')[0] || 'משתמש';
 
@@ -116,7 +119,12 @@ export default function DashboardPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    credentialsApi.tokenStatus()
+      .then((s) => setTokenDaysLeft(s.days_left))
+      .catch(() => {});
+  }, []);
 
   const totalEarnings = earnings ? earnings.total_settled + earnings.total_estimated : 0;
   const completedSteps = steps.filter((s) => s.done).length;
@@ -125,6 +133,25 @@ export default function DashboardPage() {
 
   return (
     <div>
+      {/* Facebook-token expiry banner — shown from 14 days out, red once ≤7/expired. */}
+      {tokenDaysLeft !== null && tokenDaysLeft <= 14 && (
+        <Link
+          href="/settings"
+          className={`flex items-center gap-3 rounded-xl border px-4 py-3 mb-6 transition-all hover:opacity-90
+            ${tokenDaysLeft <= 7
+              ? 'bg-red-500/10 border-red-500/30 text-red-300'
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-300'}`}
+        >
+          <AlertCircle size={18} className="shrink-0" />
+          <div className="flex-1 text-sm">
+            {tokenDaysLeft < 0
+              ? 'טוקן הפייסבוק פג תוקף — פרסום לאינסטגרם ופייסבוק מושבת! לחץ לחידוש הטוקן בהגדרות.'
+              : `טוקן הפייסבוק יפוג בעוד ${tokenDaysLeft} ימים — חדש אותו כדי שהפרסום לאינסטגרם ופייסבוק לא ייעצר.`}
+          </div>
+          <ChevronLeft size={16} className="shrink-0 opacity-60" />
+        </Link>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>

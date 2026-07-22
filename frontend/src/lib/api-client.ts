@@ -232,6 +232,10 @@ export const credentialsApi = {
     http.put<CredentialSet>('/credentials', data).then(extract),
 
   verify: () => http.post<VerifyResult>('/credentials/verify').then(extract),
+
+  /** Facebook Page token expiry — countdown in Settings + renew banner in the dashboard. */
+  tokenStatus: () =>
+    http.get<{ has_token: boolean; expires_at: string | null; days_left: number | null }>('/credentials/token-status').then(extract),
 };
 
 // ─── AI token-usage metering ─────────────────────────────────────────────────

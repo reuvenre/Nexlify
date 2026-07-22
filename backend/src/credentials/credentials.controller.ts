@@ -23,4 +23,10 @@ export class CredentialsController {
   verify(@Req() req: Request) {
     return this.svc.verify((req.user as any).id);
   }
+
+  /** Facebook Page token expiry — drives the Settings countdown + dashboard banner. */
+  @Get('token-status')
+  tokenStatus(@Req() req: Request) {
+    return this.svc.getTokenStatus((req.user as any).id);
+  }
 }

@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
+import { IsNull, Not, Repository } from 'typeorm';
+import { MailService } from '../mail/mail.service';
 import { CredentialSet } from './credential-set.entity';
 import { CredentialSetDto } from './dto/credential-set.dto';
 import { encrypt, decrypt, mask } from '../common/crypto';
@@ -78,10 +80,107 @@ export interface DecryptedCredentials {
 
 @Injectable()
 export class CredentialsService {
+  private readonly logger = new Logger(CredentialsService.name);
+
   constructor(
     @InjectRepository(CredentialSet)
     private readonly repo: Repository<CredentialSet>,
+    @Optional() private readonly mail?: MailService,
   ) {}
+
+  /**
+   * The token's real expiry per Graph debug_token (a token can debug itself — no app
+   * secret needed). Returns null for never-expiring tokens (expires_at=0) or when the
+   * lookup fails — expiry tracking must never block saving credentials.
+   */
+  private async resolveTokenExpiry(token: string): Promise<Date | null> {
+    try {
+      const res = await axios.get(
+        `https://graph.facebook.com/${GRAPH_VERSION}/debug_token`,
+        { params: { input_token: token, access_token: token }, timeout: 8000, validateStatus: () => true },
+      );
+      const exp = res.data?.data?.expires_at;
+      return typeof exp === 'number' && exp > 0 ? new Date(exp * 1000) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Facebook token expiry for the Settings countdown badge + dashboard banner. */
+  async getTokenStatus(userId: string): Promise<{ has_token: boolean; expires_at: string | null; days_left: number | null }> {
+    const cred = await this.repo.findOne({ where: { user_id: userId } });
+    if (!cred?.facebook_page_token_enc) return { has_token: false, expires_at: null, days_left: null };
+    let exp = cred.facebook_token_expires_at;
+    if (!exp) {
+      // Tokens saved before expiry tracking existed — backfill lazily on first read so
+      // existing users get the countdown without re-saving their token.
+      try {
+        exp = await this.resolveTokenExpiry(decrypt(cred.facebook_page_token_enc));
+        if (exp) await this.repo.update(cred.id, { facebook_token_expires_at: exp });
+      } catch { exp = null; }
+    }
+    if (!exp) return { has_token: true, expires_at: null, days_left: null };
+    const daysLeft = Math.floor((exp.getTime() - Date.now()) / 86_400_000);
+    return { has_token: true, expires_at: exp.toISOString(), days_left: daysLeft };
+  }
+
+  /**
+   * Daily 05:30 UTC (morning IL): email owners whose Facebook Page token dies within
+   * 7 days (or already died). Meta tokens expire silently and take Instagram/Facebook
+   * publishing down with them — this is the heads-up. Re-mails at most every 3 days
+   * until a fresh token is saved (saving resets facebook_token_notified_at).
+   */
+  @Cron('0 30 5 * * *')
+  async warnExpiringFacebookTokens(): Promise<void> {
+    if (!this.mail) return;
+    const soon = new Date(Date.now() + 7 * 86_400_000);
+    const renotifyBefore = new Date(Date.now() - 3 * 86_400_000);
+    let creds: CredentialSet[] = [];
+    try {
+      creds = await this.repo.find({
+        where: { facebook_page_token_enc: Not(IsNull()) },
+        relations: ['user'],
+      });
+    } catch (err: any) {
+      this.logger.error(`token-expiry scan failed: ${err.message}`);
+      return;
+    }
+
+    for (const cred of creds) {
+      const exp = cred.facebook_token_expires_at;
+      if (!exp || exp > soon) continue;                                         // healthy or unknown
+      if (cred.facebook_token_notified_at && cred.facebook_token_notified_at > renotifyBefore) continue; // already warned recently
+      const email = cred.user?.email;
+      if (!email) continue;
+
+      const daysLeft = Math.floor((exp.getTime() - Date.now()) / 86_400_000);
+      const expired = daysLeft < 0;
+      const subject = expired
+        ? '🔴 Nexlify — טוקן הפייסבוק פג! הפרסום לאינסטגרם ופייסבוק מושבת'
+        : `⚠️ Nexlify — טוקן הפייסבוק יפוג בעוד ${daysLeft} ימים`;
+      const html = `
+        <div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0f1117;color:#e5e7eb;border-radius:12px">
+          <h2 style="margin:0 0 12px">${expired ? 'טוקן הפייסבוק שלך פג תוקף' : 'טוקן הפייסבוק שלך עומד לפוג'}</h2>
+          <p style="line-height:1.7;color:#cbd5e1">
+            ${expired
+              ? 'ה-Page Access Token של פייסבוק פג — פרסומים לאינסטגרם ולפייסבוק נכשלים כרגע ("Session has expired").'
+              : `ה-Page Access Token של פייסבוק יפוג בתאריך <b>${exp.toLocaleDateString('he-IL')}</b>. כשהוא יפוג, פרסומים לאינסטגרם ולפייסבוק יתחילו להיכשל.`}
+          </p>
+          <p style="line-height:1.7;color:#cbd5e1">
+            לחידוש: Graph API Explorer ← Generate Access Token ← בחר את הדף ← Access Token Tool ← <b>Extend Access Token</b> ←
+            הדבק את הטוקן המוארך ב-Nexlify: הגדרות ← אינטגרציות ← פייסבוק ← שמור.
+          </p>
+          <p style="color:#64748b;font-size:12px;margin-top:20px">נשלח אוטומטית על-ידי מערכת ההתראות של Nexlify.</p>
+        </div>`;
+      try {
+        await this.mail.sendHtml(email, subject, html);
+        await this.repo.update(cred.id, { facebook_token_notified_at: new Date() });
+        this.logger.log(`token-expiry warning emailed to ${email} (${daysLeft} days left)`);
+      } catch (err: any) {
+        this.logger.warn(`token-expiry email to ${email} failed: ${err.message}`);
+      }
+    }
+  }
 
   async get(userId: string): Promise<any> {
     const cred = await this.repo.findOne({ where: { user_id: userId } });
@@ -172,7 +271,13 @@ export class CredentialsService {
       cred.gemini_api_key_enc = encrypt(dto.gemini_api_key.trim());
     }
     if (dto.facebook_page_token?.trim()) {
-      cred.facebook_page_token_enc = encrypt(dto.facebook_page_token.trim());
+      const fbToken = dto.facebook_page_token.trim();
+      cred.facebook_page_token_enc = encrypt(fbToken);
+      // Resolve the token's real expiry from Graph so the renew-reminder cron and the
+      // Settings countdown know when it dies. A fresh token also resets the notified
+      // marker so the next expiry window emails again.
+      cred.facebook_token_expires_at = await this.resolveTokenExpiry(fbToken);
+      cred.facebook_token_notified_at = null;
     }
     if (dto.apify_api_token?.trim()) {
       cred.apify_api_token_enc = encrypt(dto.apify_api_token.trim());

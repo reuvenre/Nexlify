@@ -22,6 +22,8 @@ export function IntegrationsForm() {
   const [pubFacebook, setPubFacebook] = useState(false);
   const [facebookOk, setFacebookOk] = useState<boolean | null>(null);
   const [facebookError, setFacebookError] = useState<string | null>(null);
+  // Days until the saved Page token expires (null = no token / unknown expiry).
+  const [tokenDaysLeft, setTokenDaysLeft] = useState<number | null>(null);
 
   // Instagram (reuses the Facebook Page token)
   const [igBusinessId, setIgBusinessId] = useState('');
@@ -99,6 +101,10 @@ export function IntegrationsForm() {
       .then(setChannels)
       .catch(() => {})
       .finally(() => setLoadingChannels(false));
+
+    credentialsApi.tokenStatus()
+      .then((s) => setTokenDaysLeft(s.days_left))
+      .catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -140,6 +146,8 @@ export function IntegrationsForm() {
       setSaved(true);
       setBotToken('');
       setFbToken('');
+      // A freshly-saved token gets its expiry resolved server-side — refresh the countdown.
+      credentialsApi.tokenStatus().then((s) => setTokenDaysLeft(s.days_left)).catch(() => {});
       setTimeout(() => setSaved(false), 3000);
     } finally {
       setSaving(false);
@@ -511,6 +519,17 @@ export function IntegrationsForm() {
               </button>
             </div>
             <p className="text-2xs text-white/25 mt-1">טוקן דף קבוע מ-Meta Graph API · ממולא רק בעת עדכון</p>
+            {/* Token-expiry countdown: Meta tokens die silently (~60 days) and take
+                IG/FB publishing with them — surface the deadline where the token lives. */}
+            {tokenDaysLeft !== null && (
+              <p className={`text-2xs mt-1.5 ${tokenDaysLeft < 0 ? 'text-red-400' : tokenDaysLeft <= 7 ? 'text-red-400' : tokenDaysLeft <= 14 ? 'text-amber-400' : 'text-emerald-400/70'}`}>
+                {tokenDaysLeft < 0
+                  ? '🔴 הטוקן פג תוקף! פרסום לאינסטגרם/פייסבוק מושבת — הפק טוקן חדש והדבק כאן'
+                  : tokenDaysLeft <= 7
+                    ? `⚠️ הטוקן יפוג בעוד ${tokenDaysLeft} ימים — חדש אותו בהקדם (Extend Access Token)`
+                    : `✓ הטוקן בתוקף עוד ${tokenDaysLeft} ימים`}
+              </p>
+            )}
           </div>
           {facebookError && (
             <p className="text-2xs text-red-400 -mt-2">⚠️ חיבור הדף: {facebookError}</p>
