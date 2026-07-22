@@ -544,25 +544,34 @@ export function CampaignForm({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-white/50 mb-1.5">משעה</label>
-                  <input
-                    type="number" min={0} max={23}
+                  <select
                     value={form.window_start_hour ?? 9}
-                    onChange={(e) => setForm((f) => ({ ...f, window_start_hour: Math.max(0, Math.min(23, +e.target.value)) }))}
-                    className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors"
+                    onChange={(e) => setForm((f) => ({ ...f, window_start_hour: +e.target.value }))}
+                    className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors appearance-none cursor-pointer"
                     dir="ltr"
-                  />
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h} className="bg-neutral-900">{String(h).padStart(2, '0')}:00</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-white/50 mb-1.5">עד שעה</label>
-                  <input
-                    type="number" min={1} max={24}
+                  <select
                     value={form.window_end_hour ?? 22}
-                    onChange={(e) => setForm((f) => ({ ...f, window_end_hour: Math.max(1, Math.min(24, +e.target.value)) }))}
-                    className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors"
+                    onChange={(e) => setForm((f) => ({ ...f, window_end_hour: +e.target.value }))}
+                    className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors appearance-none cursor-pointer"
                     dir="ltr"
-                  />
+                  >
+                    {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                      <option key={h} value={h} className="bg-neutral-900">{h === 24 ? '24:00 (חצות)' : `${String(h).padStart(2, '0')}:00`}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
+              {(form.window_end_hour ?? 22) <= (form.window_start_hour ?? 9) && (
+                <p className="text-2xs text-red-400">⚠️ &quot;עד שעה&quot; חייבת להיות אחרי &quot;משעה&quot; — אחרת החלון לא יגביל כלום.</p>
+              )}
               <p className="text-2xs text-white/30">
                 השעות נקראות באזור הזמן שנבחר. לדוגמה: ניו-יורק 17–22 = שעות הערב החזקות של פינטרסט בארה&quot;ב
                 (00:00–05:00 לפנות בוקר בישראל). הרצות של הטייס מחוץ לחלון מדולגות אוטומטית.
