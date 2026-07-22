@@ -20,6 +20,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'טלגרם' },
       { label: 'כותב תוכן AI' },
       { label: 'פרסום אוטומטי' },
+      { label: 'לינקים חכמים עם מעקב קליקים' },
     ],
   },
   growth: {
@@ -31,6 +32,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'וואטסאפ (Green API)' },
       { label: 'אינסטגרם' },
       { label: 'משפר תמונות AI' },
+      { label: 'דוח אטריבושן — מה מכניס כסף' },
     ],
   },
   autopilot: {
@@ -39,6 +41,8 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'גילוי מוצרים AI' },
       { label: 'סוכני AI לניהול הטייס האוטומטי' },
       { label: 'אינטגרציית אמזון' },
+      { label: 'מיחזור מנצחים אוטומטי' },
+      { label: 'עונתיות אוטומטית — לוח שנה מסחרי' },
     ],
   },
   scale: {
@@ -62,7 +66,12 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'אינסטגרם' },
       { label: 'משפר תמונות AI' },
       { label: 'אינטגרציית אמזון' },
-      { label: 'פינטרסט' },
+      { label: 'לינקים חכמים עם מעקב קליקים' },
+      { label: 'דוח אטריבושן — מה מכניס כסף' },
+      { label: 'מיחזור מנצחים אוטומטי' },
+      { label: 'עונתיות אוטומטית — לוח שנה מסחרי' },
+      { label: 'פינטרסט + קמפיין באנגלית לקהל ארה"ב' },
+      { label: 'חלון שליחה לפי אזור זמן לכל טייס' },
     ],
   },
 };
