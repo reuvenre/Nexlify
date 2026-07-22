@@ -94,7 +94,10 @@ function mdBoldToHtml(s: string): string {
   //    (they were escaped in step 1 → bring the whitelisted ones back).
   let out = escaped
     .replace(new RegExp(`&lt;(/?(?:${TG_TAGS}))&gt;`, 'gi'), '<$1>')
-    .replace(/&lt;a href=(?:&quot;|")(.*?)(?:&quot;|")&gt;/gi, '<a href="$1">');
+    .replace(/&lt;a href=(?:&quot;|")(.*?)(?:&quot;|")&gt;/gi, '<a href="$1">')
+    // The closing </a> must be restored too — 'a' isn't in TG_TAGS, and an opening
+    // anchor without its closing trips tagsBalanced → the whole message loses formatting.
+    .replace(/&lt;\/a&gt;/gi, '</a>');
 
   // 4. Safety net: a product title containing a literal "<b>" (etc.) would restore
   //    to an UNBALANCED tag → Telegram rejects the whole message with a 400 and the
@@ -2014,6 +2017,13 @@ export class PostsService {
    * omitted it is computed here (single-target callers).
    */
   private async sendToTelegramChannel(post: Post, creds: DecryptedCredentials, caption: string, channelOverride?: string, media?: TgMedia) {
+    // Telegram renders HTML anchors — hide the raw link URL behind friendly CTA text so
+    // followers see "לרכישה — לחצו כאן" instead of a long address (the URL rides the
+    // anchor entity: clicks still track and still credit the affiliate). Telegram-only:
+    // WhatsApp/Facebook get the plain-text body, where the raw URL must stay visible.
+    caption = caption.replace(/🔗\s*(https?:\/\/\S+)/g, (_m, url) =>
+      `<a href="${url}">${NON_LATIN_RE.test(caption) ? '🛒 לרכישה — לחצו כאן 🛒' : '🛒 Tap here to shop 🛒'}</a>`);
+
     let token = creds?.telegram_bot_token;
     let channel = normalizeTelegramChatId(creds?.telegram_channel_id);
 
