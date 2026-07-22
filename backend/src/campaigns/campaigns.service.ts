@@ -14,11 +14,13 @@ export class CampaignsService {
     private readonly repo: Repository<Campaign>,
   ) {}
 
-  /** target_channels is stored as JSON text; expose it to the API as a real array. */
+  /** target_channels / target_platforms are stored as JSON text; expose them as real arrays. */
   private toPublic(c: Campaign) {
     let target_channels: string[] = [];
     try { target_channels = JSON.parse(c.target_channels || '[]'); } catch { target_channels = []; }
-    return { ...c, target_channels };
+    let target_platforms: string[] = [];
+    try { target_platforms = JSON.parse(c.target_platforms || '[]'); } catch { target_platforms = []; }
+    return { ...c, target_channels, target_platforms };
   }
 
   async list(userId: string, page = 1, limit = 20, status?: string) {
@@ -47,12 +49,13 @@ export class CampaignsService {
   }
 
   async create(userId: string, dto: CampaignDto) {
-    // target_channels arrives as an array but the column is JSON text — serialize it.
-    const { target_channels, keywords, ...rest } = dto;
+    // target_channels / target_platforms arrive as arrays but the columns are JSON text.
+    const { target_channels, target_platforms, keywords, ...rest } = dto;
     const campaign = this.repo.create({
       ...rest,
       keywords: keywords ?? [],
       target_channels: target_channels?.length ? JSON.stringify(target_channels) : null,
+      target_platforms: target_platforms?.length ? JSON.stringify(target_platforms) : null,
       user_id: userId,
       // Campaigns start ACTIVE — the scheduler only runs status='active', and a
       // silent 'draft' default meant every new campaign never ran until the user
@@ -74,11 +77,15 @@ export class CampaignsService {
     // array is JSON-serialized rather than assigned raw into the text column.
     const { id: _i, user_id: _u, created_at: _c, updated_at: _up,
             posts_count: _p, last_run_at: _l, next_run_at: _n,
-            target_channels, ...safe } = dto as any;
+            target_channels, target_platforms, ...safe } = dto as any;
     Object.assign(campaign, safe);
     if (target_channels !== undefined) {
       campaign.target_channels = Array.isArray(target_channels) && target_channels.length
         ? JSON.stringify(target_channels) : null;
+    }
+    if (target_platforms !== undefined) {
+      campaign.target_platforms = Array.isArray(target_platforms) && target_platforms.length
+        ? JSON.stringify(target_platforms) : null;
     }
     if (dto.schedule_cron) {
       campaign.next_run_at = this.nextRun(dto.schedule_cron);

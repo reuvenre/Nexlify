@@ -81,6 +81,24 @@ export class Campaign {
   @Column({ default: 'he' })
   language: string;
 
+  /**
+   * JSON array of the platforms THIS campaign publishes to ('telegram' | 'facebook' |
+   * 'instagram' | 'pinterest' | 'whatsapp'). When set, the campaign's posts go ONLY to
+   * these platforms and the account-global publish toggles stop applying to them — e.g.
+   * an English Pinterest-only campaign must not leak into the Hebrew Telegram groups.
+   * null/[] = the global toggles (legacy behaviour, unchanged).
+   */
+  @Column({ type: 'text', nullable: true })
+  target_platforms: string | null;
+
+  /**
+   * Price-currency override for this campaign ('USD_ILS' | 'USD_USD' | 'USD_EUR' |
+   * 'USD_GBP'). An English campaign aimed at a US audience prices in $ while the
+   * account default stays ₪. null = the account's currency_pair.
+   */
+  @Column({ nullable: true })
+  currency_pair: string | null;
+
   @Column('float', { default: 0 })
   markup_percent: number;
 

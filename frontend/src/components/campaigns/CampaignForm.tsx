@@ -7,6 +7,22 @@ import { channelsApi } from '@/lib/api-client';
 import { GroupMultiSelect, type GroupOption } from '@/components/GroupMultiSelect';
 import type { Campaign, CampaignInput, CampaignSource } from '@/types';
 
+const PLATFORMS = [
+  { key: 'telegram', label: 'Telegram', emoji: '📨' },
+  { key: 'facebook', label: 'Facebook', emoji: '📘' },
+  { key: 'instagram', label: 'Instagram', emoji: '📸' },
+  { key: 'pinterest', label: 'Pinterest', emoji: '📌' },
+  { key: 'whatsapp', label: 'WhatsApp', emoji: '💬' },
+] as const;
+
+const CURRENCIES = [
+  { key: undefined, label: 'ברירת מחדל (חשבון)' },
+  { key: 'USD_ILS', label: '₪ שקל' },
+  { key: 'USD_USD', label: '$ דולר' },
+  { key: 'USD_EUR', label: '€ אירו' },
+  { key: 'USD_GBP', label: '£ ליש״ט' },
+] as const;
+
 const CRON_PRESETS = [
   { label: 'כל שעה',         value: '0 * * * *' },
   { label: 'כל 3 שעות',      value: '0 */3 * * *' },
@@ -180,6 +196,71 @@ export function CampaignForm({
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Per-campaign platform targeting + currency. Platforms empty = the account's
+            global toggles (legacy). A Pinterest-only English campaign uses both: publish
+            only to Pinterest, price in USD. */}
+        <div className="bg-surface-secondary border border-edge rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-white mb-1">פלטפורמות פרסום</h2>
+          <p className="text-2xs text-white/35 mb-4">
+            לאן הטייס הזה מפרסם. אם לא תבחר כלום — הוא ישתמש ב&quot;ערוצי פרסום ברירת מחדל&quot; מההגדרות.
+            בחירה כאן מבודדת את הטייס: הפוסטים שלו יגיעו <b>רק</b> לפלטפורמות שנבחרו, ופוסטים של
+            טייסים אחרים לא יגיעו אליהן דרכו.
+          </p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {PLATFORMS.map((p) => {
+              const selected = form.target_platforms?.includes(p.key) ?? false;
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setForm((f) => {
+                    const cur = f.target_platforms ?? [];
+                    return {
+                      ...f,
+                      target_platforms: selected ? cur.filter((k) => k !== p.key) : [...cur, p.key],
+                    };
+                  })}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium transition-all
+                    ${selected
+                      ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
+                      : 'bg-white/5 text-white/40 border border-edge hover:bg-white/10'}`}
+                >
+                  <span>{p.emoji}</span>{p.label}
+                </button>
+              );
+            })}
+          </div>
+          {(form.target_platforms?.length === 1 && form.target_platforms[0] === 'pinterest') && (
+            <p className="text-2xs text-emerald-400/80 mb-4">
+              📌 טייס ייעודי לפינטרסט: התיאורים ייכתבו בסגנון מותאם לחיפוש בפינטרסט, בלי הפוטר של הקבוצות.
+            </p>
+          )}
+          <div>
+            <label className="block text-xs font-medium text-white/50 mb-1.5">מטבע המחירים</label>
+            <div className="flex gap-2 flex-wrap">
+              {CURRENCIES.map((c) => {
+                const active = (form.currency_pair ?? undefined) === c.key;
+                return (
+                  <button
+                    key={c.label}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, currency_pair: c.key ?? null }))}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-medium transition-all
+                      ${active
+                        ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
+                        : 'bg-white/5 text-white/40 border border-edge hover:bg-white/10'}`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-2xs text-white/30 mt-2">
+              לקהל בינלאומי (למשל פינטרסט באנגלית) בחר $ — המחירים בפוסטים יוצגו בדולרים.
+            </p>
           </div>
         </div>
 

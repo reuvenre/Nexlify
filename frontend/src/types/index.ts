@@ -342,6 +342,10 @@ export interface Campaign {
   schedule_cron: string;
   posts_per_run: number;
   language: 'he' | 'en' | 'ar';
+  /** Platforms this campaign publishes to; [] = the account's global publish toggles. */
+  target_platforms: string[];
+  /** Price-currency override (e.g. 'USD_USD'); null/undefined = the account's currency. */
+  currency_pair?: string | null;
   markup_percent: number;
   post_template?: string;
   last_run_at?: string;
@@ -364,6 +368,9 @@ export interface CampaignInput {
   schedule_cron: string;
   posts_per_run: number;
   language?: 'he' | 'en' | 'ar';
+  target_platforms?: string[];
+  /** null clears a previously-saved override back to the account currency. */
+  currency_pair?: string | null;
   markup_percent?: number;
   post_template?: string;
 }

@@ -22,6 +22,8 @@ export default function EditCampaignPage() {
         schedule_cron: c.schedule_cron,
         posts_per_run: c.posts_per_run,
         language: c.language,
+        target_platforms: c.target_platforms ?? [],
+        currency_pair: c.currency_pair,
         markup_percent: c.markup_percent,
         min_price: c.min_price,
         max_price: c.max_price,

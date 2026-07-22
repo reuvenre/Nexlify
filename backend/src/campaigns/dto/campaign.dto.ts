@@ -60,6 +60,17 @@ export class CampaignDto {
   @IsIn(['he', 'en', 'ar'])
   language?: string;
 
+  /** Platforms this campaign publishes to. Empty/omitted = the account's global toggles. */
+  @IsOptional()
+  @IsArray()
+  @IsIn(['telegram', 'facebook', 'instagram', 'pinterest', 'whatsapp'], { each: true })
+  target_platforms?: string[];
+
+  /** Price-currency override for this campaign. Omitted = the account's currency. */
+  @IsOptional()
+  @IsIn(['USD_ILS', 'USD_USD', 'USD_EUR', 'USD_GBP'])
+  currency_pair?: string;
+
   @IsOptional()
   @IsNumber()
   markup_percent?: number;

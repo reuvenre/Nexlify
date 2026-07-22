@@ -953,7 +953,10 @@ export class PostsService {
       return { queued: 0, failed: 0, keyword: '', searched: '', errors: ['מחוץ לחלון הפרסום — דילוג'] };
     }
 
-    const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
+    // Campaign currency override: an English/US-audience campaign prices in USD (identity
+    // pair → rate 1) while the account default stays ILS. Fallback = account currency.
+    const currencyPair = campaign.currency_pair?.trim() || creds.currency_pair || 'USD_ILS';
+    const rate = await this.rates.getRate(currencyPair);
     // Round-robin through the keywords so EVERY keyword gets equal airtime and consecutive
     // runs use a different one — random selection over-used some and rarely touched others
     // (the "it ignores my keywords / repeats the same things" complaint). Advance the cursor
@@ -1026,10 +1029,17 @@ export class PostsService {
     const fresh = qualified.filter((p) => !postedIds.has(String(p.product_id)));
     const pool = fresh.length ? fresh : qualified;
 
+    // A dedicated-Pinterest campaign writes pin-optimized copy (keyword-rich description,
+    // no Telegram group voice) and must skip the account's default body template — that
+    // template is the group's copy style (usually Hebrew) and would override the pin format.
+    const platforms = this.parseTargetPlatforms(campaign.target_platforms);
+    const pinterestOnly = !!platforms && platforms.size === 1 && platforms.has('pinterest');
+
     // A campaign runs headless — nothing hands it a template the way the composer does.
     // Fall back to the user's default body template so campaign posts are written in the
     // same voice as the ones they publish by hand, instead of the generic built-in one.
-    const template = campaign.post_template?.trim() || await this.getBodyText(userId, creds);
+    const template = campaign.post_template?.trim()
+      || (pinterestOnly ? '' : await this.getBodyText(userId, creds));
 
     const toPost = pool.slice(0, campaign.posts_per_run);
     const result: CampaignRunResult = { queued: 0, failed: 0, keyword, searched, errors: [] };
@@ -1069,7 +1079,11 @@ export class PostsService {
         // is exactly what made these posts fail. Do NOT prefer it.
         const affiliateUrl = await this.getAffiliateLink(product.product_id, creds);
         const parts = this.priceParts(product, rate);
-        const text = await this.generateText(product, campaign.language, rate, creds, template || undefined, parts.localOverride);
+        const text = await this.generateText(
+          product, campaign.language, rate, creds, template || undefined, parts.localOverride,
+          undefined, undefined, false,
+          { currencyPair, style: pinterestOnly ? 'pinterest' : undefined },
+        );
 
         // SCHEDULE at the campaign's cadence (not the shared queue) so an "every 3h"
         // campaign publishes every 3h instead of being re-paced to the 60-min queue interval.
@@ -1491,6 +1505,29 @@ export class PostsService {
     }
   }
 
+  /** A campaign's target_platforms JSON as a lowercase Set, or null when unset (= use the
+   *  account-global publish toggles). */
+  private parseTargetPlatforms(raw: string | null | undefined): Set<string> | null {
+    if (!raw) return null;
+    try {
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr) || !arr.length) return null;
+      return new Set(arr.map((p) => String(p).toLowerCase()));
+    } catch {
+      return null;
+    }
+  }
+
+  /** The platform filter for a post: its campaign's target_platforms, or null for
+   *  non-campaign posts / campaigns without an explicit platform choice. */
+  private async postPlatformFilter(post: Post): Promise<Set<string> | null> {
+    if (!post.campaign_id) return null;
+    const campaign = await this.campaignRepo
+      .findOne({ where: { id: post.campaign_id } })
+      .catch(() => null);
+    return this.parseTargetPlatforms(campaign?.target_platforms);
+  }
+
   /** Persist the chosen target group(s) on a post (single or multi). */
   private applyChannels(post: Post, channels?: string[], channelOverride?: string): void {
     const uniq = Array.from(new Set((channels || [])
@@ -1539,22 +1576,31 @@ export class PostsService {
     const targets = this.resolveTargets(post, channelOverride);
     const multi = targets.length > 1;
 
+    // A campaign that declares target_platforms publishes ONLY there — its posts ignore
+    // the account-global toggles entirely (an English Pinterest-only campaign must not
+    // leak into the Hebrew Telegram groups, and the Hebrew campaigns must not flood its
+    // Pinterest board). `only` is null for non-campaign posts and legacy campaigns.
+    const only = await this.postPlatformFilter(post);
+
     // Any explicit group target always means Telegram. Otherwise respect the user's
     // per-channel publish toggles (Telegram defaults on, Facebook defaults off).
     // Facebook honours its toggle GLOBALLY — even for group/queue posts — so enabling
     // "publish to Facebook" fans every post out to the page(s), not only default posts.
-    const wantTelegram = targets.some((t) => !!t) || creds?.publish_telegram !== false;
+    const wantTelegram = only
+      ? only.has('telegram')
+      : targets.some((t) => !!t) || creds?.publish_telegram !== false;
     // Make.com is a GLOBAL relay for Facebook: when enabled + a webhook is set, FB is
     // delivered by POSTing to the user's Make scenario. BUT a channel that has its OWN
     // Facebook page token must still publish NATIVELY with that token even when Make is on —
     // otherwise the per-channel token the user configured is silently ignored (exactly why
     // Ali4You wasn't posting). So `wantFacebook` is just the master switch; per-target below
     // we pick native (own token) vs the Make relay.
-    const makeRelay = creds?.publish_via_make === true && !!creds?.make_webhook_url;
-    const wantFacebook = creds?.publish_facebook === true;
-    const wantInstagram = creds?.publish_instagram === true;
-    const wantPinterest = creds?.publish_pinterest === true;
-    const wantWhatsapp = creds?.publish_whatsapp === true;
+    const makeRelay = (!only || only.has('facebook'))
+      && creds?.publish_via_make === true && !!creds?.make_webhook_url;
+    const wantFacebook = only ? only.has('facebook') : creds?.publish_facebook === true;
+    const wantInstagram = only ? only.has('instagram') : creds?.publish_instagram === true;
+    const wantPinterest = only ? only.has('pinterest') : creds?.publish_pinterest === true;
+    const wantWhatsapp = only ? only.has('whatsapp') : creds?.publish_whatsapp === true;
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
@@ -1661,7 +1707,14 @@ export class PostsService {
 
     // Pinterest: a single board (no per-group fan-out). The Pin's link is the affiliate URL.
     if (wantPinterest) {
-      const body = await this.buildPostBody(post, creds, targets[0]);
+      // A DEDICATED Pinterest campaign pins the generated text alone — the account
+      // footer/coupon lines are group-channel copy (usually Hebrew CTAs) that would
+      // pollute a keyword-optimized pin description. Mixed-platform posts keep the
+      // full body so their pin matches what the other channels published.
+      const dedicated = !!only && only.size === 1 && only.has('pinterest');
+      const body = dedicated
+        ? mdBoldToHtml(post.generated_text)
+        : await this.buildPostBody(post, creds, targets[0]);
       tasks.push(
         this.sendToPinterest(post, creds, body)
           .then(() => { anySuccess = true; })
@@ -2056,9 +2109,17 @@ export class PostsService {
 
     const plain = message.replace(/<\/?[^>]+>/g, '').trim(); // Pinterest shows no HTML
     // Pinterest caps: title ≤100 chars, description ≤500. The affiliate link rides the
-    // dedicated `link` field (clickable), so it need not sit in the description text.
-    const title = (post.product_title || plain.split('\n')[0] || 'מוצר').slice(0, 100);
-    const description = plain.slice(0, 500);
+    // dedicated `link` field (clickable), so URL lines in the text are dead clutter —
+    // drop them the same way the Instagram caption does.
+    const urlLine = /(https?:\/\/|www\.|t\.me\/|s\.click\.|aliexpress\.|bit\.ly\/)/i;
+    const noLinks = plain
+      .split('\n')
+      .filter((line) => !urlLine.test(line))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    const title = (post.product_title || noLinks.split('\n')[0] || 'מוצר').slice(0, 100);
+    const description = (noLinks || plain).slice(0, 500);
 
     const res = await axios.post(
       'https://api.pinterest.com/v5/pins',
@@ -2328,7 +2389,7 @@ export class PostsService {
 
   // ── OpenAI text generation ────────────────────────────────────────────────
 
-  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false): Promise<string> {
+  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false, opts?: { currencyPair?: string; style?: 'pinterest' }): Promise<string> {
     // Use direct local price if already converted, otherwise multiply by rate
     const priceLocal = priceLocalOverride !== undefined
       ? priceLocalOverride.toFixed(0)
@@ -2339,7 +2400,9 @@ export class PostsService {
     const originalLocal = priceLocalOverride !== undefined
       ? (product.original_price || 0).toFixed(0)
       : (product.original_price * rate).toFixed(0);
-    const currencyPair = creds?.currency_pair || 'USD_ILS';
+    // The caller may price this text in a different currency than the account default —
+    // a per-campaign override (e.g. a USD Pinterest campaign) passes its pair in opts.
+    const currencyPair = opts?.currencyPair || creds?.currency_pair || 'USD_ILS';
     const symbol = currencyPair.includes('ILS') ? '₪' : currencyPair.includes('EUR') ? '€' : currencyPair.includes('GBP') ? '£' : '$';
     const discount = product.discount_percent
       || (product.original_price > 0
@@ -2367,7 +2430,9 @@ export class PostsService {
     const hasTemplate = !!template?.trim();
     let systemPrompt = hasTemplate
       ? this.templateSystemPrompt(language, template!.trim())
-      : this.defaultSystemPrompt(language);
+      : opts?.style === 'pinterest'
+        ? this.pinterestSystemPrompt(language)
+        : this.defaultSystemPrompt(language);
 
     // A product-type hint (from the user) is the AUTHORITATIVE ground truth — it fixes the
     // case where vision misreads an ambiguous first photo (e.g. flip-flops → "lighting").
@@ -2394,7 +2459,9 @@ export class PostsService {
 
     const userPrompt = hasTemplate
       ? this.buildProductFacts(language, product, symbol, priceLocal, originalLocal, discount)
-      : this.buildUserPrompt(language, product, symbol, priceLocal, originalLocal, discount);
+      : opts?.style === 'pinterest'
+        ? this.buildPinterestPrompt(language, product, symbol, priceLocal, originalLocal, discount)
+        : this.buildUserPrompt(language, product, symbol, priceLocal, originalLocal, discount);
 
     const result = await this.ai.generate(creds, {
       system: systemPrompt,
@@ -2448,6 +2515,60 @@ Critical rules:
 • Length: 80–130 words — enough to convince, short enough to hold attention
 • Style: excited but credible — like a friend recommending a real deal
 • Include subtle FOMO: limited stock / price won't stay this low / exclusive for channel members`;
+  }
+
+  /**
+   * Pinterest is a visual SEARCH engine, not a feed: a pin is ranked by the keywords in
+   * its description, lives for months, and its click already carries the product link.
+   * So pin copy is the OPPOSITE of the Telegram voice — keyword-rich plain text, no
+   * FOMO-heavy hype, no HTML (the API mapper strips tags), and short enough to survive
+   * the 500-char description cap without being cut mid-sentence.
+   */
+  private pinterestSystemPrompt(language: string): string {
+    if (language === 'he') {
+      return `אתה כותב תיאורי פינים לפינטרסט — מנוע חיפוש ויזואלי, לא פיד חברתי.
+חוקים קריטיים:
+• כתוב בעברית בלבד, טקסט רגיל בלבד — בלי HTML, בלי Markdown, בלי קישורים ובלי אימוג'י-ספאם
+• 2–3 משפטים קצרים ועשירים במילות חיפוש: מה המוצר, למי הוא מתאים, למה שווה לקנות
+• ציין את המחיר פעם אחת בלבד
+• סיים בקריאה קצרה לפעולה (הקישור כבר מוצמד לפין — אל תזכיר "לינק")
+• שורה אחרונה: 2–4 האשטגים רלוונטיים, לא יותר
+• אורך כולל: עד 450 תווים`;
+    }
+    if (language === 'ar') {
+      return `أنت تكتب أوصاف Pins لـ Pinterest — محرك بحث بصري، وليس موجزاً اجتماعياً.
+قواعد حرجة:
+• اكتب بالعربية فقط، نص عادي فقط — بدون HTML أو Markdown أو روابط
+• 2–3 جمل قصيرة غنية بكلمات البحث: ما المنتج، لمن يناسب، لماذا يستحق الشراء
+• اذكر السعر مرة واحدة فقط
+• اختم بدعوة قصيرة للعمل (الرابط مرفق بالـ Pin — لا تذكر "الرابط")
+• السطر الأخير: 2–4 هاشتاغات ذات صلة فقط
+• الطول الإجمالي: حتى 450 حرفاً`;
+    }
+    return `You write Pinterest pin descriptions. Pinterest is a visual SEARCH engine, not a social feed — the description is ranked by its keywords and the pin itself already carries the product link.
+Critical rules:
+• Write in English only, PLAIN TEXT only — no HTML, no Markdown, no links, no emoji spam
+• 2–3 short keyword-rich sentences: what the product is, who it's for, why it's worth buying — naturally weave in the search terms a shopper would type
+• Mention the price exactly once
+• End with a short call to action like "Tap to shop" (never say "link in bio/comments" — the pin IS the link)
+• Final line: 2–4 relevant hashtags, no more
+• Total length: under 450 characters`;
+  }
+
+  /** Product facts + the "write a pin description" ask — the Pinterest counterpart of
+   *  buildUserPrompt (which asks for a Telegram post). */
+  private buildPinterestPrompt(language: string, product: any, symbol: string, priceLocal: string, originalLocal: string, discount: number): string {
+    const facts = `Product: ${product.title}
+Price: ${symbol}${priceLocal}${discount > 0 ? ` (was ${symbol}${originalLocal}, -${discount}%)` : ''}
+Rating: ${product.rating?.toFixed(1) || 'N/A'}/5 | Orders: ${product.orders_count || 0}
+Category: ${product.category || 'General'}`;
+    if (language === 'he') {
+      return `כתוב תיאור פין לפינטרסט עבור המוצר הבא. עברית בלבד, טקסט רגיל בלבד.\n\n${facts}`;
+    }
+    if (language === 'ar') {
+      return `اكتب وصف Pin لـ Pinterest للمنتج التالي. بالعربية فقط، نص عادي فقط.\n\n${facts}`;
+    }
+    return `Write a Pinterest pin description for the product below. English only, plain text only.\n\n${facts}`;
   }
 
   /**
