@@ -75,6 +75,8 @@ export interface DecryptedCredentials {
   schedule_start_hour?: number;
   schedule_end_hour?: number;
   schedule_interval_minutes?: number;
+  recycle_winners_enabled?: boolean;
+  recycle_min_clicks?: number;
   schedule_last_sent_at?: Date;
 }
 
@@ -253,6 +255,8 @@ export class CredentialsService {
     if (dto.schedule_start_hour !== undefined)     cred.schedule_start_hour = dto.schedule_start_hour;
     if (dto.schedule_end_hour !== undefined)       cred.schedule_end_hour = dto.schedule_end_hour;
     if (dto.schedule_interval_minutes !== undefined) cred.schedule_interval_minutes = dto.schedule_interval_minutes;
+    if (dto.recycle_winners_enabled !== undefined) cred.recycle_winners_enabled = dto.recycle_winners_enabled;
+    if (dto.recycle_min_clicks !== undefined) cred.recycle_min_clicks = Math.max(1, Math.floor(dto.recycle_min_clicks) || 10);
 
     // Secret fields — only update when a non-empty value is provided
     if (dto.aliexpress_app_secret?.trim()) {
@@ -512,6 +516,8 @@ export class CredentialsService {
       schedule_start_hour: cred.schedule_start_hour,
       schedule_end_hour: cred.schedule_end_hour,
       schedule_interval_minutes: cred.schedule_interval_minutes,
+      recycle_winners_enabled: cred.recycle_winners_enabled ?? false,
+      recycle_min_clicks: cred.recycle_min_clicks ?? 10,
       schedule_last_sent_at: cred.schedule_last_sent_at,
     };
   }
@@ -560,6 +566,12 @@ export class CredentialsService {
       .andWhere("c.aliexpress_app_secret_enc IS NOT NULL AND c.aliexpress_app_secret_enc <> ''")
       .getRawMany();
     return Array.from(new Set(rows.map((r) => String(r.user_id)).filter(Boolean)));
+  }
+
+  /** Users with winner recycling ON + their click threshold (for the daily recycle cron). */
+  async listRecycleEnabled(): Promise<Array<{ user_id: string; min_clicks: number }>> {
+    const rows = await this.repo.find({ where: { recycle_winners_enabled: true } });
+    return rows.map((c) => ({ user_id: c.user_id, min_clicks: c.recycle_min_clicks ?? 10 }));
   }
 
   /** Records the timestamp of the last sent queued post */
@@ -641,6 +653,8 @@ export class CredentialsService {
       schedule_start_hour: cred.schedule_start_hour ?? 9,
       schedule_end_hour: cred.schedule_end_hour ?? 22,
       schedule_interval_minutes: cred.schedule_interval_minutes ?? 60,
+      recycle_winners_enabled: cred.recycle_winners_enabled ?? false,
+      recycle_min_clicks: cred.recycle_min_clicks ?? 10,
       schedule_last_sent_at: cred.schedule_last_sent_at ?? null,
       created_at: cred.created_at,
       updated_at: cred.updated_at,

@@ -458,7 +458,10 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
             <div className="w-10 h-10 rounded-lg bg-white/5 shrink-0" />
           )}
           <div className="min-w-0">
-            <p className="text-sm text-white truncate max-w-xs">{post.product_title}</p>
+            <p className="text-sm text-white truncate max-w-xs">
+              {post.recycled_from && <span title="מיחזור אוטומטי של פוסט מנצח">🏆 </span>}
+              {post.product_title}
+            </p>
             <div className="mt-1"><PostMeta post={post} channels={channels} /></div>
             {post.campaign_name && <span className="text-xs text-white/30 truncate block mt-0.5">{post.campaign_name}</span>}
           </div>

@@ -247,6 +247,14 @@ export class CredentialSet {
   @Column({ default: 60 })
   schedule_interval_minutes: number;
 
+  /** Winner recycling: republish proven posts (clicks/commissions) with fresh AI copy. */
+  @Column({ default: false })
+  recycle_winners_enabled: boolean;
+
+  /** Minimum short-link clicks for a post to count as a "winner" (revenue always counts). */
+  @Column({ default: 10 })
+  recycle_min_clicks: number;
+
   /** Timestamp of last queue post sent (used to enforce interval) */
   @Column({ nullable: true })
   schedule_last_sent_at: Date;

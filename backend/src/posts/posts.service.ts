@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Cron } from '@nestjs/schedule';
 import { Repository, LessThan } from 'typeorm';
 import axios from 'axios';
 // CommonJS module (no .default) — import-require avoids the `.default is not a
@@ -15,6 +16,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { ChannelsService } from '../channels/channels.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { LinksService } from '../links/links.service';
+import { ProductsService } from '../products/products.service';
 import { CollageService } from '../collage/collage.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { normalizeTelegramChatId } from '../common/crypto';
@@ -131,6 +133,7 @@ export class PostsService {
     private readonly collage: CollageService,
     private readonly coupons: CouponsService,
     private readonly links: LinksService,
+    private readonly products: ProductsService,
   ) {}
 
   /**
@@ -1279,6 +1282,141 @@ export class PostsService {
       { status: 'pending', created_at: LessThan(cutoff) },
       { status: 'failed', error_message: 'Timed out — server may have restarted during send' },
     );
+  }
+
+  // ── Winner recycling (daily cron) ─────────────────────────────────────────
+
+  /**
+   * Republish PROVEN posts: one that accumulated real shopper clicks (≥ the user's
+   * threshold) or an attributed commission gets a fresh run — new AI copy, same product
+   * and targets — instead of dying after a single publish. Guardrails: opt-in per user,
+   * at most ONE recycle per user per day (this cron is daily), a 14-day cooldown per
+   * product, and a live price check that skips products that got pricier since (a stale
+   * lower price would mislead buyers).
+   */
+  @Cron('0 20 4 * * *')
+  async recycleWinners(): Promise<void> {
+    let users: Array<{ user_id: string; min_clicks: number }> = [];
+    try {
+      users = await this.credentials.listRecycleEnabled();
+    } catch {
+      return;
+    }
+    for (const u of users) {
+      try {
+        await this.recycleForUser(u.user_id, u.min_clicks);
+      } catch (err: any) {
+        this.logger.warn(`winner recycle failed for ${u.user_id}: ${err?.message}`);
+      }
+    }
+  }
+
+  private async recycleForUser(userId: string, minClicks: number): Promise<void> {
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+    const cooldown = new Date(Date.now() - 14 * 86_400_000);
+    // Top candidates by clicks; a few, because the price check below may reject some.
+    const candidates = await this.repo.createQueryBuilder('p')
+      .where('p.user_id = :userId', { userId })
+      .andWhere("p.status = 'sent'")
+      .andWhere('p.sent_at < :weekAgo', { weekAgo })
+      .andWhere(
+        "(p.clicks_count >= :minClicks OR EXISTS (SELECT 1 FROM earnings e WHERE e.post_id = p.id AND e.status != 'cancelled'))",
+        { minClicks },
+      )
+      .andWhere(
+        'NOT EXISTS (SELECT 1 FROM posts p2 WHERE p2.user_id = p.user_id AND p2.product_id = p.product_id AND p2.created_at > :cooldown)',
+        { cooldown },
+      )
+      .orderBy('p.clicks_count', 'DESC')
+      .addOrderBy('p.sent_at', 'DESC')
+      .take(3)
+      .getMany();
+    if (!candidates.length) return;
+
+    const creds = await this.credentials.getRaw(userId).catch(() => null);
+    if (!creds) return;
+
+    for (const original of candidates) {
+      // Live price check (AliExpress products only): the winner's appeal was its price —
+      // if it rose >5% since, republishing the old figure would mislead. Fresh data, when
+      // available, also feeds the new copy.
+      let fresh: any = null;
+      if (/aliexpress/i.test(original.affiliate_url || '') && creds.aliexpress_app_key) {
+        fresh = await this.products.refreshPrice(userId, original.product_id).catch(() => null);
+        if (fresh) {
+          const usdRate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
+          const freshUsd = this.priceParts(fresh, usdRate).saleUsd;
+          if (freshUsd > 0 && original.sale_price_usd > 0 && freshUsd > original.sale_price_usd * 1.05) {
+            this.logger.log(`recycle skip ${original.id}: price rose ($${original.sale_price_usd} → $${freshUsd})`);
+            continue;
+          }
+        }
+      }
+
+      const campaign = original.campaign_id
+        ? await this.campaignRepo.findOne({ where: { id: original.campaign_id } }).catch(() => null)
+        : null;
+      const currencyPair = campaign?.currency_pair?.trim() || creds.currency_pair || 'USD_ILS';
+      const rate = await this.rates.getRate(currencyPair);
+      const platforms = this.parseTargetPlatforms(campaign?.target_platforms);
+      const pinterestOnly = !!platforms && platforms.size === 1 && platforms.has('pinterest');
+      const template = campaign?.post_template?.trim()
+        || (pinterestOnly ? '' : await this.getBodyText(userId, creds));
+
+      const product = fresh || {
+        product_id: original.product_id,
+        title: original.product_title,
+        sale_price: original.sale_price_usd,
+        original_price: original.original_price_usd,
+        currency: 'USD',
+        discount_percent: 0,
+        orders_count: 0,
+        rating: 0,
+      };
+      const parts = this.priceParts(product, rate);
+
+      // Fresh copy so followers see a NEW post, not a rerun. Out of AI credits →
+      // fall back to the proven original text rather than skipping the winner.
+      let text: string;
+      try {
+        text = await this.generateText(
+          product, campaign?.language || 'he', rate, creds, template || undefined, parts.localOverride,
+          undefined, undefined, false,
+          { currencyPair, style: pinterestOnly ? 'pinterest' : undefined },
+        );
+      } catch {
+        text = original.generated_text;
+      }
+
+      const maxOrderResult = await this.repo.createQueryBuilder('p')
+        .select('MAX(p.queue_order)', 'maxOrder')
+        .where('p.user_id = :userId AND p.status = :status', { userId, status: 'queued' })
+        .getRawOne();
+
+      const recycled = this.repo.create({
+        user_id: userId,
+        campaign_id: original.campaign_id || null,
+        product_id: original.product_id,
+        product_title: original.product_title,
+        product_image: original.product_image,
+        affiliate_url: original.affiliate_url,
+        original_price_usd: parts.origUsd || original.original_price_usd,
+        sale_price_usd: parts.saleUsd || original.sale_price_usd,
+        price_ils: parts.priceIls || original.price_ils,
+        generated_text: text,
+        keyword: original.keyword || null,
+        recycled_from: original.id,
+        status: 'queued',
+        queue_order: (maxOrderResult?.maxOrder ?? -1) + 1,
+        channel_override: original.channel_override || null,
+        channel_overrides: original.channel_overrides || null,
+        gallery_json: original.gallery_json || null,
+      } as Partial<Post>);
+      await this.repo.save(recycled);
+      await this.primeQueueClock(userId, recycled as Post, creds);
+      this.logger.log(`recycled winner ${original.id} → new queued post (${original.clicks_count} clicks)`);
+      return; // one winner per user per day
+    }
   }
 
   // ── Retry ─────────────────────────────────────────────────────────────────

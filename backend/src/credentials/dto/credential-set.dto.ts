@@ -207,4 +207,12 @@ export class CredentialSetDto {
   @Min(1)
   @Max(1440)
   schedule_interval_minutes?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  recycle_winners_enabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  recycle_min_clicks?: number;
 }

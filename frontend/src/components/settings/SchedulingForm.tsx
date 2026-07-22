@@ -37,6 +37,9 @@ export function SchedulingForm() {
   const [endHour, setEndHour] = useState(22);
   const [interval, setInterval] = useState(60);
   const [lastSentAt, setLastSentAt] = useState<string | null>(null);
+  // Winner recycling: republish proven posts (clicks/commissions) with fresh AI copy.
+  const [recycleOn, setRecycleOn] = useState(false);
+  const [recycleMinClicks, setRecycleMinClicks] = useState(10);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -50,6 +53,8 @@ export function SchedulingForm() {
         setEndHour(c.schedule_end_hour ?? 22);
         setInterval(c.schedule_interval_minutes ?? 60);
         setLastSentAt(c.schedule_last_sent_at ?? null);
+        setRecycleOn(c.recycle_winners_enabled ?? false);
+        setRecycleMinClicks(c.recycle_min_clicks ?? 10);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -76,6 +81,8 @@ export function SchedulingForm() {
         schedule_start_hour: startHour,
         schedule_end_hour: endHour,
         schedule_interval_minutes: interval,
+        recycle_winners_enabled: recycleOn,
+        recycle_min_clicks: Math.max(1, recycleMinClicks || 10),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -246,6 +253,42 @@ export function SchedulingForm() {
           </div>
         </div>
       )}
+
+      {/* Winner recycling — republish proven posts (clicks/commissions) with fresh AI copy. */}
+      <div className="bg-surface-secondary border border-edge rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">🏆 מיחזור מנצחים</h3>
+            <p className="text-xs text-white/35 mt-1">
+              פוסט שהוכיח את עצמו (קליקים או עמלה) מפורסם מחדש אוטומטית עם טקסט חדש —
+              מקסימום אחד ביום, צינון 14 יום למוצר, ורק אם המחיר לא עלה בינתיים.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRecycleOn((v) => !v)}
+            className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${recycleOn ? 'bg-amber-500' : 'bg-white/15'}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${recycleOn ? 'right-0.5' : 'right-4'}`} />
+          </button>
+        </div>
+        {recycleOn && (
+          <div className="mt-3">
+            <label className="block text-xs font-medium text-white/50 mb-1.5">סף קליקים ל"מנצח"</label>
+            <select
+              value={recycleMinClicks}
+              onChange={(e) => setRecycleMinClicks(+e.target.value)}
+              className="bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-amber-500/60 transition-colors appearance-none cursor-pointer"
+              dir="ltr"
+            >
+              {[5, 10, 15, 20, 30, 50].map((n) => (
+                <option key={n} value={n} className="bg-neutral-900">{n} קליקים</option>
+              ))}
+            </select>
+            <p className="text-2xs text-white/30 mt-1.5">פוסט עם עמלה משויכת נחשב מנצח גם בלי לעמוד בסף.</p>
+          </div>
+        )}
+      </div>
 
       {/* Error */}
       {error && (

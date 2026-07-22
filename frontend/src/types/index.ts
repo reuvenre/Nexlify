@@ -176,6 +176,8 @@ export interface CredentialSet {
   schedule_start_hour: number;
   schedule_end_hour: number;
   schedule_interval_minutes: number;
+  recycle_winners_enabled?: boolean;
+  recycle_min_clicks?: number;
   schedule_last_sent_at?: string;
   created_at: string;
   updated_at: string;
@@ -244,6 +246,8 @@ export interface CredentialSetInput {
   schedule_start_hour?: number;
   schedule_end_hour?: number;
   schedule_interval_minutes?: number;
+  recycle_winners_enabled?: boolean;
+  recycle_min_clicks?: number;
 }
 
 export interface VerifyResult {
@@ -534,6 +538,8 @@ export interface Post {
   /** Trackable short-link code (/r/<code>) + cached click total. */
   short_code?: string;
   clicks_count?: number;
+  /** Set when this post is an automatic winner-recycle of another post. */
+  recycled_from?: string | null;
   created_at: string;
 }
 

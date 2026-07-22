@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LinksModule } from '../links/links.module';
+import { ProductsModule } from '../products/products.module';
 import { Post } from './post.entity';
 import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
@@ -23,6 +24,7 @@ import { CollageModule } from '../collage/collage.module';
     CredentialsModule,
     CouponsModule,
     LinksModule,
+    ProductsModule,
     RatesModule,
     AiModule,
     SubscriptionModule,

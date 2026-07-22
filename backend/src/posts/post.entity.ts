@@ -83,6 +83,11 @@ export class Post {
   @Column({ nullable: true, type: 'varchar' })
   keyword: string | null;
 
+  /** Set when this post is an automatic WINNER RECYCLE of another post (proven clicks/
+   *  revenue → republished with fresh AI copy). Points at the original. */
+  @Column({ type: 'uuid', nullable: true })
+  recycled_from: string | null;
+
   /** Marks this post as the canonical template a FLYLINK re-post clones for its product
    *  (overrides the default "earliest sent post"). At most one per product per user. */
   @Column({ default: false })
