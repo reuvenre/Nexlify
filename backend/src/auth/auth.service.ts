@@ -75,7 +75,37 @@ export class AuthService {
 
   async register(email: string, password: string, name: string | undefined, res: any) {
     const user = await this.users.create(email, password, name);
+    // Welcome email with the user guide — every new subscriber gets "here's what you
+    // have and how it works" on day one. Best-effort: must never block registration.
+    this.sendWelcomeEmail(email, name).catch(() => {});
     return this.issueTokens(user, res);
+  }
+
+  /** Welcome email pointing at the living in-app user guide (plan-aware /guide page). */
+  private async sendWelcomeEmail(email: string, name?: string): Promise<void> {
+    const frontend = (process.env.FRONTEND_URL || '').split(',')[0].trim().replace(/\/$/, '');
+    if (!frontend) return;
+    const hello = name?.trim() ? `היי ${name.trim()},` : 'היי,';
+    await this.mail.sendHtml(
+      email,
+      '🎉 ברוכים הבאים ל-Nexlify — המדריך המלא שלך בפנים',
+      `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0f1117;color:#e5e7eb;border-radius:12px">
+        <h2 style="margin:0 0 12px">ברוכים הבאים ל-Nexlify! 🎉</h2>
+        <p style="line-height:1.7;color:#cbd5e1">${hello}</p>
+        <p style="line-height:1.7;color:#cbd5e1">
+          החשבון שלך מוכן. הכנו לך <b>מדריך מלא</b> שמסביר בדיוק מה כלול בתוכנית שלך ואיך
+          מפעילים כל פיצ'ר — מחיבור טלגרם ראשון ועד הטייס האוטומטי, לינקים חכמים ודוחות ההכנסות.
+        </p>
+        <p style="margin:24px 0;text-align:center">
+          <a href="${frontend}/guide" style="background:#2563eb;color:#fff;text-decoration:none;padding:12px 28px;border-radius:12px;font-weight:bold;display:inline-block">📖 למדריך המלא</a>
+        </p>
+        <p style="line-height:1.7;color:#cbd5e1">
+          טיפ להתחלה מהירה: המדריך נפתח בפרק "🚀 5 צעדים ראשונים" — עוקבים אחריו והפוסט
+          הראשון שלך באוויר תוך רבע שעה.
+        </p>
+        <p style="color:#64748b;font-size:12px;margin-top:20px">המדריך חי בתוך המערכת ומתעדכן אוטומטית עם כל פיצ'ר חדש.</p>
+      </div>`,
+    );
   }
 
   async login(email: string, password: string, res: any) {
