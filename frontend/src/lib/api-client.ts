@@ -469,6 +469,25 @@ export const postsApi = {
     ).then(extract),
 };
 
+// ─── Pinterest analytics API ─────────────────────────────────────────────────
+
+export interface PinAnalyticsRow {
+  post_id: string; pin_id: string; title: string; image: string; sent_at: string | null;
+  impressions: number; saves: number; pin_clicks: number; outbound_clicks: number;
+}
+
+export interface PinterestAnalytics {
+  available: boolean;
+  reason?: string;
+  totals: { impressions: number; saves: number; pin_clicks: number; outbound_clicks: number; pins: number } | null;
+  pins: PinAnalyticsRow[];
+}
+
+export const pinterestApi = {
+  /** Per-pin performance (30 days) + totals for the reports screen. */
+  analytics: () => http.get<PinterestAnalytics>('/pinterest/analytics').then(extract),
+};
+
 // ─── Earnings API ────────────────────────────────────────────────────────────
 
 export const earningsApi = {

@@ -5,7 +5,7 @@ import {
   BarChart3, TrendingUp, TrendingDown, Loader2,
   DollarSign, FileText, Award, Calendar,
 } from 'lucide-react';
-import { earningsApi, postsApi } from '@/lib/api-client';
+import { earningsApi, postsApi, pinterestApi, type PinterestAnalytics } from '@/lib/api-client';
 import type { EarningsSummary } from '@/types';
 
 const UNIQUE_PERIODS = [
@@ -230,7 +230,101 @@ export default function ReportsPage() {
               <p className="text-xs text-white/20 mt-1">הפעל את הטייס האוטומטי כדי לראות נתונים כאן</p>
             </div>
           )}
+
+          <PinterestPanel />
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Pinterest performance ────────────────────────────────────────────────────
+
+/**
+ * Per-pin performance (30 days) from Pinterest's analytics API. Self-contained:
+ * fetches on mount, and when Pinterest isn't connected (or the tier blocks
+ * analytics) renders an explanatory card instead of an error.
+ */
+function PinterestPanel() {
+  const [data, setData] = useState<PinterestAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    pinterestApi.analytics()
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="bg-surface-secondary border border-edge rounded-xl p-8 flex items-center justify-center gap-2 text-white/30 text-sm">
+        <Loader2 size={16} className="animate-spin" /> טוען נתוני פינטרסט...
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const ctr = data.totals && data.totals.impressions > 0
+    ? (data.totals.outbound_clicks / data.totals.impressions) * 100
+    : 0;
+
+  return (
+    <div className="bg-surface-secondary border border-edge rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-lg">📌</span>
+        <h2 className="text-sm font-semibold text-white">ביצועי Pinterest — 30 יום</h2>
+      </div>
+
+      {!data.available ? (
+        <p className="text-xs text-white/35 mt-2">
+          {data.reason || 'פינטרסט לא מחובר עדיין.'}{' '}
+          נתונים יופיעו כאן אוטומטית אחרי חיבור הטוקן ואישור ה-Standard access.
+        </p>
+      ) : !data.totals || data.totals.pins === 0 ? (
+        <p className="text-xs text-white/35 mt-2">אין עדיין פינים שפורסמו — הנתונים יופיעו אחרי שהטייס יתחיל לפרסם.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 mb-5">
+            <div>
+              <p className="text-xs text-white/40 mb-1">חשיפות</p>
+              <p className="text-xl font-bold text-white">{data.totals.impressions.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-xs text-white/40 mb-1">קליקים החוצה (לינק)</p>
+              <p className="text-xl font-bold text-emerald-400">{data.totals.outbound_clicks.toLocaleString()}</p>
+              <p className="text-2xs text-white/30">CTR {ctr.toFixed(2)}%</p>
+            </div>
+            <div>
+              <p className="text-xs text-white/40 mb-1">שמירות</p>
+              <p className="text-xl font-bold text-white">{data.totals.saves.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-xs text-white/40 mb-1">פינים פעילים</p>
+              <p className="text-xl font-bold text-white">{data.totals.pins}</p>
+            </div>
+          </div>
+
+          {/* Top pins by outbound clicks — the money metric */}
+          <div className="space-y-2">
+            {data.pins.slice(0, 8).map((p) => (
+              <div key={p.pin_id} className="flex items-center gap-3 py-2 px-3 bg-white/3 rounded-lg">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {p.image && <img src={p.image} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-white/80 truncate" dir="ltr">{p.title}</p>
+                  <p className="text-2xs text-white/30">
+                    {p.impressions.toLocaleString()} חשיפות · {p.saves} שמירות
+                  </p>
+                </div>
+                <div className="text-left shrink-0">
+                  <p className="text-sm font-bold text-emerald-400">{p.outbound_clicks}</p>
+                  <p className="text-2xs text-white/30">קליקים</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
