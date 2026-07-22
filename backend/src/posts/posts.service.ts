@@ -972,77 +972,113 @@ export class PostsService {
     // pair → rate 1) while the account default stays ILS. Fallback = account currency.
     const currencyPair = campaign.currency_pair?.trim() || creds.currency_pair || 'USD_ILS';
     const rate = await this.rates.getRate(currencyPair);
-    // Round-robin through the keywords so EVERY keyword gets equal airtime and consecutive
-    // runs use a different one — random selection over-used some and rarely touched others
-    // (the "it ignores my keywords / repeats the same things" complaint). Advance the cursor
-    // immediately (before the search) so a dead/empty keyword is skipped next run, not stuck on.
-    const kwIndex = (campaign.keyword_cursor ?? 0) % campaign.keywords.length;
-    const keyword = campaign.keywords[kwIndex];
-    this.campaignRepo.increment({ id: campaign.id }, 'keyword_cursor', 1).catch(() => {});
-    if (!keyword?.trim()) throw new BadRequestException('לקמפיין אין מילות מפתח');
+    // Round-robin PER POST: each post this run takes the NEXT keyword, so a 2-post run
+    // covers 2 different search families instead of doubling down on one. Pins from a
+    // single keyword published minutes apart just compete with each other in the same
+    // Pinterest searches (and read repetitive on Telegram). The cursor advances by the
+    // number of posts, so the next run continues the rotation where this one stopped —
+    // every keyword still gets equal airtime over time.
+    const kwList = campaign.keywords.map((k) => k?.trim()).filter(Boolean);
+    if (!kwList.length) throw new BadRequestException('לקמפיין אין מילות מפתח');
+    const perPost = Math.max(1, campaign.posts_per_run);
+    const baseCursor = campaign.keyword_cursor ?? 0;
+    this.campaignRepo.increment({ id: campaign.id }, 'keyword_cursor', perPost).catch(() => {});
 
-    const searched = await this.searchKeyword(keyword, creds);
+    // One keyword per post SLOT (repeats when there are fewer keywords than posts).
+    const slotKeywords: string[] = [];
+    for (let i = 0; i < perPost; i++) slotKeywords.push(kwList[(baseCursor + i) % kwList.length]);
+    const distinctKeywords = Array.from(new Set(slotKeywords));
 
-    // Fetch a wide net (x10) so we have room to skip products this campaign already posted.
-    // A rotating page walks DEEPER into the results over time — AliExpress returns the same
-    // top-by-volume items on page 1 every run, but has thousands of matches (measured:
-    // 2,500–3,700 for these keywords). A random page 1-6 keeps surfacing fresh products for
-    // effectively ever; page 1 is the fallback for sparse keywords (few results).
-    const pageSize = Math.min(50, Math.max(20, campaign.posts_per_run * 10));
-    const page = 1 + Math.floor(Math.random() * 6);
-    let found = await this.searchProducts({
-      keyword: searched, category_id: campaign.category_id,
-      min_price: campaign.min_price, max_price: campaign.max_price,
-      min_discount: campaign.min_discount, limit: pageSize, page,
-    }, creds);
-    // Sparse keyword or an over-deep page came back thin → fall back to the top page.
-    if (found.length < campaign.posts_per_run && page !== 1) {
-      found = await this.searchProducts({
-        keyword: searched, category_id: campaign.category_id,
-        min_price: campaign.min_price, max_price: campaign.max_price,
-        min_discount: campaign.min_discount, limit: pageSize, page: 1,
-      }, creds);
-    }
-
-    if (!found.length) {
-      const via = searched !== keyword ? ` (חיפוש באנגלית: "${searched}")` : '';
-      throw new BadRequestException(
-        `לא נמצאו מוצרים עבור "${keyword}"${via}. נסה מילת מפתח אחרת או הרחב את טווח המחירים (${campaign.min_price ?? 0}–${campaign.max_price ?? '∞'}).`,
-      );
-    }
-
-    // Quality filters enforced HERE, not by the API: product.query has no rating param,
-    // and (as discovered) its min_discount param is a no-op — so both are applied to the
-    // fetched page. rating comes from each product's evaluate_rate (0–5). If the filter
-    // rejects everything, fail loudly with the thresholds rather than posting off-spec
-    // products the user explicitly filtered out.
-    const minRating = campaign.min_rating ?? 0;
-    const minDiscount = campaign.min_discount ?? 0;
-    const qualified = found.filter((p) =>
-      (minRating <= 0 || (p.rating || 0) >= minRating) &&
-      (minDiscount <= 0 || (p.discount_percent || 0) >= minDiscount),
-    );
-    if (!qualified.length) {
-      const bits: string[] = [];
-      if (minRating > 0) bits.push(`דירוג ≥ ${minRating}★`);
-      if (minDiscount > 0) bits.push(`הנחה ≥ ${minDiscount}%`);
-      throw new BadRequestException(
-        `נמצאו ${found.length} מוצרים עבור "${keyword}", אבל אף אחד לא עומד בסינון (${bits.join(', ')}). הורד את הסף או נסה מילת מפתח אחרת.`,
-      );
-    }
-
-    // Skip products this campaign has already posted — the search returns the same
-    // top-by-volume items every run, so without this the campaign kept re-posting them.
-    // Fall back to the full qualified list only if EVERY candidate was already used
-    // (better a repeat than nothing) — but never fall back past the quality filters.
+    // Products this campaign already posted — the search returns the same top-by-volume
+    // items every run, so without this the campaign kept re-posting them.
     const postedIds = new Set(
       (await this.repo.createQueryBuilder('p')
         .select('DISTINCT p.product_id', 'product_id')
         .where('p.campaign_id = :cid', { cid: campaign.id })
         .getRawMany()).map((r) => String(r.product_id)),
     );
-    const fresh = qualified.filter((p) => !postedIds.has(String(p.product_id)));
-    const pool = fresh.length ? fresh : qualified;
+
+    // Quality filters enforced HERE, not by the API: product.query has no rating param,
+    // and (as discovered) its min_discount param is a no-op — so both are applied to the
+    // fetched page. rating comes from each product's evaluate_rate (0–5).
+    const minRating = campaign.min_rating ?? 0;
+    const minDiscount = campaign.min_discount ?? 0;
+
+    // One product pool per distinct keyword. A keyword that returns nothing usable is
+    // reported but doesn't abort the run — its slot borrows from the other pools below.
+    const searchedBy = new Map<string, string>();
+    const poolBy = new Map<string, any[]>();
+    const kwErrors: string[] = [];
+    for (const kw of distinctKeywords) {
+      const needed = slotKeywords.filter((k) => k === kw).length;
+      try {
+        const searched = await this.searchKeyword(kw, creds);
+        searchedBy.set(kw, searched);
+        // Fetch a wide net (x10 per needed post) so we have room to skip already-posted
+        // products. A rotating page 1-6 walks DEEPER into the results over time —
+        // AliExpress returns the same top items on page 1 every run but has thousands of
+        // matches; page 1 is the fallback for sparse keywords.
+        const pageSize = Math.min(50, Math.max(20, needed * 10));
+        const page = 1 + Math.floor(Math.random() * 6);
+        const query = {
+          keyword: searched, category_id: campaign.category_id,
+          min_price: campaign.min_price, max_price: campaign.max_price,
+          min_discount: campaign.min_discount, limit: pageSize,
+        };
+        let found = await this.searchProducts({ ...query, page }, creds);
+        if (found.length < needed && page !== 1) {
+          found = await this.searchProducts({ ...query, page: 1 }, creds);
+        }
+        const qualified = found.filter((p) =>
+          (minRating <= 0 || (p.rating || 0) >= minRating) &&
+          (minDiscount <= 0 || (p.discount_percent || 0) >= minDiscount),
+        );
+        // Prefer never-posted products; repeat only when the whole pool was used
+        // (better a repeat than nothing) — but never fall back past the quality filters.
+        const freshOnly = qualified.filter((p) => !postedIds.has(String(p.product_id)));
+        const pool = freshOnly.length ? freshOnly : qualified;
+        if (!pool.length) {
+          kwErrors.push(`"${kw}": לא נמצאו מוצרים שעומדים בסינון`);
+          continue;
+        }
+        poolBy.set(kw, pool);
+      } catch (err: any) {
+        kwErrors.push(`"${kw}": ${err?.message || 'החיפוש נכשל'}`);
+      }
+    }
+    if (!poolBy.size) {
+      throw new BadRequestException(
+        `אף מילת מפתח לא החזירה מוצרים (${kwErrors.join(' | ')}). נסה מילות מפתח אחרות או הרחב את טווח המחירים (${campaign.min_price ?? 0}–${campaign.max_price ?? '∞'}).`,
+      );
+    }
+
+    // Fill each slot from ITS keyword's pool; a dry slot borrows from any other pool so
+    // one dead keyword never shrinks the run. No product repeats within the run.
+    const poolCursor = new Map<string, number>();
+    const usedIds = new Set<string>();
+    const takeFrom = (kw: string): any | null => {
+      const pool = poolBy.get(kw);
+      if (!pool) return null;
+      let i = poolCursor.get(kw) ?? 0;
+      while (i < pool.length) {
+        const p = pool[i++];
+        if (!usedIds.has(String(p.product_id))) {
+          poolCursor.set(kw, i);
+          usedIds.add(String(p.product_id));
+          return p;
+        }
+      }
+      poolCursor.set(kw, i);
+      return null;
+    };
+    const toPost: any[] = [];
+    for (const kw of slotKeywords) {
+      let product = takeFrom(kw);
+      if (!product) {
+        for (const alt of poolBy.keys()) { product = takeFrom(alt); if (product) break; }
+      }
+      if (product) toPost.push(product);
+    }
 
     // A dedicated-Pinterest campaign writes pin-optimized copy (keyword-rich description,
     // no Telegram group voice) and must skip the account's default body template — that
@@ -1056,8 +1092,14 @@ export class PostsService {
     const template = campaign.post_template?.trim()
       || (pinterestOnly ? '' : await this.getBodyText(userId, creds));
 
-    const toPost = pool.slice(0, campaign.posts_per_run);
-    const result: CampaignRunResult = { queued: 0, failed: 0, keyword, searched, errors: [] };
+    const usedKeywords = distinctKeywords.filter((k) => poolBy.has(k));
+    const result: CampaignRunResult = {
+      queued: 0,
+      failed: 0,
+      keyword: usedKeywords.join(', '),
+      searched: usedKeywords.map((k) => searchedBy.get(k) || k).join(', '),
+      errors: [...kwErrors],
+    };
 
     // Which group(s) this campaign publishes to. An AliExpress campaign can now target
     // specific groups (like FLYLINK) — its posts go ONLY there, isolated from other groups.
