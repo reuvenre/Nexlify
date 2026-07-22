@@ -75,6 +75,7 @@ export interface DecryptedCredentials {
   schedule_start_hour?: number;
   schedule_end_hour?: number;
   schedule_interval_minutes?: number;
+  seasonal_enabled?: boolean;
   recycle_winners_enabled?: boolean;
   recycle_min_clicks?: number;
   schedule_last_sent_at?: Date;
@@ -255,6 +256,7 @@ export class CredentialsService {
     if (dto.schedule_start_hour !== undefined)     cred.schedule_start_hour = dto.schedule_start_hour;
     if (dto.schedule_end_hour !== undefined)       cred.schedule_end_hour = dto.schedule_end_hour;
     if (dto.schedule_interval_minutes !== undefined) cred.schedule_interval_minutes = dto.schedule_interval_minutes;
+    if (dto.seasonal_enabled !== undefined) cred.seasonal_enabled = dto.seasonal_enabled;
     if (dto.recycle_winners_enabled !== undefined) cred.recycle_winners_enabled = dto.recycle_winners_enabled;
     if (dto.recycle_min_clicks !== undefined) cred.recycle_min_clicks = Math.max(1, Math.floor(dto.recycle_min_clicks) || 10);
 
@@ -516,6 +518,7 @@ export class CredentialsService {
       schedule_start_hour: cred.schedule_start_hour,
       schedule_end_hour: cred.schedule_end_hour,
       schedule_interval_minutes: cred.schedule_interval_minutes,
+      seasonal_enabled: cred.seasonal_enabled ?? true,
       recycle_winners_enabled: cred.recycle_winners_enabled ?? false,
       recycle_min_clicks: cred.recycle_min_clicks ?? 10,
       schedule_last_sent_at: cred.schedule_last_sent_at,
@@ -653,6 +656,7 @@ export class CredentialsService {
       schedule_start_hour: cred.schedule_start_hour ?? 9,
       schedule_end_hour: cred.schedule_end_hour ?? 22,
       schedule_interval_minutes: cred.schedule_interval_minutes ?? 60,
+      seasonal_enabled: cred.seasonal_enabled ?? true,
       recycle_winners_enabled: cred.recycle_winners_enabled ?? false,
       recycle_min_clicks: cred.recycle_min_clicks ?? 10,
       schedule_last_sent_at: cred.schedule_last_sent_at ?? null,

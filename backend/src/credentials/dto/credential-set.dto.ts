@@ -210,6 +210,10 @@ export class CredentialSetDto {
 
   @IsOptional()
   @IsBoolean()
+  seasonal_enabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   recycle_winners_enabled?: boolean;
 
   @IsOptional()

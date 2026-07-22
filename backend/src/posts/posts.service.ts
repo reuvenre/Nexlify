@@ -19,6 +19,7 @@ import { LinksService } from '../links/links.service';
 import { ProductsService } from '../products/products.service';
 import { CollageService } from '../collage/collage.service';
 import { signAliexpress } from '../common/aliexpress-sign';
+import { seasonalKeywords, seasonalHint } from '../common/seasonal';
 import { normalizeTelegramChatId } from '../common/crypto';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
@@ -985,6 +986,19 @@ export class PostsService {
     // every keyword still gets equal airtime over time.
     const kwList = campaign.keywords.map((k) => k?.trim()).filter(Boolean);
     if (!kwList.length) throw new BadRequestException('לקמפיין אין מילות מפתח');
+
+    // Commercial-calendar seasonality (on by default, kill-switch in Settings ← תזמון):
+    // during an event window, its product-search keywords JOIN the rotation for the
+    // matching audience (he→IL events, en→US) — capped so they never swamp the
+    // campaign's own list — and the copywriter gets a one-line seasonal context.
+    // Window closes → they drop out on their own.
+    let seasonHint: string | null = null;
+    if (creds.seasonal_enabled !== false) {
+      for (const kw of seasonalKeywords(campaign.language || 'he')) {
+        if (!kwList.includes(kw)) kwList.push(kw);
+      }
+      seasonHint = seasonalHint(campaign.language || 'he');
+    }
     const perPost = Math.max(1, campaign.posts_per_run);
     const baseCursor = campaign.keyword_cursor ?? 0;
     this.campaignRepo.increment({ id: campaign.id }, 'keyword_cursor', perPost).catch(() => {});
@@ -1152,7 +1166,7 @@ export class PostsService {
         const text = await this.generateText(
           product, campaign.language, rate, creds, template || undefined, parts.localOverride,
           undefined, undefined, false,
-          { currencyPair, style: pinterestOnly ? 'pinterest' : undefined },
+          { currencyPair, style: pinterestOnly ? 'pinterest' : undefined, seasonHint },
         );
 
         // SCHEDULE at the campaign's cadence (not the shared queue) so an "every 3h"
@@ -2653,7 +2667,7 @@ export class PostsService {
 
   // ── OpenAI text generation ────────────────────────────────────────────────
 
-  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false, opts?: { currencyPair?: string; style?: 'pinterest' }): Promise<string> {
+  private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false, opts?: { currencyPair?: string; style?: 'pinterest'; seasonHint?: string | null }): Promise<string> {
     // Use direct local price if already converted, otherwise multiply by rate
     const priceLocal = priceLocalOverride !== undefined
       ? priceLocalOverride.toFixed(0)
@@ -2703,6 +2717,13 @@ export class PostsService {
     const h = hint?.trim();
     if (h) {
       systemPrompt += `\n\nסוג/שם המוצר (מקור אמת מוחלט): "${h}". כתוב/כתבי אך ורק על המוצר הזה. אם התמונות נראות כמו משהו אחר — התעלם/י והתבסס/י על סוג המוצר שצוין. אסור בשום אופן לכתוב על קטגוריה אחרת.`;
+    }
+
+    // Seasonal context (commercial calendar): a single line that lets the copy ride the
+    // season when relevant. Applied for template posts too — it's context, not structure,
+    // so it doesn't fight the template's fixed lines.
+    if (opts?.seasonHint) {
+      systemPrompt += `\n\n${opts.seasonHint}`;
     }
 
     // Vision grounds the copy in what's actually in the photo. Normally it's for free-form

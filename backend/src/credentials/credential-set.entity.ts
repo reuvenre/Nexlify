@@ -247,6 +247,11 @@ export class CredentialSet {
   @Column({ default: 60 })
   schedule_interval_minutes: number;
 
+  /** Commercial-calendar seasonality: seasonal keywords + copy context join campaigns
+   *  automatically during event windows. ON by default — this is the kill-switch. */
+  @Column({ default: true })
+  seasonal_enabled: boolean;
+
   /** Winner recycling: republish proven posts (clicks/commissions) with fresh AI copy. */
   @Column({ default: false })
   recycle_winners_enabled: boolean;

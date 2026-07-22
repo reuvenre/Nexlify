@@ -38,6 +38,7 @@ export function SchedulingForm() {
   const [interval, setInterval] = useState(60);
   const [lastSentAt, setLastSentAt] = useState<string | null>(null);
   // Winner recycling: republish proven posts (clicks/commissions) with fresh AI copy.
+  const [seasonalOn, setSeasonalOn] = useState(true);
   const [recycleOn, setRecycleOn] = useState(false);
   const [recycleMinClicks, setRecycleMinClicks] = useState(10);
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,7 @@ export function SchedulingForm() {
         setEndHour(c.schedule_end_hour ?? 22);
         setInterval(c.schedule_interval_minutes ?? 60);
         setLastSentAt(c.schedule_last_sent_at ?? null);
+        setSeasonalOn(c.seasonal_enabled ?? true);
         setRecycleOn(c.recycle_winners_enabled ?? false);
         setRecycleMinClicks(c.recycle_min_clicks ?? 10);
       })
@@ -81,6 +83,7 @@ export function SchedulingForm() {
         schedule_start_hour: startHour,
         schedule_end_hour: endHour,
         schedule_interval_minutes: interval,
+        seasonal_enabled: seasonalOn,
         recycle_winners_enabled: recycleOn,
         recycle_min_clicks: Math.max(1, recycleMinClicks || 10),
       });
@@ -253,6 +256,26 @@ export function SchedulingForm() {
           </div>
         </div>
       )}
+
+      {/* Commercial-calendar seasonality — auto keywords + copy context during event windows. */}
+      <div className="bg-surface-secondary border border-edge rounded-2xl p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">🗓️ עונתיות אוטומטית</h3>
+            <p className="text-xs text-white/35 mt-1">
+              בתקופות מסחריות (חגי תשרי, 11.11, Black Friday, קריסמס לקהל האמריקאי ועוד) הטייסים
+              מקבלים אוטומטית מילות מפתח עונתיות והכתיבה מתחברת לאווירת התקופה. כבוי = התנהגות רגילה.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSeasonalOn((v) => !v)}
+            className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${seasonalOn ? 'bg-amber-500' : 'bg-white/15'}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${seasonalOn ? 'right-0.5' : 'right-4'}`} />
+          </button>
+        </div>
+      </div>
 
       {/* Winner recycling — republish proven posts (clicks/commissions) with fresh AI copy. */}
       <div className="bg-surface-secondary border border-edge rounded-2xl p-5">

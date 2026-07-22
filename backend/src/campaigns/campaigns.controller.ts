@@ -9,6 +9,7 @@ import { PostsService } from '../posts/posts.service';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
 import { AmazonService } from '../amazon/amazon.service';
 import { CampaignDto } from './dto/campaign.dto';
+import { seasonalOverview } from '../common/seasonal';
 
 @Controller('campaigns')
 @UseGuards(JwtAuthGuard)
@@ -30,6 +31,13 @@ export class CampaignsController {
     @Query('status') status?: string,
   ) {
     return this.svc.list(this.uid(req), +page, +limit, status);
+  }
+
+  /** Active + upcoming commercial-calendar events for the dashboard strip.
+   *  Declared BEFORE ':id' so the literal path isn't captured as an id. */
+  @Get('seasonal')
+  seasonal() {
+    return seasonalOverview();
   }
 
   @Get(':id')

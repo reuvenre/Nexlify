@@ -344,6 +344,11 @@ export const discoveryApi = {
 // ─── Campaigns API ───────────────────────────────────────────────────────────
 
 export const campaignsApi = {
+  /** Active + upcoming commercial-calendar events for the dashboard strip. */
+  seasonal: () =>
+    http.get<{ active: Array<{ key: string; name: string; emoji: string; audience: string }>;
+               upcoming: Array<{ key: string; name: string; emoji: string; audience: string; opens_in_days: number }> }>('/campaigns/seasonal').then(extract),
+
   list: (params?: { page?: number; limit?: number; status?: string }) =>
     http.get<PaginatedResponse<Campaign>>('/campaigns', { params }).then(extract),
 

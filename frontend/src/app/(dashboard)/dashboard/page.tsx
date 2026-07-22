@@ -65,6 +65,8 @@ export default function DashboardPage() {
   // Facebook token countdown — a dead token silently kills IG/FB publishing, so the
   // dashboard warns from 14 days out.
   const [tokenDaysLeft, setTokenDaysLeft] = useState<number | null>(null);
+  // Active commercial-calendar seasons (auto keywords + copy context in campaigns).
+  const [seasons, setSeasons] = useState<Array<{ key: string; name: string; emoji: string }>>([]);
 
   const displayName = user?.name?.trim() || user?.email?.split('@')[0] || 'משתמש';
 
@@ -124,6 +126,9 @@ export default function DashboardPage() {
     credentialsApi.tokenStatus()
       .then((s) => setTokenDaysLeft(s.days_left))
       .catch(() => {});
+    campaignsApi.seasonal()
+      .then((s) => setSeasons(s.active))
+      .catch(() => {});
   }, []);
 
   const totalEarnings = earnings ? earnings.total_settled + earnings.total_estimated : 0;
@@ -150,6 +155,18 @@ export default function DashboardPage() {
           </div>
           <ChevronLeft size={16} className="shrink-0 opacity-60" />
         </Link>
+      )}
+
+      {/* Active commercial seasons — the campaigns are automatically riding these. */}
+      {seasons.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap mb-6">
+          <span className="text-2xs text-white/30">🗓️ עונות פעילות (מילות מפתח וקופי עונתיים פועלים אוטומטית):</span>
+          {seasons.map((s) => (
+            <span key={s.key} className="text-xs bg-amber-500/10 border border-amber-500/25 text-amber-300 rounded-full px-2.5 py-1">
+              {s.emoji} {s.name}
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Header */}

@@ -176,6 +176,7 @@ export interface CredentialSet {
   schedule_start_hour: number;
   schedule_end_hour: number;
   schedule_interval_minutes: number;
+  seasonal_enabled?: boolean;
   recycle_winners_enabled?: boolean;
   recycle_min_clicks?: number;
   schedule_last_sent_at?: string;
@@ -246,6 +247,7 @@ export interface CredentialSetInput {
   schedule_start_hour?: number;
   schedule_end_hour?: number;
   schedule_interval_minutes?: number;
+  seasonal_enabled?: boolean;
   recycle_winners_enabled?: boolean;
   recycle_min_clicks?: number;
 }
