@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { Loader2, AlertCircle, ArrowLeft, CheckCheck } from 'lucide-react';
+import { HeroMockup } from '@/components/HeroMockup';
 
 /** The channels the autopilot fans out to + the product sources it shops from. */
 const PLATFORMS = ['📨 Telegram', '📸 Instagram', '📘 Facebook', '📌 Pinterest', '💬 WhatsApp'];
@@ -265,41 +266,8 @@ export default function LoginPage() {
             ))}
           </div>
 
-          {/* Dashboard mockup — pure CSS, no image asset to go stale */}
-          <div className="bg-white rounded-2xl shadow-2xl shadow-black/40 overflow-hidden max-w-md w-full" dir="ltr">
-            {/* Browser chrome */}
-            <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-              <span className="mx-auto text-[10px] text-gray-400 bg-white border border-gray-200 rounded-md px-6 py-0.5">
-                nexlify.win-solutions.co.il
-              </span>
-            </div>
-            <div className="p-4" dir="rtl">
-              <p className="text-[11px] font-semibold text-gray-800 mb-3">שלום, רובי 👋</p>
-              {/* Stat tiles */}
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                {[
-                  { label: 'פוסטים', value: '9,241' },
-                  { label: 'קליקים', value: '14,832' },
-                  { label: 'עמלות', value: '$1,576' },
-                ].map((s) => (
-                  <div key={s.label} className="bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-2">
-                    <p className="text-[9px] text-gray-400">{s.label}</p>
-                    <p className="text-[13px] font-bold text-gray-800">{s.value}</p>
-                  </div>
-                ))}
-              </div>
-              {/* Mini bar chart */}
-              <div className="flex items-end gap-1 h-14">
-                {[35, 55, 40, 70, 52, 85, 62, 92, 74, 100, 88, 96].map((h, i) => (
-                  <div key={i} className="flex-1 rounded-t"
-                    style={{ height: `${h}%`, background: i % 3 === 2 ? '#3b82f6' : '#dbeafe' }} />
-                ))}
-              </div>
-            </div>
-          </div>
+          {/* Animated dashboard mockup (counting stats, growing chart, live feed) */}
+          <HeroMockup />
 
           {/* Publish targets + sources — the fan-out is the wow, show it */}
           <div className="flex flex-wrap gap-2 mt-7">
