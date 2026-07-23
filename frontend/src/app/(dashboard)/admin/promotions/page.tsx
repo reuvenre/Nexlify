@@ -267,12 +267,14 @@ function PromoModal({ promo, onClose, onSaved }: {
           <div>
             <label className={labelCls}>סוג ההנחה</label>
             <div className="flex gap-2 mb-2">
+              {/* Selected state is SOLID amber + black text — the translucent-amber
+                  + light-amber-text combo vanished entirely in the light theme. */}
               <button type="button" onClick={() => setMode('percent')}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-all ${mode === 'percent' ? 'bg-amber-500/15 border-amber-500/40 text-amber-200' : 'bg-white/5 border-edge-hover text-white/50'}`}>
+                className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mode === 'percent' ? 'bg-amber-500 border-amber-500 text-black shadow-sm' : 'bg-white/5 border-edge-hover text-white/50 hover:text-white/80'}`}>
                 אחוז הנחה
               </button>
               <button type="button" onClick={() => setMode('fixed')}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-all ${mode === 'fixed' ? 'bg-amber-500/15 border-amber-500/40 text-amber-200' : 'bg-white/5 border-edge-hover text-white/50'}`}>
+                className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mode === 'fixed' ? 'bg-amber-500 border-amber-500 text-black shadow-sm' : 'bg-white/5 border-edge-hover text-white/50 hover:text-white/80'}`}>
                 מחיר קבוע
               </button>
             </div>

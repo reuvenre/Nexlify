@@ -412,3 +412,12 @@ input.bg-white:-webkit-autofill:active {
   background-size: 200% 100%;
   animation: heroShimmer 3.2s ease-in-out infinite;
 }
+
+/* Light theme: light-amber text tones (promo banners, sale tags, pack labels)
+   are unreadable on the light background — darken them. */
+[data-theme="light"] .text-amber-200 { color: #92400e !important; }
+[data-theme="light"] .text-amber-300 { color: #b45309 !important; }
+[data-theme="light"] .text-amber-400 { color: #d97706 !important; }
+[data-theme="light"] .text-amber-300\/70,
+[data-theme="light"] .text-amber-300\/80,
+[data-theme="light"] .text-amber-400\/90 { color: rgba(180, 83, 9, 0.8) !important; }

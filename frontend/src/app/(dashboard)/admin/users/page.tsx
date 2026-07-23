@@ -290,7 +290,7 @@ function ManageUserModal({ user, plans, isSelf, onClose, onSaved }: {
             />
             <button
               type="button" onClick={grantCredits} disabled={granting || !creditsAmount}
-              className="shrink-0 px-4 py-2.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 disabled:opacity-50 text-amber-200 text-sm font-medium transition-all"
+              className="shrink-0 px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black text-sm font-bold transition-all"
             >
               {granting ? <Loader2 size={14} className="animate-spin" /> : 'טען'}
             </button>

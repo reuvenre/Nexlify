@@ -328,7 +328,7 @@ export function SubscriptionForm() {
                     <span className={packSale ? 'text-amber-300 font-semibold' : ''}>₪{payPrice}</span> · חד-פעמי
                   </p>
                   <a href={mailto}
-                    className="block w-full py-2 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 transition-all">
+                    className="block w-full py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black transition-all">
                     פנה לרכישה
                   </a>
                 </div>
