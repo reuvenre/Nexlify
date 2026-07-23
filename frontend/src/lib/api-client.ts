@@ -264,6 +264,10 @@ export const adminApi = {
     whatsapp_mode?: 'text' | 'template';
     whatsapp_template_name?: string; whatsapp_template_lang?: string; whatsapp_template_params?: string;
   }) => http.post<BroadcastResult>('/admin/broadcast', data, { timeout: 120000 }).then(extract),
+
+  /** SMTP diagnostics — verifies connection+credentials and returns the REAL provider error. */
+  smtpTest: () =>
+    http.post<{ ok: boolean; error?: string; host?: string; port?: number; secure?: boolean }>('/admin/smtp-test', {}, { timeout: 30000 }).then(extract),
 };
 
 // ─── Notifications API ───────────────────────────────────────────────────────

@@ -20,6 +20,24 @@ export default function AdminUsersPage() {
   const [managing, setManaging] = useState<AdminUser | null>(null);
   const [adding, setAdding] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
+  // SMTP diagnostics: verifies connection+credentials WITHOUT sending, and surfaces the
+  // REAL provider error — a bad setup otherwise only shows as a generic failure on the
+  // forgot-password screen.
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpResult, setSmtpResult] = useState<{ ok: boolean; error?: string; host?: string; port?: number } | null>(null);
+
+  const testSmtp = async () => {
+    setSmtpTesting(true);
+    setSmtpResult(null);
+    try {
+      setSmtpResult(await adminApi.smtpTest());
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setSmtpResult({ ok: false, error: err?.response?.data?.message || 'הבדיקה נכשלה' });
+    } finally {
+      setSmtpTesting(false);
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -55,6 +73,10 @@ export default function AdminUsersPage() {
           <p className="text-sm text-white/40 mt-1">הוספה, הרשאות, מנויים, חסימה ושליחת תפוצה</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={testSmtp} disabled={smtpTesting}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-white/70 text-sm rounded-xl transition-all">
+            {smtpTesting ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />} בדוק SMTP
+          </button>
           <button onClick={() => setBroadcasting(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/30 text-violet-200 text-sm rounded-xl transition-all">
             <Send size={14} /> שלח תפוצה
@@ -69,6 +91,16 @@ export default function AdminUsersPage() {
           </button>
         </div>
       </div>
+
+      {smtpResult && (
+        <div className={`mb-6 rounded-xl border px-4 py-3 text-sm ${smtpResult.ok
+          ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
+          : 'bg-red-500/10 border-red-500/25 text-red-300'}`} dir="rtl">
+          {smtpResult.ok
+            ? <>✅ חיבור ה-SMTP תקין ({smtpResult.host}:{smtpResult.port}) — המיילים אמורים להישלח.</>
+            : <>⚠️ בעיית SMTP: <span dir="ltr" className="font-mono text-xs">{smtpResult.error}</span></>}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard label="סך משתמשים" value={stats?.total_users ?? 0} icon={Users} accent="blue" />

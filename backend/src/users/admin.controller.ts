@@ -181,8 +181,24 @@ export class AdminController {
    */
   @Post('smtp-test')
   @HttpCode(200)
-  smtpTest() {
-    return this.mail.verify();
+  async smtpTest(@Req() req: Request) {
+    // Two-stage: verify() catches bad host/credentials, but a rejected SENDER (the
+    // classic Brevo failure) only surfaces on an actual send — so follow up with a real
+    // test email to the calling admin and return the provider's error verbatim.
+    const conn = await this.mail.verify();
+    if (!conn.ok) return conn;
+    const to = (req.user as any)?.email;
+    if (!to) return conn;
+    try {
+      await this.mail.sendHtml(
+        to,
+        '✅ Nexlify — בדיקת SMTP הצליחה',
+        '<div dir="rtl" style="font-family:Arial,sans-serif;padding:16px">אם אתה קורא את זה — חיבור ה-SMTP והשולח תקינים, וכל מערך המיילים של Nexlify פעיל. 🎉</div>',
+      );
+      return { ...conn, sent_to: to };
+    } catch (err: any) {
+      return { ok: false, error: `החיבור תקין אך השליחה נדחתה: ${err?.message || err}`, host: conn.host, port: conn.port };
+    }
   }
 
   /** Parse a pasted list of phone numbers (comma/space/newline separated) → E.164 digits. */
