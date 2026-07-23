@@ -6,11 +6,15 @@ import { useAuth } from '@/lib/hooks/useAuth';
 import { Loader2, AlertCircle, ArrowLeft, CheckCheck } from 'lucide-react';
 
 const FEATURES = [
-  'פרסום אוטומטי לטלגרם ב-AI',
-  'קישורי שותפים אוטומטיים',
-  'ניתוח הכנסות בזמן אמת',
-  'תמיכה בעברית, ערבית ואנגלית',
+  'טייס אוטומטי: מחיפוש המוצר ועד הפוסט המפורסם — לבד',
+  'AI שכותב פוסטים שמוכרים — עברית, אנגלית וערבית',
+  'לינקים חכמים: כל קליק נמדד, כל עמלה משויכת לפוסט',
+  'דוח "מה מכניס כסף" — לפי מילת מפתח, קמפיין ופלטפורמה',
+  'מיחזור מנצחים ועונתיות מסחרית — אוטומטיים',
 ];
+
+/** The channels the autopilot fans out to + the product sources it shops from. */
+const PLATFORMS = ['📨 Telegram', '📸 Instagram', '📘 Facebook', '📌 Pinterest', '💬 WhatsApp'];
 
 export default function LoginPage() {
   const { login, completeMfa } = useAuth();
@@ -263,15 +267,23 @@ export default function LoginPage() {
           </div>
 
           <h1 className="text-[44px] font-extrabold text-white leading-[1.1] tracking-tight mb-5">
-            נהל את עסק<br />
-            השותפים שלך<br />
-            <span className="gradient-text-hero">בפלטפורמה אחת</span>
+            עסק השותפים שלך<br />
+            <span className="gradient-text-hero">על טייס אוטומטי מלא</span>
           </h1>
 
-          <p className="text-[15px] text-white/70 leading-relaxed mb-10 max-w-sm">
-            מוצרים, תוכן AI, פרסום אוטומטי ומעקב הכנסות —
-            הכל בממשק אחד ופשוט.
+          <p className="text-[15px] text-white/70 leading-relaxed mb-6 max-w-md">
+            מ-AliExpress, Amazon וספקים — דרך תוכן AI — ועד פרסום מתוזמן
+            בחמש פלטפורמות ומדידת העמלה של כל פוסט. אתה קובע את הכיוון, המערכת עושה את השאר.
           </p>
+
+          {/* Publish targets — the fan-out is the product's wow, show it */}
+          <div className="flex flex-wrap gap-2 mb-8">
+            {PLATFORMS.map((p) => (
+              <span key={p} className="text-xs bg-white/6 border border-edge-hover rounded-full px-3 py-1.5 text-white/70">
+                {p}
+              </span>
+            ))}
+          </div>
 
           {/* Features */}
           <div className="space-y-3">
