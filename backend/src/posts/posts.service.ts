@@ -935,7 +935,9 @@ export class PostsService {
   /**
    * Place a new post to `groupId` in that group's NEXT FREE slot: spaced by the group's
    * interval from the latest pending (scheduled/queued) post ALREADY targeting the group —
-   * from ANY campaign or source. Returns { slot, skip }; skip=true when the group is already
+   * from any campaign or source THAT PUBLISHES TO TELEGRAM (a platform-filtered campaign,
+   * e.g. Instagram-only, never reaches the group's Telegram channel and is not counted).
+   * Returns { slot, skip }; skip=true when the group is already
    * booked within the current interval, so two campaigns to one group never post together and
    * the group publishes at most once per its interval (the group's setting is the rate).
    */
@@ -943,11 +945,16 @@ export class PostsService {
     const intervalMin = (await this.channels.getIntervalMinutes(userId, groupId).catch(() => null)) ?? 60;
     const row = await this.repo.createQueryBuilder('p')
       .select('MAX(p.scheduled_at)', 'max')
+      .leftJoin(Campaign, 'c', 'c.id = p.campaign_id')
       .where('p.user_id = :userId', { userId })
       .andWhere("p.status IN ('scheduled','queued')")
       // A post targets the group via channel_override (single) OR channel_overrides (JSON
       // array of quoted ids) — match both. Quotes make the LIKE exact (no substring bleed).
       .andWhere('(p.channel_override = :g OR p.channel_overrides LIKE :like)', { g: groupId, like: `%"${groupId}"%` })
+      // A post whose campaign is platform-filtered AWAY from Telegram (e.g. Instagram-only)
+      // never reaches this Telegram group — it must not book the group's slot, or it starves
+      // real Telegram campaigns sharing the group down to a fraction of their cadence.
+      .andWhere('(p.campaign_id IS NULL OR c.target_platforms IS NULL OR c.target_platforms LIKE :tg)', { tg: '%telegram%' })
       .getRawOne();
     const latestMs = row?.max ? new Date(row.max).getTime() : 0;
     if (!latestMs) return { slot: notBefore, skip: false };
@@ -1154,8 +1161,12 @@ export class PostsService {
         // if the group is already booked this interval, skip — so two campaigns to one
         // group never collide and the group publishes at most 1/interval. Each post is
         // saved before the next iteration, so successive posts chain off each other.
+        // ONLY for campaigns that actually publish to Telegram: a platform-filtered
+        // campaign (e.g. Instagram-only) never posts to the group's Telegram channel, so
+        // it neither books the group's slot nor gets skipped by it — it runs purely on
+        // its own cron cadence.
         let scheduledAt = times[i];
-        if (targets.length) {
+        if (targets.length && (!platforms || platforms.has('telegram'))) {
           const { slot, skip } = await this.nextGroupSlot(userId, targets[0], times[i]);
           if (skip && opts?.fromScheduler) { skipped++; continue; }
           scheduledAt = slot;
