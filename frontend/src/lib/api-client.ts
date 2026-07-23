@@ -325,11 +325,30 @@ export const customPostsApi = {
 
 // ─── Integrations API ────────────────────────────────────────────────────────
 
+export interface ClickleadRoiCampaign {
+  id: string;
+  name: string;
+  chat_id: string;
+  spend: number;
+  leads: number;
+  orders: number;
+  revenue_ils: number;
+  roas: number | null;
+}
+export interface ClickleadRoi {
+  configured: boolean;
+  campaigns: ClickleadRoiCampaign[];
+}
+
 export const integrationsApi = {
   /** Scale-only: a ClickLead SSO custom token + URL. `token` is null when SSO isn't
    *  configured yet (no Firebase service account) — caller then opens ClickLead plainly. */
   clickleadSso: () =>
     http.get<{ token: string | null; url: string }>('/integrations/clicklead/sso').then(extract),
+  /** Scale-only: ClickLead campaigns (spend+leads) joined with the commissions
+   *  their groups earned here — the dashboard ROI widget. */
+  clickleadRoi: () =>
+    http.get<ClickleadRoi>('/integrations/clicklead/roi', { timeout: 30_000 }).then(extract),
 };
 
 // ─── Discovery API ───────────────────────────────────────────────────────────

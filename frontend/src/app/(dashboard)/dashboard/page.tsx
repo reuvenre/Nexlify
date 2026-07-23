@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/hooks/useAuth';
 import { campaignsApi, postsApi, earningsApi, credentialsApi, channelsApi, subscriptionApi } from '@/lib/api-client';
 import type { Post, EarningsSummary, SubscriptionStatus } from '@/types';
 import { AiUsagePanel } from '@/components/dashboard/AiUsagePanel';
+import { ClickleadRoiPanel } from '@/components/dashboard/ClickleadRoiPanel';
 
 // ── Onboarding steps ──────────────────────────────────────────────────────────
 
@@ -277,6 +278,9 @@ export default function DashboardPage() {
 
       {/* AI token usage — daily consumption + monthly quota gauge */}
       <AiUsagePanel />
+
+      {/* Scale-only: ClickLead campaign spend vs. group commissions (hides itself otherwise) */}
+      <ClickleadRoiPanel />
 
       {/* Main layout: recent posts + mini earnings */}
       <div className="flex flex-col lg:flex-row gap-5">

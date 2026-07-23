@@ -22,4 +22,17 @@ export class IntegrationsController {
     const token = await this.svc.clickleadSsoToken(user?.email);
     return { token, url: this.svc.clickleadUrl };
   }
+
+  /**
+   * Scale-only. The user's ClickLead campaigns joined with the commissions
+   * their groups earned here — the dashboard ROI widget.
+   */
+  @Get('clicklead/roi')
+  async clickleadRoi(@Req() req: Request) {
+    const user = req.user as any;
+    if (user?.subscription_plan !== 'scale') {
+      throw new ForbiddenException('דוח ה-ROI זמין בתוכנית Scale בלבד');
+    }
+    return this.svc.clickleadRoi(user?.email);
+  }
 }
