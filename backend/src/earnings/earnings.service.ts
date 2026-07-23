@@ -75,19 +75,39 @@ export class EarningsService {
       where: { user_id: userId, post_id: IsNull() },
       take: 500,
     });
+    const withProduct = unattributed.filter((e) => e.product_id && e.product_id !== 'unknown');
+    if (!withProduct.length) return 0;
+
+    // ONE posts query for all products (a per-earning findOne was 500 sequential round
+    // trips — seconds of work that once even timed out the sync request). Matching then
+    // happens in memory: for each earning, the sent posts of ITS product inside the
+    // 30-day pre-order window, best clicks first, then most recent.
+    const productIds = Array.from(new Set(withProduct.map((e) => String(e.product_id))));
+    const posts = await this.postsRepo.createQueryBuilder('p')
+      .where('p.user_id = :userId', { userId })
+      .andWhere("p.status = 'sent'")
+      .andWhere('p.product_id IN (:...productIds)', { productIds })
+      .andWhere('p.sent_at IS NOT NULL')
+      .getMany();
+    const postsByProduct = new Map<string, Post[]>();
+    for (const p of posts) {
+      const key = String(p.product_id);
+      if (!postsByProduct.has(key)) postsByProduct.set(key, []);
+      postsByProduct.get(key)!.push(p);
+    }
+
     let attributed = 0;
-    for (const e of unattributed) {
-      if (!e.product_id || e.product_id === 'unknown') continue;
-      const windowStart = new Date(new Date(e.order_date).getTime() - 30 * 86_400_000);
-      const post = await this.postsRepo.findOne({
-        where: {
-          user_id: userId,
-          product_id: e.product_id,
-          status: 'sent',
-          sent_at: Between(windowStart, new Date(e.order_date)),
-        },
-        order: { clicks_count: 'DESC', sent_at: 'DESC' },
-      });
+    for (const e of withProduct) {
+      const orderTime = new Date(e.order_date).getTime();
+      const windowStart = orderTime - 30 * 86_400_000;
+      const candidates = (postsByProduct.get(String(e.product_id)) || [])
+        .filter((p) => {
+          const t = new Date(p.sent_at!).getTime();
+          return t >= windowStart && t <= orderTime;
+        })
+        .sort((a, b) => (b.clicks_count || 0) - (a.clicks_count || 0)
+          || new Date(b.sent_at!).getTime() - new Date(a.sent_at!).getTime());
+      const post = candidates[0];
       if (!post) continue;
       e.post_id = post.id;
       e.keyword = post.keyword || null;
@@ -309,9 +329,10 @@ export class EarningsService {
     this.syncing.add(userId);
     try {
       const result = await this.doSync(userId, creds);
-      // Attribution rides every sync: fresh orders get matched to the posts that drove
-      // them while the data is hot. Best-effort — a matching failure must not fail the sync.
-      await this.attributeEarnings(userId).catch((err: any) =>
+      // Attribution rides every sync — but FIRE-AND-FORGET: with hundreds of orders it
+      // adds seconds, and awaiting it inside the HTTP request pushed the manual sync past
+      // the frontend's timeout (the sync "failed" in the UI while succeeding server-side).
+      void this.attributeEarnings(userId).catch((err: any) =>
         this.logger.warn(`attribution failed for ${userId}: ${err?.message}`));
       return result;
     } finally {
