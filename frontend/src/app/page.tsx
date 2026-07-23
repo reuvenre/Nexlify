@@ -8,7 +8,7 @@ import {
 export const metadata: Metadata = {
   title: 'Nexlify — אוטומציית שיווק שותפים מקצה לקצה',
   description:
-    'Nexlify מגלה מוצרים חמים מ-AliExpress, כותבת קופי מוכר עם AI, מפרסמת לטלגרם ופייסבוק, ומקדמת אוטומטית את המנצחים כמודעות Meta Ads לפי ROAS — הכל במערכת אחת.',
+    'Nexlify מגלה מוצרים חמים מ-AliExpress, כותבת קופי מוכר עם AI, מפרסמת ל-5 פלטפורמות, ומודדת כל קליק ועמלה עד רמת הפוסט — הכל במערכת אחת.',
   keywords: [
     'אוטומציית שיווק שותפים', 'בוט אפיליאצייט עלי אקספרס', 'ערוץ דילים אוטומטי טלגרם',
     'aliexpress affiliate telegram bot', 'affiliate marketing automation', 'multi-channel affiliate',
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Nexlify — אוטומציית שיווק שותפים מקצה לקצה',
     description:
-      'גילוי מוצרים, כתיבת קופי עם AI, פרסום רב-ערוצי (טלגרם + פייסבוק), וקידום אוטומטי לפי ROAS — מערכת אחת.',
+      'גילוי מוצרים, כתיבת קופי עם AI, פרסום ל-5 פלטפורמות, ומדידת קליקים ועמלות עד רמת הפוסט — מערכת אחת.',
     type: 'website',
     locale: 'he_IL',
   },
@@ -34,7 +34,7 @@ const STEPS = [
   { n: '01', title: 'מגלה', desc: 'מילות מפתח → מוצרים חמים מסוננים בקטלוג.' },
   { n: '02', title: 'כותב', desc: 'ה-AI כותב קופי לכל ערוץ, מותאם לקהל שלך.' },
   { n: '03', title: 'מפרסם', desc: 'שליחה אוטומטית מתוזמנת לטלגרם ופייסבוק.' },
-  { n: '04', title: 'מקדם', desc: 'המנצחים הופכים למודעות Meta Ads לפי ROAS.' },
+  { n: '04', title: 'מודד ומכפיל', desc: 'קליקים ועמלות משויכים לכל פוסט — והמנצחים ממוחזרים אוטומטית.' },
 ];
 
 const POINTS = [
@@ -84,12 +84,12 @@ export default function LandingPage() {
             אוטומציית שיווק שותפים מבוססת AI
           </div>
           <h1 className="text-4xl sm:text-6xl font-bold tracking-tight leading-[1.1] mb-6">
-            מגלים, כותבים, מפרסמים ומקדמים<br />
+            מגלים, כותבים, מפרסמים ומודדים<br />
             <span className="bg-gradient-to-l from-blue-400 to-violet-400 bg-clip-text text-transparent">— אוטומטית, במערכת אחת</span>
           </h1>
           <p className="text-lg text-white/55 max-w-2xl mx-auto mb-9 leading-relaxed">
             Nexlify מנהלת את כל מסע שיווק השותפים: מגלה מוצרים חמים מ-AliExpress, כותבת קופי מוכר עם AI,
-            מפרסמת לטלגרם ופייסבוק, ומקדמת את המנצחים כמודעות Meta Ads לפי ROAS.
+            מפרסמת לחמש פלטפורמות, ומודדת כל קליק ועמלה עד רמת הפוסט ומילת המפתח.
           </p>
           <div className="flex items-center justify-center gap-3">
             <Link href="/register" className="group flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 hover:brightness-110 transition-all rounded-xl px-7 py-3.5 font-semibold shadow-lg shadow-blue-600/30 ring-1 ring-inset ring-white/15">

@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     template: '%s · Nexlify',
   },
   description:
-    'Nexlify מבית Win Solutions — מנוע שיווק השותפים שעושה הכל: גילוי מוצרים מ-AliExpress, כתיבת קופי עם AI, פרסום רב-ערוצי (טלגרם + פייסבוק), וקידום אוטומטי לפי ROAS.',
+    'Nexlify מבית Win Solutions — מנוע שיווק השותפים שעושה הכל: גילוי מוצרים מ-AliExpress, כתיבת קופי עם AI, פרסום ל-5 פלטפורמות, ומדידת קליקים ועמלות עד רמת הפוסט.',
   applicationName: 'Nexlify',
   authors: [{ name: VENDOR.name, url: VENDOR.url }],
   creator: VENDOR.name,
@@ -29,12 +29,12 @@ export const metadata: Metadata = {
     siteName: 'Nexlify — מבית Win Solutions',
     locale: 'he_IL',
     title: 'Nexlify — אוטומציית שיווק שותפים מבוססת AI | מבית Win Solutions',
-    description: 'גילוי מוצרים, קופי עם AI, פרסום רב-ערוצי, וקידום אוטומטי לפי ROAS — מערכת אחת. מבית Win Solutions.',
+    description: 'גילוי מוצרים, קופי עם AI, פרסום ל-5 פלטפורמות, ומדידת הכנסות עד רמת הפוסט — מערכת אחת. מבית Win Solutions.',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Nexlify — אוטומציית שיווק שותפים מבוססת AI | מבית Win Solutions',
-    description: 'גילוי מוצרים, קופי עם AI, פרסום רב-ערוצי, וקידום אוטומטי לפי ROAS — מערכת אחת. מבית Win Solutions.',
+    description: 'גילוי מוצרים, קופי עם AI, פרסום ל-5 פלטפורמות, ומדידת הכנסות עד רמת הפוסט — מערכת אחת. מבית Win Solutions.',
   },
   manifest: '/manifest.webmanifest',
   // iOS ignores the manifest's display mode — these are what make "Add to Home Screen"
@@ -65,7 +65,7 @@ const ORG_JSONLD = {
   applicationCategory: 'BusinessApplication',
   operatingSystem: 'Web',
   description:
-    'All-in-one AI affiliate marketing automation: AliExpress product discovery, AI copywriting, multi-channel publishing (Telegram + Facebook), and ROAS-driven Meta Ads auto-boost.',
+    'All-in-one AI affiliate marketing automation: AliExpress product discovery, AI copywriting, 5-platform publishing, and per-post click & commission attribution.',
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   publisher: { '@type': 'Organization', name: VENDOR.name, url: VENDOR.url },
   author: { '@type': 'Organization', name: VENDOR.name, url: VENDOR.url },

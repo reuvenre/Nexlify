@@ -28,7 +28,6 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
     features: [
       { label: 'פייסבוק' },
       { label: 'תור פרסום חכם' },
-      { label: 'האצת מודעות אוטומטית (Meta)' },
       { label: 'וואטסאפ (Green API)' },
       { label: 'אינסטגרם' },
       { label: 'משפר תמונות AI' },
@@ -57,7 +56,6 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'כותב תוכן AI' },
       { label: 'פרסום אוטומטי' },
       { label: 'תור פרסום חכם' },
-      { label: 'האצת מודעות אוטומטית (Meta)' },
       { label: 'גילוי מוצרים AI' },
       { label: 'סוכני AI לניהול הטייס האוטומטי' },
       { label: 'מעקב טוקנים ותקציב AI' },

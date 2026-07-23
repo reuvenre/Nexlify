@@ -7,7 +7,7 @@ import { MarketingShell } from '@/components/marketing/MarketingShell';
 export const metadata: Metadata = {
   title: 'מדריכים — שיווק שותפים, AliExpress, טלגרם ואוטומציה',
   description:
-    'מדריכים ואסטרטגיות לשיווק שותפים: בניית ערוץ דילים בטלגרם, מציאת מוצרים מנצחים ב-AliExpress, פרסום רב-ערוצי וקידום לפי ROAS.',
+    'מדריכים ואסטרטגיות לשיווק שותפים: בניית ערוץ דילים בטלגרם, מציאת מוצרים מנצחים ב-AliExpress, פרסום רב-ערוצי ומדידת הכנסות.',
   alternates: { canonical: '/blog' },
 };
 
