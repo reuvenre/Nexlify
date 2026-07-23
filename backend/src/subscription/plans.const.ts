@@ -115,6 +115,19 @@ export function planAllows(plan: string | null | undefined, feature: FeatureKey)
   return tier >= need;
 }
 
+/**
+ * One-time credit top-up packs a user can buy when the monthly quota runs out.
+ * Purchased credits are ADDED to the current balance (they ride the same
+ * credits_remaining counter; the monthly refill still resets to the plan quota,
+ * so packs are meant to bridge the current month). Priced above the effective
+ * per-credit price of the plans — the plans stay the better deal.
+ */
+export const CREDIT_PACKS = [
+  { id: 'pack_5k', credits: 5_000, price: 59, label: 'חבילת בוסט' },
+  { id: 'pack_15k', credits: 15_000, price: 149, label: 'חבילת האצה' },
+  { id: 'pack_50k', credits: 50_000, price: 399, label: 'חבילת טורבו' },
+] as const;
+
 /** How many credits each billable action costs. */
 export const CREDIT_COSTS = {
   /** One AI text generation (post copy). */

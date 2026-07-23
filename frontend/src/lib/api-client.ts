@@ -34,6 +34,7 @@ import type {
   NotificationPrefs,
   SubscriptionStatus,
   PlanDef,
+  CreditPack,
   BillingCycle,
   SupplierCatalog,
   SupplierProduct,
@@ -268,6 +269,9 @@ export const adminApi = {
   /** SMTP diagnostics — verifies connection+credentials and returns the REAL provider error. */
   smtpTest: () =>
     http.post<{ ok: boolean; error?: string; host?: string; port?: number; secure?: boolean }>('/admin/smtp-test', {}, { timeout: 30000 }).then(extract),
+  /** Grant one-time credits (manual credit-pack fulfilment until billing lands). */
+  addCredits: (userId: string, amount: number) =>
+    http.post<{ ok: boolean; credits_remaining: number | null }>(`/admin/users/${userId}/credits`, { amount }).then(extract),
 };
 
 // ─── Notifications API ───────────────────────────────────────────────────────
@@ -313,6 +317,8 @@ export const subscriptionApi = {
   status: () => http.get<SubscriptionStatus>('/subscription').then(extract),
   /** Plan catalog — prices/credits/limits come from the backend, never hardcode. */
   plans: () => http.get<PlanDef[]>('/subscription/plans').then(extract),
+  /** One-time credit-pack catalog. */
+  packs: () => http.get<CreditPack[]>('/subscription/packs').then(extract),
   // No self-service switchPlan: plans are paid and there's no payment gateway yet, so
   // upgrades are handled by an admin (PATCH /admin/users/:id/subscription) until billing lands.
 };

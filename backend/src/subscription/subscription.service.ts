@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
 import {
-  BillingCycle, CREDIT_COSTS, FEATURE_MIN_PLAN, FeatureKey, PLANS, PlanId,
+  BillingCycle, CREDIT_COSTS, CREDIT_PACKS, FEATURE_MIN_PLAN, FeatureKey, PLANS, PlanId,
   WHATSAPP_CONNECTIONS, planAllows, planOf,
 } from './plans.const';
 
@@ -36,6 +36,8 @@ export interface SubscriptionStatus {
   monthly_credits: number;
   max_groups: number | null;
   renews_at: string | null;
+  /** Admin accounts never consume credits — the UI shows ∞ instead of a balance. */
+  unlimited: boolean;
 }
 
 /**
@@ -88,6 +90,7 @@ export class SubscriptionService {
       monthly_credits: plan.monthly_credits,
       max_groups: plan.max_groups,
       renews_at: user.plan_renews_at ? new Date(user.plan_renews_at).toISOString() : null,
+      unlimited: user.role === 'admin',
     };
   }
 
@@ -118,10 +121,12 @@ export class SubscriptionService {
 
   /** Whether the user's plan includes a gated feature. Fail-open on a missing user is
    *  deliberate here — gating must never brick internal/system flows; the strict path
-   *  is requireFeature (throws) used at user-facing entry points. */
+   *  is requireFeature (throws) used at user-facing entry points.
+   *  Admins (the platform owners) bypass all feature gates. */
   async allows(userId: string, feature: FeatureKey): Promise<boolean> {
     const user = await this.users.findOne({ where: { id: userId } }).catch(() => null);
     if (!user) return true;
+    if (user.role === 'admin') return true;
     return planAllows(user.subscription_plan, feature);
   }
 
@@ -157,7 +162,10 @@ export class SubscriptionService {
    * concurrent sends can't both spend the last credits.
    */
   async tryConsume(userId: string, amount: number, reason: string): Promise<boolean> {
-    await this.refillIfDue(userId);
+    const user = await this.refillIfDue(userId);
+    // Admins (platform owners) never consume credits — their own campaigns must not
+    // stop mid-month, and there is no one to bill.
+    if (user.role === 'admin') return true;
     const res = await this.users
       .createQueryBuilder()
       .update(User)
@@ -167,6 +175,27 @@ export class SubscriptionService {
     const ok = (res.affected ?? 0) > 0;
     if (!ok) this.logger.warn(`User ${userId}: insufficient credits for ${reason} (cost ${amount})`);
     return ok;
+  }
+
+  /** The purchasable one-time credit packs (static catalog). */
+  listPacks() {
+    return CREDIT_PACKS;
+  }
+
+  /**
+   * Grant extra credits to a user — the admin fulfilment side of a credit-pack
+   * purchase (until a payment gateway automates it). Adds on TOP of the current
+   * balance; the next monthly refill still resets to the plan quota.
+   */
+  async addCredits(userId: string, amount: number) {
+    const n = Math.floor(amount);
+    if (!Number.isFinite(n) || n <= 0 || n > 1_000_000) {
+      throw new BadRequestException('כמות קרדיטים לא תקינה');
+    }
+    await this.refillIfDue(userId); // settle the cycle first so the top-up isn't wiped by a due refill
+    await this.users.increment({ id: userId }, 'credits_remaining', n);
+    const user = await this.users.findOne({ where: { id: userId } });
+    return { ok: true, credits_remaining: user?.credits_remaining ?? null };
   }
 
   /** Consume credits or throw the standard Hebrew upgrade message. */

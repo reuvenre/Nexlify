@@ -72,6 +72,16 @@ export interface SubscriptionStatus {
   monthly_credits: number;
   max_groups: number | null;
   renews_at: string | null;
+  /** Admin accounts never consume credits — show ∞ instead of a balance. */
+  unlimited?: boolean;
+}
+
+/** One-time purchasable credit top-up. */
+export interface CreditPack {
+  id: string;
+  credits: number;
+  price: number;
+  label: string;
 }
 
 export interface AdminStats {

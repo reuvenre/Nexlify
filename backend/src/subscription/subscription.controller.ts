@@ -24,6 +24,14 @@ export class SubscriptionController {
     return this.svc.listPlans();
   }
 
+  /** One-time credit-pack catalog (public, static). Purchase itself goes through
+   *  the team (admin grants via POST /admin/users/:id/credits) until a payment
+   *  gateway is wired — same policy as plan upgrades. */
+  @Get('packs')
+  packs() {
+    return this.svc.listPacks();
+  }
+
   // NOTE: there is deliberately NO self-service plan-switch route. Plans are paid,
   // and no payment gateway is wired yet, so letting a user POST their own plan was a
   // free-upgrade hole (any user could grant themselves the top tier). Plan changes go

@@ -223,6 +223,10 @@ function ManageUserModal({ user, plans, isSelf, onClose, onSaved }: {
   const [blocked, setBlocked] = useState<boolean>(!!user.is_blocked);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // One-time credit grant (manual credit-pack fulfilment until billing lands).
+  const [creditsAmount, setCreditsAmount] = useState('');
+  const [granting, setGranting] = useState(false);
+  const [grantResult, setGrantResult] = useState<string | null>(null);
 
   const save = async () => {
     setSaving(true); setError('');
@@ -234,6 +238,21 @@ function ManageUserModal({ user, plans, isSelf, onClose, onSaved }: {
     } catch (e: any) {
       setError(e?.response?.data?.message || 'שמירה נכשלה — נסה שוב');
       setSaving(false);
+    }
+  };
+
+  const grantCredits = async () => {
+    const amount = Number(creditsAmount);
+    if (!Number.isFinite(amount) || amount <= 0) { setGrantResult('הזן כמות תקינה'); return; }
+    setGranting(true); setGrantResult(null);
+    try {
+      const r = await adminApi.addCredits(user.id, amount);
+      setGrantResult(`✓ נטענו ${amount.toLocaleString()} קרדיטים — יתרה חדשה: ${r.credits_remaining?.toLocaleString() ?? '—'}`);
+      setCreditsAmount('');
+    } catch (e: any) {
+      setGrantResult(e?.response?.data?.message || 'הטעינה נכשלה');
+    } finally {
+      setGranting(false);
     }
   };
 
@@ -259,6 +278,31 @@ function ManageUserModal({ user, plans, isSelf, onClose, onSaved }: {
             ))}
           </select>
           <p className="text-2xs text-white/30 mt-1">שינוי מנוי מאפס את מכסת הקרדיטים החודשית.</p>
+        </div>
+
+        <div>
+          <label className={labelCls}>טעינת קרדיטים חד-פעמית</label>
+          <div className="flex gap-2">
+            <input
+              type="number" min={1} dir="ltr" value={creditsAmount}
+              onChange={(e) => setCreditsAmount(e.target.value)}
+              placeholder="5000" className={inputCls}
+            />
+            <button
+              type="button" onClick={grantCredits} disabled={granting || !creditsAmount}
+              className="shrink-0 px-4 py-2.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 disabled:opacity-50 text-amber-200 text-sm font-medium transition-all"
+            >
+              {granting ? <Loader2 size={14} className="animate-spin" /> : 'טען'}
+            </button>
+          </div>
+          <p className="text-2xs text-white/30 mt-1">
+            מתווסף מיד ליתרה (מימוש רכישת חבילה: 5,000/‏₪59 · 15,000/‏₪149 · 50,000/‏₪399).
+          </p>
+          {grantResult && (
+            <p className={`text-xs mt-1.5 ${grantResult.startsWith('✓') ? 'text-emerald-400' : 'text-red-400'}`}>
+              {grantResult}
+            </p>
+          )}
         </div>
 
         <div>

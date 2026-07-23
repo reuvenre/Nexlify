@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Zap, Loader2, Mail, ArrowUpCircle } from 'lucide-react';
+import { Check, Zap, Loader2, Mail, ArrowUpCircle, Rocket } from 'lucide-react';
 import { subscriptionApi } from '@/lib/api-client';
-import type { BillingCycle, PlanDef, SubscriptionStatus } from '@/types';
+import type { BillingCycle, CreditPack, PlanDef, SubscriptionStatus } from '@/types';
 
 // Where upgrade requests go until a real payment gateway is wired.
 const SUPPORT_EMAIL = 'support@alibot.pro';
@@ -65,15 +65,17 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
 export function SubscriptionForm() {
   const [billing, setBilling] = useState<BillingCycle>('monthly');
   const [plans, setPlans] = useState<PlanDef[]>([]);
+  const [packs, setPacks] = useState<CreditPack[]>([]);
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([subscriptionApi.plans(), subscriptionApi.status()])
-      .then(([p, s]) => {
+    Promise.all([subscriptionApi.plans(), subscriptionApi.status(), subscriptionApi.packs().catch(() => [])])
+      .then(([p, s, pk]) => {
         setPlans(p);
         setStatus(s);
+        setPacks(pk);
         setBilling(s.billing || 'monthly');
       })
       .catch(() => setError('טעינת פרטי המנוי נכשלה'))
@@ -119,16 +121,25 @@ export function SubscriptionForm() {
           </span>
           <span className="text-xs text-white/60">הקרדיטים מתחדשים ב-{renewsLabel}</span>
           <div className="mr-auto flex items-center gap-3 text-xs text-white/50">
-            <span className="flex items-center gap-1.5">
-              <Zap size={11} className="text-amber-400" />
-              {status.credits_remaining.toLocaleString()} / {status.monthly_credits.toLocaleString()} קרדיטים
-            </span>
-            <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-violet-500 to-blue-500 rounded-full transition-all"
-                style={{ width: `${creditsPct}%` }}
-              />
-            </div>
+            {status.unlimited ? (
+              <span className="flex items-center gap-1.5 text-amber-300 font-semibold">
+                <Zap size={11} className="text-amber-400" />
+                קרדיטים ללא הגבלה (חשבון מנהל) ∞
+              </span>
+            ) : (
+              <>
+                <span className="flex items-center gap-1.5">
+                  <Zap size={11} className="text-amber-400" />
+                  {status.credits_remaining.toLocaleString()} / {status.monthly_credits.toLocaleString()} קרדיטים
+                </span>
+                <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-violet-500 to-blue-500 rounded-full transition-all"
+                    style={{ width: `${creditsPct}%` }}
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -252,6 +263,39 @@ export function SubscriptionForm() {
           );
         })}
       </div>
+
+      {/* One-time credit packs — bridge the current month when the quota runs out.
+          Purchase goes through the team (mailto), same policy as plan upgrades. */}
+      {packs.length > 0 && !status?.unlimited && (
+        <div className="pt-2">
+          <div className="flex items-center gap-2 mb-1">
+            <Rocket size={15} className="text-amber-400" />
+            <h3 className="text-sm font-bold text-white">נגמרים הקרדיטים? חבילות טעינה חד-פעמיות</h3>
+          </div>
+          <p className="text-xs text-white/40 mb-4">
+            הקרדיטים מתווספים מיד ליתרה הנוכחית ונשמרים עד סוף החודש. המנוי החודשי תמיד משתלם יותר לאורך זמן.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {packs.map((pack) => {
+              const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`רכישת ${pack.label} — ${pack.credits.toLocaleString()} קרדיטים`)}&body=${encodeURIComponent(`היי, אני רוצה לרכוש את ${pack.label} (${pack.credits.toLocaleString()} קרדיטים ב-₪${pack.price}).`)}`;
+              return (
+                <div key={pack.id} className="bg-surface-secondary border border-edge rounded-2xl p-4 text-center hover:border-amber-500/40 transition-all">
+                  <p className="text-xs font-semibold text-amber-300 mb-1">{pack.label}</p>
+                  <p className="text-2xl font-extrabold text-white">
+                    {pack.credits.toLocaleString()}
+                    <span className="text-xs font-normal text-white/40 mr-1">קרדיטים</span>
+                  </p>
+                  <p className="text-sm text-white/60 mt-1 mb-3">₪{pack.price} · חד-פעמי</p>
+                  <a href={mailto}
+                    className="block w-full py-2 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 transition-all">
+                    פנה לרכישה
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <p className="text-xs text-white/25 text-center">
         לשאלות בנוגע לחיוב פנה אלינו ל-{SUPPORT_EMAIL}

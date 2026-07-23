@@ -178,6 +178,10 @@ export default function PricingPage() {
             קרדיטים = פעולות AI ופרסום (כתיבת פוסט: 5 · פרסום: 10). מתחדשים אוטומטית כל חודש.
           </p>
           <p className="text-sm text-white/45">
+            נגמרו הקרדיטים באמצע החודש? חבילות טעינה חד-פעמיות מתוך המערכת:
+            {' '}5,000 / ₪59 · 15,000 / ₪149 · 50,000 / ₪399.
+          </p>
+          <p className="text-sm text-white/45">
             שאלות? <Link href="/register" className="text-blue-400 hover:text-blue-300">הירשמו</Link> או כתבו לנו — נשמח לעזור להתאים מסלול.
           </p>
         </div>

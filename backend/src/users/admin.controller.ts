@@ -85,6 +85,14 @@ export class AdminController {
     return this.subscription.setPlanForUser(id, plan, billing || 'monthly');
   }
 
+  /** Grant one-time credits to a user — fulfils a credit-pack purchase manually
+   *  until a payment gateway automates it. Adds on top of the current balance. */
+  @Post('users/:id/credits')
+  @HttpCode(200)
+  addCredits(@Param('id') id: string, @Body('amount') amount: number) {
+    return this.subscription.addCredits(id, Number(amount));
+  }
+
   /**
    * Multi-channel broadcast. `channels` selects any of email / telegram / whatsapp:
    *  • email    → registered users (`target`: all | users | admins)
