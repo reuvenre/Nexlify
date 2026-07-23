@@ -78,7 +78,7 @@ export default function AdminUsersPage() {
             {smtpTesting ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />} בדוק SMTP
           </button>
           <button onClick={() => setBroadcasting(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/30 text-violet-200 text-sm rounded-xl transition-all">
+            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-xl transition-all">
             <Send size={14} /> שלח תפוצה
           </button>
           <button onClick={() => setAdding(true)}
