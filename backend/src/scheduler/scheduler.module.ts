@@ -9,9 +9,10 @@ import { AgentsModule } from '../agents/agents.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { EarningsModule } from '../earnings/earnings.module';
 import { AmazonModule } from '../amazon/amazon.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
-  imports: [CampaignsModule, PostsModule, CredentialsModule, ChannelsModule, NotificationsModule, AgentsModule, SuppliersModule, EarningsModule, AmazonModule],
+  imports: [CampaignsModule, PostsModule, CredentialsModule, ChannelsModule, NotificationsModule, AgentsModule, SuppliersModule, EarningsModule, AmazonModule, SubscriptionModule],
   providers: [CampaignSchedulerService],
 })
 export class SchedulerModule {}

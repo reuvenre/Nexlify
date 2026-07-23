@@ -2,7 +2,30 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
-import { BillingCycle, CREDIT_COSTS, PLANS, PlanId, planOf } from './plans.const';
+import {
+  BillingCycle, CREDIT_COSTS, FEATURE_MIN_PLAN, FeatureKey, PLANS, PlanId,
+  WHATSAPP_CONNECTIONS, planAllows, planOf,
+} from './plans.const';
+
+/** Hebrew display names for gated features — used in upgrade error messages. */
+const FEATURE_LABELS: Record<FeatureKey, string> = {
+  platform_telegram: 'פרסום לטלגרם',
+  platform_facebook: 'פרסום לפייסבוק',
+  platform_instagram: 'פרסום לאינסטגרם',
+  platform_pinterest: 'פרסום לפינטרסט',
+  platform_whatsapp: 'פרסום לוואטסאפ',
+  source_aliexpress: 'AliExpress',
+  source_amazon: 'קמפיין אמזון',
+  source_flylink: 'קמפיין ספקים',
+  ai_agents: 'סוכני AI',
+  winner_recycling: 'מיחזור מנצחים',
+  seasonal_calendar: 'עונתיות — לוח שנה מסחרי',
+  campaign_window_tz: 'חלון שליחה לפי אזור זמן',
+  attribution_report: 'דוח אטריבושן',
+  token_tracking: 'מעקב טוקנים ותקציב AI',
+  image_enhancer: 'משפר תמונות AI',
+  english_campaigns: 'קמפיין באנגלית לקהל ארה"ב',
+};
 
 export interface SubscriptionStatus {
   plan: PlanId;
@@ -39,9 +62,16 @@ export class SubscriptionService {
     @InjectRepository(User) private readonly users: Repository<User>,
   ) {}
 
-  /** Full plan catalog for the pricing page. */
+  /** Full plan catalog for the pricing page — each plan carries the feature keys it
+   *  UNLOCKS (gating truth, so pricing UIs can't drift from what's actually enforced)
+   *  and its WhatsApp connection count. */
   listPlans() {
-    return Object.values(PLANS);
+    return Object.values(PLANS).map((p) => ({
+      ...p,
+      whatsapp_connections: WHATSAPP_CONNECTIONS[p.id],
+      unlocks: (Object.keys(FEATURE_MIN_PLAN) as FeatureKey[])
+        .filter((k) => FEATURE_MIN_PLAN[k] === p.id),
+    }));
   }
 
   /** Current subscription state for a user (applies the lazy monthly refill). */
@@ -84,6 +114,41 @@ export class SubscriptionService {
   async getMaxGroups(userId: string): Promise<number | null> {
     const user = await this.users.findOne({ where: { id: userId } });
     return planOf(user?.subscription_plan).max_groups;
+  }
+
+  /** Whether the user's plan includes a gated feature. Fail-open on a missing user is
+   *  deliberate here — gating must never brick internal/system flows; the strict path
+   *  is requireFeature (throws) used at user-facing entry points. */
+  async allows(userId: string, feature: FeatureKey): Promise<boolean> {
+    const user = await this.users.findOne({ where: { id: userId } }).catch(() => null);
+    if (!user) return true;
+    return planAllows(user.subscription_plan, feature);
+  }
+
+  /** Throw the standard Hebrew upgrade message when the plan lacks a feature. */
+  async requireFeature(userId: string, feature: FeatureKey): Promise<void> {
+    if (await this.allows(userId, feature)) return;
+    const minPlan = PLANS[FEATURE_MIN_PLAN[feature] as PlanId];
+    throw new BadRequestException(
+      `"${FEATURE_LABELS[feature]}" זמין החל מתוכנית ${minPlan.name} — שדרג בהגדרות ← מנוי`,
+    );
+  }
+
+  /** Max WhatsApp connections for the user's plan. */
+  async getWhatsappConnections(userId: string): Promise<number> {
+    const user = await this.users.findOne({ where: { id: userId } }).catch(() => null);
+    return WHATSAPP_CONNECTIONS[planOf(user?.subscription_plan).id];
+  }
+
+  /**
+   * The publish platforms the user's plan includes, as one cheap lookup (the post
+   * fan-out calls this on every send). Fail-open on a missing user — see allows().
+   */
+  async platformGate(userId: string): Promise<Set<string>> {
+    const all = ['telegram', 'facebook', 'instagram', 'pinterest', 'whatsapp'];
+    const user = await this.users.findOne({ where: { id: userId } }).catch(() => null);
+    if (!user) return new Set(all);
+    return new Set(all.filter((p) => planAllows(user.subscription_plan, `platform_${p}` as FeatureKey)));
   }
 
   /**

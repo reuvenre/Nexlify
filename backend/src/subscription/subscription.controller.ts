@@ -4,7 +4,6 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionService } from './subscription.service';
 
 @Controller('subscription')
-@UseGuards(JwtAuthGuard)
 export class SubscriptionController {
   constructor(private readonly svc: SubscriptionService) {}
 
@@ -12,11 +11,14 @@ export class SubscriptionController {
 
   /** Current plan, credit balance and limits for the logged-in user. */
   @Get()
+  @UseGuards(JwtAuthGuard)
   status(@Req() req: Request) {
     return this.svc.getStatus(this.uid(req));
   }
 
-  /** Plan catalog (prices/credits/limits) — single source of truth for the UI. */
+  /** Plan catalog (prices/credits/limits) — single source of truth for the UI.
+   *  PUBLIC: the marketing /pricing page renders it before signup. Contains no
+   *  user data — just the static plan definitions. */
   @Get('plans')
   plans() {
     return this.svc.listPlans();

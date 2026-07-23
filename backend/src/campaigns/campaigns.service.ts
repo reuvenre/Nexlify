@@ -6,13 +6,36 @@ import { Repository } from 'typeorm';
 import { CronTime } from 'cron';
 import { Campaign } from './campaign.entity';
 import { CampaignDto } from './dto/campaign.dto';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 @Injectable()
 export class CampaignsService {
   constructor(
     @InjectRepository(Campaign)
     private readonly repo: Repository<Campaign>,
+    private readonly subscription: SubscriptionService,
   ) {}
+
+  /**
+   * Subscription gating at the campaign write path. Throws the standard upgrade
+   * message when the campaign uses a feature above the user's tier — the matching
+   * runtime paths (scheduler, fan-out) enforce the same map as defense-in-depth.
+   */
+  private async assertPlanAllows(userId: string, dto: Partial<CampaignDto>): Promise<void> {
+    if (dto.source === 'amazon') await this.subscription.requireFeature(userId, 'source_amazon');
+    if (dto.source === 'flylink') await this.subscription.requireFeature(userId, 'source_flylink');
+    if (dto.use_agents) await this.subscription.requireFeature(userId, 'ai_agents');
+    if (dto.window_tz) await this.subscription.requireFeature(userId, 'campaign_window_tz');
+    if ((dto.language || '').toLowerCase().startsWith('en')) {
+      await this.subscription.requireFeature(userId, 'english_campaigns');
+    }
+    for (const p of dto.target_platforms || []) {
+      const key = `platform_${String(p).toLowerCase()}`;
+      if (['platform_facebook', 'platform_instagram', 'platform_pinterest', 'platform_whatsapp'].includes(key)) {
+        await this.subscription.requireFeature(userId, key as any);
+      }
+    }
+  }
 
   /** target_channels / target_platforms are stored as JSON text; expose them as real arrays. */
   private toPublic(c: Campaign) {
@@ -49,6 +72,7 @@ export class CampaignsService {
   }
 
   async create(userId: string, dto: CampaignDto) {
+    await this.assertPlanAllows(userId, dto);
     // target_channels / target_platforms arrive as arrays but the columns are JSON text.
     const { target_channels, target_platforms, keywords, ...rest } = dto;
     const campaign = this.repo.create({
@@ -68,6 +92,7 @@ export class CampaignsService {
   }
 
   async update(userId: string, id: string, dto: Partial<CampaignDto>) {
+    await this.assertPlanAllows(userId, dto);
     const campaign = await this.get(userId, id);
 
     // Strip identity / server-managed keys before merging. `Partial<CampaignDto>`

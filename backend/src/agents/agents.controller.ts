@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AgentRun } from './agent-run.entity';
 import { CampaignsService } from '../campaigns/campaigns.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 @Controller('agents')
 @UseGuards(JwtAuthGuard)
@@ -14,14 +15,16 @@ export class AgentsController {
   constructor(
     private readonly orchestrator: OrchestratorAgent,
     private readonly campaigns: CampaignsService,
+    private readonly subscription: SubscriptionService,
     @InjectRepository(AgentRun)
     private readonly runRepo: Repository<AgentRun>,
   ) {}
 
-  /** Manually trigger the orchestrator for a specific campaign */
+  /** Manually trigger the orchestrator for a specific campaign (Autopilot+ feature). */
   @Post('run')
   async triggerRun(@Req() req: any, @Body() body: { campaign_id: string }) {
     const userId = req.user.id;
+    await this.subscription.requireFeature(userId, 'ai_agents');
     const campaign = await this.campaigns.get(userId, body.campaign_id);
     return this.orchestrator.run(campaign as any, userId);
   }

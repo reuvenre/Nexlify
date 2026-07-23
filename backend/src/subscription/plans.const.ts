@@ -47,6 +47,74 @@ export const PLANS: Record<PlanId, PlanDef> = {
 
 export const DEFAULT_PLAN: PlanId = 'starter';
 
+/** Ordered tiers for "plan X and above" checks. */
+export const PLAN_ORDER: PlanId[] = ['starter', 'growth', 'autopilot', 'scale'];
+
+/**
+ * Feature gating — the MINIMAL plan tier each feature unlocks at. This is the single
+ * source of truth for what a subscription actually enforces (matched 1:1 by the
+ * pricing pages — never promise a feature here that isn't gated, or vice versa).
+ *
+ * Tiers are cumulative: a feature at 'growth' is available to growth, autopilot, scale.
+ */
+export const FEATURE_MIN_PLAN = {
+  // ── Publishing platforms ──
+  /** Telegram publishing — every tier. */
+  platform_telegram: 'starter',
+  /** Facebook page publishing (native or via Make relay). */
+  platform_facebook: 'growth',
+  /** Instagram business publishing. */
+  platform_instagram: 'growth',
+  /** Pinterest pin publishing. */
+  platform_pinterest: 'growth',
+  /** WhatsApp group publishing (Green API / Cloud API). */
+  platform_whatsapp: 'growth',
+
+  // ── Product sources ──
+  /** AliExpress keyword search — every tier. */
+  source_aliexpress: 'starter',
+  /** Amazon PA-API campaigns. */
+  source_amazon: 'autopilot',
+  /** Supplier/FLYLINK catalog rotation. */
+  source_flylink: 'autopilot',
+
+  // ── Automation depth ──
+  /** Multi-agent orchestrator (use_agents campaigns). */
+  ai_agents: 'autopilot',
+  /** Daily winner-recycling cron. */
+  winner_recycling: 'autopilot',
+  /** Seasonal commercial-calendar keyword injection. */
+  seasonal_calendar: 'autopilot',
+  /** Per-campaign send window with its own timezone (US-hours campaigns). */
+  campaign_window_tz: 'autopilot',
+
+  // ── Analytics ──
+  /** Revenue-attribution report (which post/keyword earns). */
+  attribution_report: 'growth',
+  /** AI token/budget tracking panel. */
+  token_tracking: 'scale',
+
+  // ── Content ──
+  /** AI image enhancer. */
+  image_enhancer: 'growth',
+  /** English/US-audience campaign preset (Pinterest SEO copy, USD pricing). */
+  english_campaigns: 'scale',
+} as const;
+
+export type FeatureKey = keyof typeof FEATURE_MIN_PLAN;
+
+/** Max WhatsApp connections per tier (0 = platform locked anyway). */
+export const WHATSAPP_CONNECTIONS: Record<PlanId, number> = {
+  starter: 0, growth: 1, autopilot: 2, scale: 3,
+};
+
+/** True when `plan` is at or above the feature's minimal tier. */
+export function planAllows(plan: string | null | undefined, feature: FeatureKey): boolean {
+  const tier = PLAN_ORDER.indexOf(planOf(plan).id);
+  const need = PLAN_ORDER.indexOf(FEATURE_MIN_PLAN[feature] as PlanId);
+  return tier >= need;
+}
+
 /** How many credits each billable action costs. */
 export const CREDIT_COSTS = {
   /** One AI text generation (post copy). */

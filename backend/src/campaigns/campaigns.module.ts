@@ -6,6 +6,7 @@ import { CampaignsController } from './campaigns.controller';
 import { PostsModule } from '../posts/posts.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { AmazonModule } from '../amazon/amazon.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { AmazonModule } from '../amazon/amazon.module';
     // For Amazon campaigns, which run through AmazonService. No cycle: AmazonModule imports
     // PostsModule + the Campaign repo, not CampaignsModule.
     AmazonModule,
+    SubscriptionModule,
   ],
   providers: [CampaignsService],
   controllers: [CampaignsController],

@@ -7,12 +7,14 @@ import { EarningsService } from './earnings.service';
 import { EarningsController } from './earnings.controller';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { RatesModule } from '../rates/rates.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Earning, Post, Campaign]),
     CredentialsModule,
     RatesModule,
+    SubscriptionModule,
   ],
   providers: [EarningsService],
   controllers: [EarningsController],

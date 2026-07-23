@@ -1003,7 +1003,8 @@ export class PostsService {
     // campaign's own list — and the copywriter gets a one-line seasonal context.
     // Window closes → they drop out on their own.
     let seasonHint: string | null = null;
-    if (creds.seasonal_enabled !== false) {
+    if (creds.seasonal_enabled !== false
+      && (await this.subscription.allows(userId, 'seasonal_calendar').catch(() => true))) {
       for (const kw of seasonalKeywords(campaign.language || 'he')) {
         if (!kwList.includes(kw)) kwList.push(kw);
       }
@@ -1332,6 +1333,9 @@ export class PostsService {
     }
     for (const u of users) {
       try {
+        // Subscription gate: recycling is an Autopilot+ feature — a user who toggled it
+        // on and later downgraded keeps the toggle but the cron stops honoring it.
+        if (!(await this.subscription.allows(u.user_id, 'winner_recycling').catch(() => true))) continue;
         await this.recycleForUser(u.user_id, u.min_clicks);
       } catch (err: any) {
         this.logger.warn(`winner recycle failed for ${u.user_id}: ${err?.message}`);
@@ -1841,20 +1845,36 @@ export class PostsService {
     // otherwise the per-channel token the user configured is silently ignored (exactly why
     // Ali4You wasn't posting). So `wantFacebook` is just the master switch; per-target below
     // we pick native (own token) vs the Make relay.
+    // Subscription gating: platforms above the user's plan tier are dropped from the
+    // fan-out (feature enforcement, not a toggle). A dropped-but-wanted platform is
+    // reported in errors below so the post shows "פורסם חלקית" with the upgrade reason
+    // instead of silently not appearing on that platform.
+    const gate = await this.subscription.platformGate(post.user_id);
+    const planBlocked: string[] = [];
+    const gated = (want: boolean, platform: string, label: string): boolean => {
+      if (want && !gate.has(platform)) { planBlocked.push(label); return false; }
+      return want;
+    };
     const makeRelay = (!only || only.has('facebook'))
-      && creds?.publish_via_make === true && !!creds?.make_webhook_url;
-    const wantFacebook = only ? only.has('facebook') : creds?.publish_facebook === true;
-    const wantInstagram = only ? only.has('instagram') : creds?.publish_instagram === true;
-    const wantPinterest = only ? only.has('pinterest') : creds?.publish_pinterest === true;
-    const wantWhatsapp = only ? only.has('whatsapp') : creds?.publish_whatsapp === true;
+      && creds?.publish_via_make === true && !!creds?.make_webhook_url
+      && gate.has('facebook');
+    const wantFacebook = gated(only ? only.has('facebook') : creds?.publish_facebook === true, 'facebook', 'פייסבוק');
+    const wantInstagram = gated(only ? only.has('instagram') : creds?.publish_instagram === true, 'instagram', 'אינסטגרם');
+    const wantPinterest = gated(only ? only.has('pinterest') : creds?.publish_pinterest === true, 'pinterest', 'פינטרסט');
+    const wantWhatsapp = gated(only ? only.has('whatsapp') : creds?.publish_whatsapp === true, 'whatsapp', 'וואטסאפ');
 
     // No channel enabled → fail WITHOUT charging credits (the check used to run
     // after the consume, so users were billed for a post sent nowhere).
     if (!wantTelegram && !wantFacebook && !wantInstagram && !wantPinterest && !wantWhatsapp && !makeRelay) {
       post.status = 'failed';
-      post.error_message = 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
+      post.error_message = planBlocked.length
+        ? `הפלטפורמות ${planBlocked.join(', ')} אינן כלולות בתוכנית שלך — שדרג בהגדרות ← מנוי`
+        : 'לא הופעל אף ערוץ פרסום — הפעל טלגרם/פייסבוק בהגדרות';
       await this.repo.save(post);
       return;
+    }
+    if (planBlocked.length) {
+      errors.push(`תוכנית: ${planBlocked.join(', ')} לא נשלחו — זמינים בתוכנית גבוהה יותר`);
     }
 
     // Plan enforcement: publishing costs ONE credit per action — however many groups

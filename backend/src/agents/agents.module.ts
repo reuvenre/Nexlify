@@ -14,6 +14,7 @@ import { RatesModule } from '../rates/rates.module';
 import { AiModule } from '../ai/ai.module';
 import { Post } from '../posts/post.entity';
 import { Campaign } from '../campaigns/campaign.entity';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { Campaign } from '../campaigns/campaign.entity';
     CampaignsModule,
     CredentialsModule,
     RatesModule,
+    SubscriptionModule,
     AiModule,
   ],
   providers: [

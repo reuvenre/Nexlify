@@ -10,6 +10,7 @@ import { OrchestratorAgent } from '../agents/orchestrator.agent';
 import { SupplierProductsService } from '../suppliers/supplier-products.service';
 import { EarningsService } from '../earnings/earnings.service';
 import { AmazonService } from '../amazon/amazon.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -31,6 +32,7 @@ export class CampaignSchedulerService {
     @Optional() private readonly supplierProducts: SupplierProductsService,
     @Optional() private readonly earnings: EarningsService,
     @Optional() private readonly amazon: AmazonService,
+    private readonly subscription: SubscriptionService,
   ) {}
 
   /**
@@ -280,7 +282,25 @@ export class CampaignSchedulerService {
       // (use_agents). Otherwise use the plain campaign runner. Previously this keyed off
       // whether the orchestrator was injected (always true), so every campaign wrongly
       // ran through the AI agents regardless of its use_agents flag.
-      const useAgents = campaign.use_agents && this.orchestrator;
+      // Subscription defense-in-depth: a downgraded plan must stop paid features even
+      // for campaigns created while the plan still allowed them. Amazon/FLYLINK sources
+      // have no cheaper fallback → skip the run and tell the owner once per tick;
+      // use_agents falls back to the plain runner (the campaign itself is still valid).
+      if (campaign.source === 'amazon' || campaign.source === 'flylink') {
+        const feature = campaign.source === 'amazon' ? 'source_amazon' as const : 'source_flylink' as const;
+        if (!(await this.subscription.allows(campaign.user_id, feature).catch(() => true))) {
+          this.logger.warn(`Campaign ${campaign.id} skipped: plan lacks ${feature}`);
+          void this.notifications.notifyCampaignError(
+            campaign.user_id, campaign.name,
+            'הקמפיין דורש תוכנית גבוהה יותר — שדרג בהגדרות ← מנוי או השהה את הקמפיין',
+          );
+          this.running.delete(campaign.id);
+          continue;
+        }
+      }
+      const agentsAllowed = !campaign.use_agents
+        || (await this.subscription.allows(campaign.user_id, 'ai_agents').catch(() => true));
+      const useAgents = campaign.use_agents && this.orchestrator && agentsAllowed;
       // FLYLINK campaigns rotate the linked supplier catalog instead of keyword-searching
       // AliExpress, so they run through a different service. use_agents only applies to the
       // AliExpress path.

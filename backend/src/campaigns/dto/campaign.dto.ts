@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional, IsNumber, IsIn, Min, Max } from 'class-validator';
+import { IsString, IsArray, IsBoolean, IsOptional, IsNumber, IsIn, Min, Max } from 'class-validator';
 
 export class CampaignDto {
   @IsString()
@@ -97,4 +97,10 @@ export class CampaignDto {
   @IsOptional()
   @IsString()
   post_template?: string;
+
+  /** Route runs through the multi-agent orchestrator (Autopilot+ plans). Previously
+   *  reached the entity only through update()'s unvalidated spread. */
+  @IsOptional()
+  @IsBoolean()
+  use_agents?: boolean;
 }
