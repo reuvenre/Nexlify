@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { Check, Sparkles, ArrowLeft } from 'lucide-react';
+import { Check, Sparkles, ArrowLeft, Flame } from 'lucide-react';
+import { dealFor, dealPrice, endsInLabel } from '@/lib/deals';
+import type { ActiveDeal } from '@/types';
 
 export const metadata: Metadata = {
   title: 'Nexlify — תמחור פשוט ושקוף',
@@ -74,7 +76,25 @@ const PLANS = [
   },
 ];
 
-export default function PricingPage() {
+/** Active promotions from the backend — revalidated every 2 minutes so a promo the
+ *  admin creates shows up on the public page without a redeploy. Fail-quiet: the
+ *  page renders regular prices when the API is unreachable (e.g. build time). */
+async function getActiveDeals(): Promise<ActiveDeal[]> {
+  const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+  try {
+    const res = await fetch(`${base}/promotions/active`, { next: { revalidate: 120 } });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const list = Array.isArray(body) ? body : body?.data;
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export default async function PricingPage() {
+  const deals = await getActiveDeals();
+  const banner = deals[0] || null;
   return (
     <div className="min-h-screen bg-surface-primary text-white" dir="rtl">
       {/* Nav — same as landing */}
@@ -103,6 +123,17 @@ export default function PricingPage() {
           <div className="absolute top-[-20%] left-[30%] w-[36rem] h-[36rem] bg-blue-600/15 rounded-full blur-[120px]" />
         </div>
         <div className="max-w-6xl mx-auto px-6 pt-16 pb-10 text-center">
+          {banner && (
+            <div className="inline-flex items-center gap-2.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 rounded-full px-5 py-2 mb-6 shadow-[0_8px_30px_-8px_rgba(245,158,11,0.4)]">
+              <Flame size={15} className="text-amber-400" />
+              <span className="text-sm font-semibold text-amber-200">{banner.title}</span>
+              {endsInLabel(banner.ends_at) && (
+                <span className="text-xs text-amber-300/70 border-r border-amber-500/30 pr-2.5">
+                  ⏳ {endsInLabel(banner.ends_at)}
+                </span>
+              )}
+            </div>
+          )}
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">תמחור פשוט ושקוף</h1>
           <p className="text-white/50 text-lg">
             בחרו מסלול שמתאים לכם — אפשר לשדרג בכל רגע.
@@ -129,15 +160,36 @@ export default function PricingPage() {
                 </div>
               )}
 
-              <div className="text-center mb-5">
-                <p className="text-lg font-bold">{plan.name}</p>
-                <div className="flex items-baseline justify-center gap-1.5 mt-3">
-                  <span className="text-5xl font-extrabold tracking-tight">{plan.monthly}</span>
-                  <span className="text-sm text-white/40">₪ / חודש</span>
-                </div>
-                <p className="text-xs text-emerald-400/90 mt-1.5">₪{plan.annual} לחודש בחיוב שנתי (חסכו 20%)</p>
-                <p className="text-sm text-white/55 mt-3 font-medium">{plan.tagline}</p>
-              </div>
+              {(() => {
+                const deal = dealFor(deals, 'plan', plan.id);
+                const promoPrice = deal ? dealPrice(plan.monthly, deal) : null;
+                const onSale = promoPrice != null && promoPrice < plan.monthly;
+                return (
+                  <div className="text-center mb-5">
+                    <div className="flex items-center justify-center gap-2">
+                      <p className="text-lg font-bold">{plan.name}</p>
+                      {onSale && (
+                        <span className="text-2xs font-bold bg-amber-500 text-black rounded-full px-2 py-0.5">מבצע</span>
+                      )}
+                    </div>
+                    <div className="flex items-baseline justify-center gap-1.5 mt-3">
+                      {onSale && (
+                        <span className="text-xl font-semibold text-white/35 line-through">{plan.monthly}</span>
+                      )}
+                      <span className={`text-5xl font-extrabold tracking-tight ${onSale ? 'text-amber-300' : ''}`}>
+                        {onSale ? promoPrice : plan.monthly}
+                      </span>
+                      <span className="text-sm text-white/40">₪ / חודש</span>
+                    </div>
+                    {onSale && endsInLabel(deal!.ends_at) ? (
+                      <p className="text-xs text-amber-400/90 mt-1.5">⏳ {endsInLabel(deal!.ends_at)}</p>
+                    ) : (
+                      <p className="text-xs text-emerald-400/90 mt-1.5">₪{plan.annual} לחודש בחיוב שנתי (חסכו 20%)</p>
+                    )}
+                    <p className="text-sm text-white/55 mt-3 font-medium">{plan.tagline}</p>
+                  </div>
+                );
+              })()}
 
               <Link
                 href="/register"

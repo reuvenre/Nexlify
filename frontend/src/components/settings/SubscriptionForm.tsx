@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Zap, Loader2, Mail, ArrowUpCircle, Rocket } from 'lucide-react';
+import { Check, Zap, Loader2, Mail, ArrowUpCircle, Rocket, Flame } from 'lucide-react';
 import { subscriptionApi } from '@/lib/api-client';
-import type { BillingCycle, CreditPack, PlanDef, SubscriptionStatus } from '@/types';
+import { dealFor, dealPrice, endsInLabel } from '@/lib/deals';
+import type { ActiveDeal, BillingCycle, CreditPack, PlanDef, SubscriptionStatus } from '@/types';
 
 // Where upgrade requests go until a real payment gateway is wired.
 const SUPPORT_EMAIL = 'support@alibot.pro';
@@ -66,16 +67,22 @@ export function SubscriptionForm() {
   const [billing, setBilling] = useState<BillingCycle>('monthly');
   const [plans, setPlans] = useState<PlanDef[]>([]);
   const [packs, setPacks] = useState<CreditPack[]>([]);
+  const [deals, setDeals] = useState<ActiveDeal[]>([]);
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([subscriptionApi.plans(), subscriptionApi.status(), subscriptionApi.packs().catch(() => [])])
-      .then(([p, s, pk]) => {
+    Promise.all([
+      subscriptionApi.plans(), subscriptionApi.status(),
+      subscriptionApi.packs().catch(() => []),
+      subscriptionApi.activeDeals().catch(() => []),
+    ])
+      .then(([p, s, pk, dl]) => {
         setPlans(p);
         setStatus(s);
         setPacks(pk);
+        setDeals(dl);
         setBilling(s.billing || 'monthly');
       })
       .catch(() => setError('טעינת פרטי המנוי נכשלה'))
@@ -85,10 +92,13 @@ export function SubscriptionForm() {
   // A plan is a paid product and there's no payment gateway yet, so the UI never
   // activates a plan itself — an upgrade opens a pre-filled email to the team, who
   // set the plan via the admin panel. No client path can grant a paid tier for free.
-  const upgradeMailto = (plan: PlanDef) => {
+  const upgradeMailto = (plan: PlanDef, promoPrice?: number | null) => {
     const cycle = billing === 'annual' ? 'שנתי' : 'חודשי';
     const subject = `בקשת שדרוג לתוכנית ${plan.name}`;
-    const body = `היי, אני רוצה לשדרג לתוכנית ${plan.name} (חיוב ${cycle}).`;
+    // Include the promo price in the request so both sides know what was agreed.
+    const body = promoPrice != null
+      ? `היי, אני רוצה לשדרג לתוכנית ${plan.name} (חיוב ${cycle}) במחיר המבצע ₪${promoPrice}.`
+      : `היי, אני רוצה לשדרג לתוכנית ${plan.name} (חיוב ${cycle}).`;
     return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
@@ -148,6 +158,17 @@ export function SubscriptionForm() {
         <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
       )}
 
+      {/* Active promotion banner */}
+      {deals.length > 0 && (
+        <div className="flex items-center justify-center gap-2.5 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/35 rounded-xl px-4 py-3">
+          <Flame size={15} className="text-amber-400 shrink-0" />
+          <span className="text-sm font-semibold text-amber-200">{deals[0].title}</span>
+          {endsInLabel(deals[0].ends_at) && (
+            <span className="text-xs text-amber-300/70">⏳ {endsInLabel(deals[0].ends_at)}</span>
+          )}
+        </div>
+      )}
+
       {/* Billing toggle */}
       <div className="flex items-center justify-center gap-3">
         <span className={`text-sm font-medium transition-colors ${billing === 'monthly' ? 'text-white' : 'text-white/40'}`}>חודשי</span>
@@ -187,6 +208,9 @@ export function SubscriptionForm() {
           const isCurrent = status?.plan === plan.id;
           const meta = PLAN_FEATURES[plan.id] || { includesLabel: 'כולל', features: [] };
           const groupsLabel = plan.max_groups === null ? 'ללא הגבלה' : `${plan.max_groups} קבוצות`;
+          const deal = dealFor(deals, 'plan', plan.id);
+          const promoPrice = deal ? dealPrice(price, deal) : null;
+          const onSale = promoPrice != null && promoPrice < price;
 
           return (
             <div
@@ -205,13 +229,23 @@ export function SubscriptionForm() {
               )}
 
               <div className="mb-4 text-center">
-                <p className="text-base font-bold text-white mb-1">{plan.name}</p>
-                <div className="flex items-baseline justify-center gap-1">
-                  <span className="text-3xl font-extrabold text-white">₪{price}</span>
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <p className="text-base font-bold text-white">{plan.name}</p>
+                  {onSale && (
+                    <span className="text-2xs font-bold bg-amber-500 text-black rounded-full px-1.5 py-px">מבצע</span>
+                  )}
+                </div>
+                <div className="flex items-baseline justify-center gap-1.5">
+                  {onSale && <span className="text-sm font-semibold text-white/35 line-through">₪{price}</span>}
+                  <span className={`text-3xl font-extrabold ${onSale ? 'text-amber-300' : 'text-white'}`}>
+                    ₪{onSale ? promoPrice : price}
+                  </span>
                   <span className="text-xs text-white/40">לחודש</span>
                 </div>
                 <p className="text-2xs text-white/30 mt-0.5">
-                  {billing === 'annual' ? 'מחיר בחיוב שנתי' : 'מחיר לחודש'}
+                  {onSale && endsInLabel(deal!.ends_at)
+                    ? `⏳ ${endsInLabel(deal!.ends_at)}`
+                    : billing === 'annual' ? 'מחיר בחיוב שנתי' : 'מחיר לחודש'}
                 </p>
               </div>
 
@@ -235,7 +269,7 @@ export function SubscriptionForm() {
                 </button>
               ) : (
                 <a
-                  href={upgradeMailto(plan)}
+                  href={upgradeMailto(plan, onSale ? promoPrice : null)}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold mb-4 bg-blue-600 hover:bg-blue-500 text-white transition-all"
                 >
                   <Mail size={14} />
@@ -277,15 +311,24 @@ export function SubscriptionForm() {
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {packs.map((pack) => {
-              const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`רכישת ${pack.label} — ${pack.credits.toLocaleString()} קרדיטים`)}&body=${encodeURIComponent(`היי, אני רוצה לרכוש את ${pack.label} (${pack.credits.toLocaleString()} קרדיטים ב-₪${pack.price}).`)}`;
+              const deal = dealFor(deals, 'pack', pack.id);
+              const promo = deal ? dealPrice(pack.price, deal) : null;
+              const packSale = promo != null && promo < pack.price;
+              const payPrice = packSale ? promo : pack.price;
+              const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`רכישת ${pack.label} — ${pack.credits.toLocaleString()} קרדיטים`)}&body=${encodeURIComponent(`היי, אני רוצה לרכוש את ${pack.label} (${pack.credits.toLocaleString()} קרדיטים ב-₪${payPrice}${packSale ? ' — מחיר מבצע' : ''}).`)}`;
               return (
                 <div key={pack.id} className="bg-surface-secondary border border-edge rounded-2xl p-4 text-center hover:border-amber-500/40 transition-all">
-                  <p className="text-xs font-semibold text-amber-300 mb-1">{pack.label}</p>
+                  <p className="text-xs font-semibold text-amber-300 mb-1">
+                    {pack.label}{packSale && <span className="mr-1.5 text-2xs font-bold bg-amber-500 text-black rounded-full px-1.5 py-px">מבצע</span>}
+                  </p>
                   <p className="text-2xl font-extrabold text-white">
                     {pack.credits.toLocaleString()}
                     <span className="text-xs font-normal text-white/40 mr-1">קרדיטים</span>
                   </p>
-                  <p className="text-sm text-white/60 mt-1 mb-3">₪{pack.price} · חד-פעמי</p>
+                  <p className="text-sm text-white/60 mt-1 mb-3">
+                    {packSale && <span className="text-white/35 line-through ml-1.5">₪{pack.price}</span>}
+                    <span className={packSale ? 'text-amber-300 font-semibold' : ''}>₪{payPrice}</span> · חד-פעמי
+                  </p>
                   <a href={mailto}
                     className="block w-full py-2 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 transition-all">
                     פנה לרכישה

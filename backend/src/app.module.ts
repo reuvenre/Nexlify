@@ -29,6 +29,7 @@ import { CustomPostsModule } from './custom-posts/custom-posts.module';
 import { AmazonModule } from './amazon/amazon.module';
 import { PinterestModule } from './pinterest/pinterest.module';
 import { LinksModule } from './links/links.module';
+import { PromotionsModule } from './promotions/promotions.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -94,6 +95,7 @@ import { HealthController } from './health.controller';
     AmazonModule,
     PinterestModule,
     LinksModule,
+    PromotionsModule,
   ],
   controllers: [HealthController],
 })

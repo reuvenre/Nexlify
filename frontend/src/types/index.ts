@@ -84,6 +84,31 @@ export interface CreditPack {
   label: string;
 }
 
+/** An admin-managed sale on plans/packs (date-driven active window). */
+export interface Promotion {
+  id: string;
+  title: string;
+  target_type: 'plan' | 'all_plans' | 'packs';
+  target_id: string | null;
+  percent_off: number | null;
+  fixed_price: number | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+/** A currently-active deal, as served to the public pricing pages. */
+export interface ActiveDeal {
+  promo_id: string;
+  title: string;
+  target_type: string;
+  target_id: string | null;
+  percent_off: number | null;
+  fixed_price: number | null;
+  ends_at: string | null;
+}
+
 export interface AdminStats {
   total_users: number;
   admins: number;

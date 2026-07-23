@@ -59,6 +59,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   const initials = user?.email?.[0]?.toUpperCase() ?? '?';
   const username = user?.name?.trim() || user?.email?.split('@')[0] || '';
+  // The user card shows the REAL tier ("Pro" was hardcoded and matched no plan).
+  const PLAN_NAMES: Record<string, string> = {
+    starter: 'Starter', growth: 'Growth', autopilot: 'Autopilot', scale: 'Scale',
+  };
+  const planLabel = user?.role === 'admin'
+    ? 'אדמין · ∞'
+    : PLAN_NAMES[user?.subscription_plan || ''] || 'Starter';
 
   // Open ClickLead. Open the tab SYNCHRONOUSLY (in the click) to dodge popup blockers,
   // then ask the backend for an SSO token and point the tab at it — /sso#token signs the
@@ -189,6 +196,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <Shield size={14} className={`shrink-0 ${isActive('/admin/users') ? 'text-violet-300' : 'text-white/30 group-hover:text-white/55'}`} />
             <span>ניהול משתמשים</span>
           </Link>
+          <Link
+            href="/admin/promotions"
+            onClick={onNavigate}
+            className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
+              ${isActive('/admin/promotions')
+                ? 'bg-violet-500/[0.14] text-violet-300'
+                : 'text-white/40 hover:text-white/80 hover:bg-white/[0.05]'}`}
+          >
+            {isActive('/admin/promotions') && (
+              <span className="absolute inset-y-1.5 right-0 w-[3px] rounded-full bg-violet-500" />
+            )}
+            <Sparkles size={14} className={`shrink-0 ${isActive('/admin/promotions') ? 'text-violet-300' : 'text-white/30 group-hover:text-white/55'}`} />
+            <span>מבצעים</span>
+          </Link>
         </div>
       )}
 
@@ -226,7 +247,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <p className="text-xs font-medium text-white/65 truncate leading-tight">{username}</p>
             <div className="flex items-center gap-1 mt-0.5">
               <Sparkles size={8} className="text-blue-400 shrink-0" />
-              <p className="text-2xs text-blue-400/70 leading-none">Pro</p>
+              <p className="text-2xs text-blue-400/70 leading-none">{planLabel}</p>
             </div>
           </div>
 

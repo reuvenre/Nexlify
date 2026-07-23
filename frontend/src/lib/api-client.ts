@@ -35,6 +35,8 @@ import type {
   SubscriptionStatus,
   PlanDef,
   CreditPack,
+  Promotion,
+  ActiveDeal,
   BillingCycle,
   SupplierCatalog,
   SupplierProduct,
@@ -272,6 +274,14 @@ export const adminApi = {
   /** Grant one-time credits (manual credit-pack fulfilment until billing lands). */
   addCredits: (userId: string, amount: number) =>
     http.post<{ ok: boolean; credits_remaining: number | null }>(`/admin/users/${userId}/credits`, { amount }).then(extract),
+  /** Promotions CRUD (admin-managed sales on plans/packs). */
+  promotions: () => http.get<Promotion[]>('/admin/promotions').then(extract),
+  createPromotion: (data: Partial<Promotion>) =>
+    http.post<Promotion>('/admin/promotions', data).then(extract),
+  updatePromotion: (id: string, data: Partial<Promotion>) =>
+    http.patch<Promotion>(`/admin/promotions/${id}`, data).then(extract),
+  deletePromotion: (id: string) =>
+    http.delete<{ deleted: boolean }>(`/admin/promotions/${id}`).then(extract),
 };
 
 // ─── Notifications API ───────────────────────────────────────────────────────
@@ -319,6 +329,8 @@ export const subscriptionApi = {
   plans: () => http.get<PlanDef[]>('/subscription/plans').then(extract),
   /** One-time credit-pack catalog. */
   packs: () => http.get<CreditPack[]>('/subscription/packs').then(extract),
+  /** Currently-active promotions (public). */
+  activeDeals: () => http.get<ActiveDeal[]>('/promotions/active').then(extract),
   // No self-service switchPlan: plans are paid and there's no payment gateway yet, so
   // upgrades are handled by an admin (PATCH /admin/users/:id/subscription) until billing lands.
 };
