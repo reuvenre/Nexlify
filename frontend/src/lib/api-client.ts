@@ -331,6 +331,12 @@ export const subscriptionApi = {
   packs: () => http.get<CreditPack[]>('/subscription/packs').then(extract),
   /** Currently-active promotions (public). */
   activeDeals: () => http.get<ActiveDeal[]>('/promotions/active').then(extract),
+  /** Self-service upgrade: checkout redirect when a gateway is configured, else a
+   *  recorded request for manual activation. */
+  upgrade: (plan: string, billing?: BillingCycle) =>
+    http.post<{ status: 'checkout' | 'pending'; checkout_url?: string; plan: string; billing: string; price: number }>(
+      '/subscription/upgrade', { plan, billing },
+    ).then(extract),
   // No self-service switchPlan: plans are paid and there's no payment gateway yet, so
   // upgrades are handled by an admin (PATCH /admin/users/:id/subscription) until billing lands.
 };

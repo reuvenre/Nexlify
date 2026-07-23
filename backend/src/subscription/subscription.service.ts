@@ -6,6 +6,8 @@ import {
   BillingCycle, CREDIT_COSTS, CREDIT_PACKS, FEATURE_MIN_PLAN, FeatureKey, PLANS, PlanId,
   WHATSAPP_CONNECTIONS, planAllows, planOf,
 } from './plans.const';
+import { MailService } from '../mail/mail.service';
+import { PromotionsService } from '../promotions/promotions.service';
 
 /** Hebrew display names for gated features — used in upgrade error messages. */
 const FEATURE_LABELS: Record<FeatureKey, string> = {
@@ -62,7 +64,62 @@ export class SubscriptionService {
 
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
+    private readonly mail: MailService,
+    private readonly promotions: PromotionsService,
   ) {}
+
+  /**
+   * Self-service upgrade — the confirm-dialog flow. Applies any active promotion
+   * to the quoted price, then:
+   *  • PAYMENT_CHECKOUT_URL set → returns a checkout redirect (the gateway's
+   *    success webhook calls setPlanForUser → the plan flips the same second).
+   *  • No gateway yet → records the request and emails every admin the exact
+   *    quote; the plan is activated manually. The UI tells the user it's pending.
+   * Either way the user never self-grants a paid tier without payment.
+   */
+  async requestUpgrade(userId: string, planId: string, billing: BillingCycle = 'monthly') {
+    const plan = PLANS[planId as PlanId];
+    if (!plan) throw new BadRequestException('תוכנית לא מוכרת');
+    if (billing !== 'monthly' && billing !== 'annual') billing = 'monthly';
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+    if (user.subscription_plan === plan.id) {
+      throw new BadRequestException('זו כבר התוכנית הנוכחית שלך');
+    }
+
+    // Quote with any active promo applied — the same price the pricing UI showed.
+    const base = billing === 'annual' ? plan.price_annual : plan.price_monthly;
+    const deals = await this.promotions.active().catch(() => []);
+    const deal = deals.find((d) => d.target_type === 'plan' && d.target_id === plan.id)
+      || deals.find((d) => d.target_type === 'all_plans')
+      || null;
+    const price = deal ? PromotionsService.dealPrice(base, deal) : base;
+
+    // Payment-gateway hook point (Grow/Meshulam/Stripe…): hand off to checkout.
+    const checkoutBase = process.env.PAYMENT_CHECKOUT_URL;
+    if (checkoutBase) {
+      const url = `${checkoutBase}${checkoutBase.includes('?') ? '&' : '?'}`
+        + `plan=${plan.id}&billing=${billing}&price=${price}&uid=${user.id}`;
+      return { status: 'checkout' as const, checkout_url: url, plan: plan.id, billing, price };
+    }
+
+    // No gateway yet — notify every admin with the exact quote for manual activation.
+    this.logger.log(`Upgrade request: ${user.email} → ${plan.id} (${billing}) at ₪${price}`);
+    if (this.mail.isConfigured()) {
+      const admins = await this.users.find({ where: { role: 'admin' } });
+      const html = `<div dir="rtl" style="font-family:Arial,sans-serif;padding:16px">
+        <h3>בקשת שדרוג חדשה 🚀</h3>
+        <p><b>${user.email}</b> ביקש לשדרג לתוכנית <b>${plan.name}</b> (חיוב ${billing === 'annual' ? 'שנתי' : 'חודשי'})
+        במחיר <b>₪${price}</b>${deal ? ` (מבצע: ${deal.title})` : ''}.</p>
+        <p>לאחר קבלת התשלום — אדמין ← משתמשים ← נהל ← בחר ${plan.name}.</p>
+      </div>`;
+      for (const admin of admins) {
+        await this.mail.sendHtml(admin.email, `בקשת שדרוג: ${user.email} → ${plan.name}`, html)
+          .catch((err) => this.logger.warn(`upgrade-request mail to ${admin.email} failed: ${err?.message}`));
+      }
+    }
+    return { status: 'pending' as const, plan: plan.id, billing, price };
+  }
 
   /** Full plan catalog for the pricing page — each plan carries the feature keys it
    *  UNLOCKS (gating truth, so pricing UIs can't drift from what's actually enforced)

@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionService } from './subscription.service';
@@ -30,6 +30,16 @@ export class SubscriptionController {
   @Get('packs')
   packs() {
     return this.svc.listPacks();
+  }
+
+  /** Self-service upgrade (confirm-dialog flow). With a payment gateway configured
+   *  this returns a checkout redirect; until then it records the request for manual
+   *  activation. Never activates a paid tier by itself. */
+  @Post('upgrade')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  upgrade(@Req() req: Request, @Body('plan') plan: string, @Body('billing') billing?: string) {
+    return this.svc.requestUpgrade(this.uid(req), plan, billing as any);
   }
 
   // NOTE: there is deliberately NO self-service plan-switch route. Plans are paid,

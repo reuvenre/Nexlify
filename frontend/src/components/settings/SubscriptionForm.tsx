@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Zap, Loader2, Mail, ArrowUpCircle, Rocket, Flame } from 'lucide-react';
+import {
+  Check, Zap, Loader2, ArrowUpCircle, Rocket, Flame, X, CheckCircle2, ShieldCheck,
+} from 'lucide-react';
 import { subscriptionApi } from '@/lib/api-client';
 import { dealFor, dealPrice, endsInLabel } from '@/lib/deals';
 import type { ActiveDeal, BillingCycle, CreditPack, PlanDef, SubscriptionStatus } from '@/types';
@@ -92,15 +94,11 @@ export function SubscriptionForm() {
   // A plan is a paid product and there's no payment gateway yet, so the UI never
   // activates a plan itself — an upgrade opens a pre-filled email to the team, who
   // set the plan via the admin panel. No client path can grant a paid tier for free.
-  const upgradeMailto = (plan: PlanDef, promoPrice?: number | null) => {
-    const cycle = billing === 'annual' ? 'שנתי' : 'חודשי';
-    const subject = `בקשת שדרוג לתוכנית ${plan.name}`;
-    // Include the promo price in the request so both sides know what was agreed.
-    const body = promoPrice != null
-      ? `היי, אני רוצה לשדרג לתוכנית ${plan.name} (חיוב ${cycle}) במחיר המבצע ₪${promoPrice}.`
-      : `היי, אני רוצה לשדרג לתוכנית ${plan.name} (חיוב ${cycle}).`;
-    return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  };
+  // Self-service upgrade: the card button opens a confirm dialog with the new
+  // plan's full quote; confirming hits POST /subscription/upgrade. With a payment
+  // gateway configured the server answers with a checkout redirect (plan flips the
+  // second the webhook lands); until then the request is recorded for activation.
+  const [upgrading, setUpgrading] = useState<PlanDef | null>(null);
 
   if (loading) {
     return (
@@ -195,8 +193,8 @@ export function SubscriptionForm() {
         <div>
           <p className="text-xs text-blue-300 font-medium">שדרוג תוכנית</p>
           <p className="text-2xs text-white/40 mt-0.5 leading-relaxed">
-            כדי לשדרג, לחץ על "פנה לשדרוג" בתוכנית הרצויה — נחזור אליך ונפעיל אותה. שער
-            תשלום אוטומטי בקרוב.
+            לחץ על "שדרג לתוכנית זו", אשר את הפרטים בחלון — והבקשה יוצאת מיד. עם חיבור שער
+            התשלום ההפעלה תהיה אוטומטית באותה שנייה.
           </p>
         </div>
       </div>
@@ -268,13 +266,13 @@ export function SubscriptionForm() {
                   התוכנית הנוכחית
                 </button>
               ) : (
-                <a
-                  href={upgradeMailto(plan, onSale ? promoPrice : null)}
+                <button
+                  onClick={() => setUpgrading(plan)}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold mb-4 bg-blue-600 hover:bg-blue-500 text-white transition-all"
                 >
-                  <Mail size={14} />
-                  פנה לשדרוג
-                </a>
+                  <ArrowUpCircle size={14} />
+                  שדרג לתוכנית זו
+                </button>
               )}
 
               <div className="border-t border-edge pt-3 mt-auto">
@@ -343,6 +341,123 @@ export function SubscriptionForm() {
       <p className="text-xs text-white/25 text-center">
         לשאלות בנוגע לחיוב פנה אלינו ל-{SUPPORT_EMAIL}
       </p>
+
+      {upgrading && (
+        <UpgradeConfirmModal
+          plan={upgrading}
+          billing={billing}
+          deals={deals}
+          features={PLAN_FEATURES[upgrading.id]?.features.map((f) => f.label) || []}
+          onClose={() => setUpgrading(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Upgrade confirmation dialog — the full quote (price with any promo, credits,
+ * groups, headline features) and one confirm button. Confirm calls the upgrade
+ * endpoint: a configured payment gateway answers with a checkout redirect
+ * (instant activation via webhook); until then the request is recorded and the
+ * user sees a clear "pending payment" state.
+ */
+function UpgradeConfirmModal({ plan, billing, deals, features, onClose }: {
+  plan: PlanDef; billing: BillingCycle; deals: ActiveDeal[]; features: string[]; onClose: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState<null | { price: number }>(null);
+  const [error, setError] = useState('');
+
+  const base = billing === 'annual' ? plan.price_annual : plan.price_monthly;
+  const deal = dealFor(deals, 'plan', plan.id);
+  const promo = deal ? dealPrice(base, deal) : null;
+  const onSale = promo != null && promo < base;
+  const finalPrice = onSale ? promo : base;
+  const groupsLabel = plan.max_groups === null ? 'קבוצות ללא הגבלה' : `${plan.max_groups} קבוצות`;
+
+  const confirm = async () => {
+    setSubmitting(true); setError('');
+    try {
+      const r = await subscriptionApi.upgrade(plan.id, billing);
+      if (r.status === 'checkout' && r.checkout_url) {
+        window.location.href = r.checkout_url; // gateway flow — activation lands via webhook
+        return;
+      }
+      setDone({ price: r.price });
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'שליחת הבקשה נכשלה — נסה שוב');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-surface-secondary border border-edge rounded-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
+          <h3 className="text-base font-semibold text-white flex items-center gap-2">
+            <ArrowUpCircle size={17} className="text-blue-400" /> אישור שדרוג
+          </h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5">
+          {done ? (
+            <div className="text-center py-4">
+              <CheckCircle2 size={40} className="text-emerald-400 mx-auto mb-3" />
+              <p className="text-white font-semibold mb-1.5">הבקשה נקלטה! 🎉</p>
+              <p className="text-sm text-white/55 leading-relaxed">
+                נחזור אליך להסדרת התשלום (₪{done.price} {billing === 'annual' ? 'לחודש בחיוב שנתי' : 'לחודש'}),
+                והתוכנית תופעל מיד לאחריו.
+              </p>
+              <button onClick={onClose}
+                className="mt-4 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all">
+                סגור
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="bg-blue-500/[0.07] border border-blue-500/20 rounded-xl p-4 mb-4 text-center">
+                <p className="text-lg font-bold text-white mb-1">{plan.name}</p>
+                <div className="flex items-baseline justify-center gap-1.5">
+                  {onSale && <span className="text-sm text-white/35 line-through">₪{base}</span>}
+                  <span className={`text-3xl font-extrabold ${onSale ? 'text-amber-300' : 'text-white'}`}>₪{finalPrice}</span>
+                  <span className="text-xs text-white/40">/ {billing === 'annual' ? 'חודש בחיוב שנתי' : 'חודש'}</span>
+                </div>
+                {onSale && deal && (
+                  <p className="text-2xs text-amber-300/80 mt-1">🔥 {deal.title}</p>
+                )}
+              </div>
+
+              <ul className="space-y-1.5 mb-4">
+                <li className="flex items-center gap-2 text-xs text-white/65">
+                  <Zap size={11} className="text-amber-400 shrink-0" />
+                  {plan.monthly_credits.toLocaleString()} קרדיטים בחודש · {groupsLabel}
+                </li>
+                {features.slice(0, 4).map((f) => (
+                  <li key={f} className="flex items-center gap-2 text-xs text-white/65">
+                    <Check size={11} className="text-emerald-400 shrink-0" /> {f}
+                  </li>
+                ))}
+              </ul>
+
+              {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
+
+              <button onClick={confirm} disabled={submitting}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-bold transition-all">
+                {submitting ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+                {submitting ? 'שולח...' : `אשר שדרוג — ₪${finalPrice}`}
+              </button>
+              <p className="text-2xs text-white/30 text-center mt-2.5">
+                התוכנית תופעל לאחר הסדרת התשלום. אין חיוב אוטומטי בשלב זה.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
