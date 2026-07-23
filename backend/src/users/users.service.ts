@@ -110,14 +110,26 @@ export class UsersService implements OnModuleInit {
    * then bounces the user to register), and links the google_id to an account that
    * was created by email/password so they can use Google next time.
    */
-  async findGoogleUserForLogin(email: string, googleId: string): Promise<User | null> {
+  async findGoogleUserForLogin(email: string, googleId: string, displayName?: string): Promise<User | null> {
+    // Google users never went through the registration name field — backfill the full
+    // name from the Google profile so the dashboard greets them properly instead of
+    // falling back to the email prefix. Never overwrites a name the user already has.
+    const backfillName = async (user: User): Promise<User> => {
+      const name = displayName?.trim();
+      if (name && !user.name?.trim()) {
+        await this.repo.update(user.id, { name });
+        return { ...user, name };
+      }
+      return user;
+    };
+
     const byGoogle = await this.repo.findOne({ where: { google_id: googleId } });
-    if (byGoogle) return byGoogle;
+    if (byGoogle) return backfillName(byGoogle);
 
     const byEmail = await this.repo.findOne({ where: { email } });
     if (byEmail) {
       await this.repo.update(byEmail.id, { google_id: googleId });
-      return { ...byEmail, google_id: googleId };
+      return backfillName({ ...byEmail, google_id: googleId });
     }
 
     return null; // never registered → do NOT create; the callback redirects to register
