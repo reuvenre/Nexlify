@@ -59,7 +59,8 @@ export default function LandingPage() {
             <span className="text-lg font-bold tracking-tight">Nexlify</span>
           </div>
           <nav className="flex items-center gap-1 sm:gap-3">
-            <Link href="/blog" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">מדריכים</Link>
+            <Link href="/pricing" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">תמחור</Link>
+            <Link href="/blog" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2 hidden sm:block">מדריכים</Link>
             <Link href="/compare/albato" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2 hidden sm:block">השוואות</Link>
             <Link href="/login" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">כניסה</Link>
             <Link href="/register" className="text-sm font-medium bg-blue-600 hover:bg-blue-500 transition-colors rounded-xl px-4 py-2">

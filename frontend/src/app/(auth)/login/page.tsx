@@ -5,14 +5,6 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { Loader2, AlertCircle, ArrowLeft, CheckCheck } from 'lucide-react';
 
-const FEATURES = [
-  'טייס אוטומטי: מחיפוש המוצר ועד הפוסט המפורסם — לבד',
-  'AI שכותב פוסטים שמוכרים — עברית, אנגלית וערבית',
-  'לינקים חכמים: כל קליק נמדד, כל עמלה משויכת לפוסט',
-  'דוח "מה מכניס כסף" — לפי מילת מפתח, קמפיין ופלטפורמה',
-  'מיחזור מנצחים ועונתיות מסחרית — אוטומטיים',
-];
-
 /** The channels the autopilot fans out to + the product sources it shops from. */
 const PLATFORMS = ['📨 Telegram', '📸 Instagram', '📘 Facebook', '📌 Pinterest', '💬 WhatsApp'];
 
@@ -234,67 +226,90 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* ── Left panel: hero ───────────────────────────────────────────────── */}
+      {/* ── Left panel: hero — clean deep-blue "Afflow-style": product mockup +
+             proof badges over a saturated blue gradient (was near-black). ──────── */}
       <div
         className="always-dark hidden lg:flex lg:flex-1 flex-col relative overflow-hidden"
-        style={{ background: 'linear-gradient(150deg, #0d1b4b 0%, #080d20 50%, #130a2a 100%)' }}
+        style={{ background: 'linear-gradient(165deg, #1d4ed8 0%, #1e40af 40%, #101f5e 100%)' }}
       >
         {/* Ambient glows */}
-        <div className="absolute top-1/4 right-1/3 w-[32rem] h-[32rem] rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.14) 0%, transparent 65%)' }} />
-        <div className="absolute bottom-1/4 left-1/4 w-80 h-80 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 65%)' }} />
-
-        {/* Grid texture */}
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
-          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+        <div className="absolute top-[12%] right-[20%] w-[30rem] h-[30rem] rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.10) 0%, transparent 65%)' }} />
+        <div className="absolute bottom-[8%] left-[10%] w-96 h-96 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.22) 0%, transparent 65%)' }} />
 
         {/* Content */}
-        <div className="relative z-10 flex-1 flex flex-col justify-center px-14">
-          {/* The full lockup, on a white card. Against the dark hero the artwork was
-              swallowed — the mark is mid-blue and the brush frame is a thin turquoise
-              hairline. The card is what makes it read; the size is what makes it the
-              first thing you see. */}
-          <div className="bg-white rounded-2xl px-7 py-6 mb-9 w-fit shadow-2xl shadow-black/40">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-full.png" alt="Nexlify — Affiliate Marketing System" className="w-[190px] h-auto" />
-          </div>
-
+        <div className="relative z-10 flex-1 flex flex-col justify-center px-14 py-10">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 bg-white/8 border border-edge-hover rounded-full px-3 py-1.5 w-fit mb-8">
+          <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 rounded-full px-3.5 py-1.5 w-fit mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs text-white/60 font-medium">פלטפורמת שיווק שותפים #1</span>
+            <span className="text-xs text-white/80 font-medium">נבנתה על ידי משווק שותפים, בשביל משווקי שותפים</span>
           </div>
 
-          <h1 className="text-[44px] font-extrabold text-white leading-[1.1] tracking-tight mb-5">
-            עסק השותפים שלך<br />
-            <span className="gradient-text-hero">על טייס אוטומטי מלא</span>
+          <h1 className="text-[40px] font-extrabold text-white leading-[1.12] tracking-tight mb-4">
+            אוטומציה לשיווק שותפים<br />
+            <span className="text-blue-200">#withNexlify</span>
           </h1>
 
-          <p className="text-[15px] text-white/70 leading-relaxed mb-6 max-w-md">
-            מ-AliExpress, Amazon וספקים — דרך תוכן AI — ועד פרסום מתוזמן
-            בחמש פלטפורמות ומדידת העמלה של כל פוסט. אתה קובע את הכיוון, המערכת עושה את השאר.
+          <p className="text-[15px] text-white/75 leading-relaxed mb-5 max-w-md">
+            המערכת מוצאת מוצרים טרנדיים, כותבת פוסטים מותאמים עם AI, מפרסמת אוטומטית לכל
+            הערוצים שלך — ועוקבת אחרי כל עמלה עד לפוסט שהניב אותה.
           </p>
 
-          {/* Publish targets — the fan-out is the product's wow, show it */}
-          <div className="flex flex-wrap gap-2 mb-8">
-            {PLATFORMS.map((p) => (
-              <span key={p} className="text-xs bg-white/6 border border-edge-hover rounded-full px-3 py-1.5 text-white/70">
-                {p}
+          {/* Proof checks — Afflow-style one-liner trio */}
+          <div className="flex flex-wrap gap-x-5 gap-y-2 mb-8">
+            {['עובד בזמן שאתם ישנים', 'שיוך פוסט-למכירה', 'סוכן גילוי מוצרים AI'].map((f) => (
+              <span key={f} className="flex items-center gap-1.5 text-xs text-white/80">
+                <CheckCheck size={13} className="text-emerald-300" /> {f}
               </span>
             ))}
           </div>
 
-          {/* Features */}
-          <div className="space-y-3">
-            {FEATURES.map((f) => (
-              <div key={f} className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full bg-blue-500/15 border border-blue-500/25 flex items-center justify-center shrink-0">
-                  <CheckCheck size={9} className="text-blue-400" />
-                </div>
-                <span className="text-body text-white/75">{f}</span>
+          {/* Dashboard mockup — pure CSS, no image asset to go stale */}
+          <div className="bg-white rounded-2xl shadow-2xl shadow-black/40 overflow-hidden max-w-md w-full" dir="ltr">
+            {/* Browser chrome */}
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+              <span className="mx-auto text-[10px] text-gray-400 bg-white border border-gray-200 rounded-md px-6 py-0.5">
+                nexlify.win-solutions.co.il
+              </span>
+            </div>
+            <div className="p-4" dir="rtl">
+              <p className="text-[11px] font-semibold text-gray-800 mb-3">שלום, רובי 👋</p>
+              {/* Stat tiles */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {[
+                  { label: 'פוסטים', value: '9,241' },
+                  { label: 'קליקים', value: '14,832' },
+                  { label: 'עמלות', value: '$1,576' },
+                ].map((s) => (
+                  <div key={s.label} className="bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-2">
+                    <p className="text-[9px] text-gray-400">{s.label}</p>
+                    <p className="text-[13px] font-bold text-gray-800">{s.value}</p>
+                  </div>
+                ))}
               </div>
+              {/* Mini bar chart */}
+              <div className="flex items-end gap-1 h-14">
+                {[35, 55, 40, 70, 52, 85, 62, 92, 74, 100, 88, 96].map((h, i) => (
+                  <div key={i} className="flex-1 rounded-t"
+                    style={{ height: `${h}%`, background: i % 3 === 2 ? '#3b82f6' : '#dbeafe' }} />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Publish targets + sources — the fan-out is the wow, show it */}
+          <div className="flex flex-wrap gap-2 mt-7">
+            {PLATFORMS.map((p) => (
+              <span key={p} className="text-xs bg-white/10 border border-white/15 rounded-full px-3 py-1.5 text-white/80">
+                {p}
+              </span>
             ))}
+            <span className="text-xs bg-white/10 border border-white/15 rounded-full px-3 py-1.5 text-white/80">🛒 AliExpress</span>
+            <span className="text-xs bg-white/10 border border-white/15 rounded-full px-3 py-1.5 text-white/80">📦 Amazon</span>
           </div>
         </div>
 

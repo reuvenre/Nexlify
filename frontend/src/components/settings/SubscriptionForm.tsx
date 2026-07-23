@@ -12,64 +12,52 @@ const SUPPORT_EMAIL = 'support@alibot.pro';
 // credits, groups) come from the backend catalog — single source of truth.
 // Features not yet live in the product are explicitly tagged "בקרוב" so the
 // pricing page never promises something a customer can't find.
+// This matrix MIRRORS the backend gating map (plans.const.ts FEATURE_MIN_PLAN)
+// and the public /pricing page. Every line here is actually enforced — never list
+// a feature the backend doesn't unlock at that tier.
 const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: string; soon?: boolean }[] }> = {
   starter: {
     includesLabel: 'כולל',
     features: [
-      { label: 'AliExpress' },
-      { label: 'טלגרם' },
-      { label: 'כותב תוכן AI' },
-      { label: 'פרסום אוטומטי' },
-      { label: 'לינקים חכמים עם מעקב קליקים' },
+      { label: 'מקור מוצרים: AliExpress' },
+      { label: 'פרסום ל-Telegram' },
+      { label: 'AI כותב פוסטים, אתם מאשרים' },
+      { label: 'לינקים חכמים + מעקב קליקים' },
+      { label: 'סנכרון הזמנות ועמלות אוטומטי' },
     ],
   },
   growth: {
-    includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
+    includesLabel: 'כל מה שב-Starter, ובנוסף',
     features: [
-      { label: 'פייסבוק' },
-      { label: 'תור פרסום חכם' },
-      { label: 'וואטסאפ (Green API)' },
-      { label: 'אינסטגרם' },
+      { label: 'פרסום ל-Facebook, Instagram ו-Pinterest' },
+      { label: 'חיבור WhatsApp אחד' },
+      { label: 'סוכן AI לגילוי מוצרים' },
       { label: 'משפר תמונות AI' },
-      { label: 'דוח אטריבושן — מה מכניס כסף' },
+      { label: 'תור פרסום חכם' },
+      { label: 'דוח "מה מכניס כסף" — עמלות עד רמת הפוסט' },
     ],
   },
   autopilot: {
-    includesLabel: 'כל מה שבתוכנית הקודמת, ובנוסף',
+    includesLabel: 'כל מה שב-Growth, ובנוסף',
     features: [
-      { label: 'גילוי מוצרים AI' },
-      { label: 'סוכני AI לניהול הטייס האוטומטי' },
-      { label: 'אינטגרציית אמזון' },
+      { label: 'מצב טייס אוטומטי — מגילוי ועד פרסום, אפס קלט' },
+      { label: 'סוכני AI לניהול הקמפיינים' },
+      { label: 'מקור מוצרים נוסף: Amazon' },
       { label: 'מיחזור מנצחים אוטומטי' },
-      { label: 'עונתיות אוטומטית — לוח שנה מסחרי' },
+      { label: 'עונתיות — לוח שנה מסחרי' },
+      { label: 'חלון שליחה לפי אזור זמן' },
+      { label: '2 חיבורי WhatsApp' },
     ],
   },
   scale: {
-    // The top tier is an explicit superset — it visibly lists every feature from
-    // all cheaper plans, not just its own extras, so buyers see they get everything.
-    includesLabel: 'הכול — כל הפיצ׳רים מכל התוכניות, כולל',
+    includesLabel: 'כל מה שב-Autopilot, ובנוסף',
     features: [
-      { label: 'קבוצות ללא הגבלה' },
-      { label: 'AliExpress' },
-      { label: 'טלגרם' },
-      { label: 'פייסבוק' },
-      { label: 'כותב תוכן AI' },
-      { label: 'פרסום אוטומטי' },
-      { label: 'תור פרסום חכם' },
-      { label: 'גילוי מוצרים AI' },
-      { label: 'סוכני AI לניהול הטייס האוטומטי' },
+      { label: 'קמפיינים באנגלית לקהל ארה"ב (USD)' },
+      { label: 'פינטרסט SEO לשוק האמריקאי' },
       { label: 'מעקב טוקנים ותקציב AI' },
-      { label: '50,000 קרדיטים בחודש' },
-      { label: 'וואטסאפ (Green API)' },
-      { label: 'אינסטגרם' },
-      { label: 'משפר תמונות AI' },
-      { label: 'אינטגרציית אמזון' },
-      { label: 'לינקים חכמים עם מעקב קליקים' },
-      { label: 'דוח אטריבושן — מה מכניס כסף' },
-      { label: 'מיחזור מנצחים אוטומטי' },
-      { label: 'עונתיות אוטומטית — לוח שנה מסחרי' },
-      { label: 'פינטרסט + קמפיין באנגלית לקהל ארה"ב' },
-      { label: 'חלון שליחה לפי אזור זמן לכל טייס' },
+      { label: 'דוחות רווח והפסד מתקדמים' },
+      { label: '3 חיבורי WhatsApp' },
+      { label: 'תמיכה בעדיפות' },
     ],
   },
 };
