@@ -831,6 +831,13 @@ export class PostsService {
     // posts. Advancing the group's queue clock here — the same one processQueue checks — makes
     // a manual post wait a full interval after this post, so everything to the group interleaves
     // one per interval. null override = the default channel → the account's global clock.
+    //
+    // ONLY for posts that actually publish to Telegram: an Instagram-only campaign's posts
+    // carry the group override for targeting, and stamping the Telegram clock for them made
+    // the backlog drip see the group as "just sent" every hour — real Telegram posts sat on
+    // 'מתוזמן' forever.
+    const only = await this.postPlatformFilter(post);
+    if (only && !only.has('telegram')) return;
     const now = new Date();
     if (post.channel_override) {
       await this.channels.markSent(post.user_id, [post.channel_override], now).catch(() => {});
