@@ -10,6 +10,7 @@ import { MailService } from '../mail/mail.service';
 import { ChannelsService } from '../channels/channels.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { WatchdogService } from '../watchdog/watchdog.service';
 import { BillingCycle } from '../subscription/plans.const';
 
 type BroadcastChannel = 'email' | 'telegram' | 'whatsapp';
@@ -24,6 +25,7 @@ export class AdminController {
     private readonly mail: MailService,
     private readonly channels: ChannelsService,
     private readonly credentials: CredentialsService,
+    private readonly watchdog: WatchdogService,
   ) {}
 
   private uid(req: Request) { return (req.user as any).id; }
@@ -207,6 +209,13 @@ export class AdminController {
     } catch (err: any) {
       return { ok: false, error: `החיבור תקין אך השליחה נדחתה: ${err?.message || err}`, host: conn.host, port: conn.port };
     }
+  }
+
+  /** Send a Watchdog test alert to the configured Telegram chat and return the result. */
+  @Post('watchdog-test')
+  @HttpCode(200)
+  watchdogTest() {
+    return this.watchdog.sendTestAlert();
   }
 
   /** Parse a pasted list of phone numbers (comma/space/newline separated) → E.164 digits. */

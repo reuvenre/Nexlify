@@ -39,6 +39,21 @@ export default function AdminUsersPage() {
     }
   };
 
+  const [wdTesting, setWdTesting] = useState(false);
+  const [wdResult, setWdResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const testWatchdog = async () => {
+    setWdTesting(true);
+    setWdResult(null);
+    try {
+      setWdResult(await adminApi.watchdogTest());
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setWdResult({ ok: false, error: err?.response?.data?.message || 'הבדיקה נכשלה' });
+    } finally {
+      setWdTesting(false);
+    }
+  };
+
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([adminApi.stats(), adminApi.users(), subscriptionApi.plans().catch(() => [])])
@@ -77,6 +92,10 @@ export default function AdminUsersPage() {
             className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-white/70 text-sm rounded-xl transition-all">
             {smtpTesting ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />} בדוק SMTP
           </button>
+          <button onClick={testWatchdog} disabled={wdTesting}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-50 text-white/70 text-sm rounded-xl transition-all">
+            {wdTesting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} בדוק התראת Watchdog
+          </button>
           <button onClick={() => setBroadcasting(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-xl transition-all">
             <Send size={14} /> שלח תפוצה
@@ -99,6 +118,16 @@ export default function AdminUsersPage() {
           {smtpResult.ok
             ? <>✅ חיבור ה-SMTP תקין ({smtpResult.host}:{smtpResult.port}) — המיילים אמורים להישלח.</>
             : <>⚠️ בעיית SMTP: <span dir="ltr" className="font-mono text-xs">{smtpResult.error}</span></>}
+        </div>
+      )}
+
+      {wdResult && (
+        <div className={`mb-6 rounded-xl border px-4 py-3 text-sm ${wdResult.ok
+          ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
+          : 'bg-red-500/10 border-red-500/25 text-red-300'}`} dir="rtl">
+          {wdResult.ok
+            ? <>✅ נשלחה הודעת בדיקה לטלגרם — בדוק שקיבלת אותה בצ׳אט עם הבוט.</>
+            : <>⚠️ התראת Watchdog: <span dir="ltr" className="font-mono text-xs">{wdResult.error}</span></>}
         </div>
       )}
 

@@ -271,6 +271,9 @@ export const adminApi = {
   /** SMTP diagnostics — verifies connection+credentials and returns the REAL provider error. */
   smtpTest: () =>
     http.post<{ ok: boolean; error?: string; host?: string; port?: number; secure?: boolean }>('/admin/smtp-test', {}, { timeout: 30000 }).then(extract),
+  /** Fire a Watchdog Telegram test alert; returns whether it reached Telegram. */
+  watchdogTest: () =>
+    http.post<{ ok: boolean; error?: string }>('/admin/watchdog-test', {}, { timeout: 20000 }).then(extract),
   /** Grant one-time credits (manual credit-pack fulfilment until billing lands). */
   addCredits: (userId: string, amount: number) =>
     http.post<{ ok: boolean; credits_remaining: number | null }>(`/admin/users/${userId}/credits`, { amount }).then(extract),

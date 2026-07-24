@@ -190,17 +190,6 @@ export class WatchdogService {
    * WATCHDOG_TELEGRAM_BOT_TOKEN overrides the bot when set.
    */
   private async reportTelegram(a: { title: string; body: string }): Promise<void> {
-    const chatId = process.env.WATCHDOG_TELEGRAM_CHAT_ID;
-    if (!chatId) return;
-    let token = process.env.WATCHDOG_TELEGRAM_BOT_TOKEN || null;
-    if (!token) {
-      const admins = await this.users.find({ where: { role: 'admin' } });
-      for (const admin of admins) {
-        token = await this.credentials.getTelegramToken(admin.id).catch(() => null);
-        if (token) break;
-      }
-    }
-    if (!token) return;
     const text = [
       `⚠️ Nexlify Watchdog זיהה תקלה:`,
       ``,
@@ -208,9 +197,52 @@ export class WatchdogService {
       ``,
       `נפתח Issue אוטומטי ב-GitHub — Claude יטפל בבדיקה הקרובה (כל 4 שעות) ויעדכן בשיחה.`,
     ].join('\n');
+    await this.sendTelegram(text);
+  }
+
+  /** Resolve the watchdog bot token: explicit override, else the admin's group bot. */
+  private async telegramToken(): Promise<string | null> {
+    if (process.env.WATCHDOG_TELEGRAM_BOT_TOKEN) return process.env.WATCHDOG_TELEGRAM_BOT_TOKEN;
+    const admins = await this.users.find({ where: { role: 'admin' } });
+    for (const admin of admins) {
+      const t = await this.credentials.getTelegramToken(admin.id).catch(() => null);
+      if (t) return t;
+    }
+    return null;
+  }
+
+  /** Low-level send to the owner's watchdog chat. No-op (returns false) when unconfigured. */
+  private async sendTelegram(text: string): Promise<boolean> {
+    const chatId = process.env.WATCHDOG_TELEGRAM_CHAT_ID;
+    if (!chatId) return false;
+    const token = await this.telegramToken();
+    if (!token) return false;
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId, text,
     }, { timeout: 12000 });
+    return true;
+  }
+
+  /**
+   * Send a test alert NOW and return a precise diagnostic — so "did I set the
+   * Telegram vars right?" is answerable from an admin button instead of waiting
+   * for a real anomaly. Distinguishes missing config from Telegram's own errors
+   * (chat not found / bot blocked / bad token).
+   */
+  async sendTestAlert(): Promise<{ ok: boolean; error?: string }> {
+    if (!process.env.WATCHDOG_TELEGRAM_CHAT_ID) {
+      return { ok: false, error: 'חסר WATCHDOG_TELEGRAM_CHAT_ID ב-Render' };
+    }
+    if (!(await this.telegramToken())) {
+      return { ok: false, error: 'לא נמצא טוקן בוט — הגדר WATCHDOG_TELEGRAM_BOT_TOKEN או טוקן טלגרם לאדמין' };
+    }
+    try {
+      await this.sendTelegram('✅ בדיקת Nexlify Watchdog — אם קיבלת את ההודעה הזו, התראות התקלות מוגדרות ופעילות. 🎉');
+      return { ok: true };
+    } catch (err: any) {
+      const tg = err?.response?.data?.description;
+      return { ok: false, error: `טלגרם דחה: ${tg || err?.message || err}. ודא שלחצת Start על הבוט ושה-Chat ID נכון.` };
+    }
   }
 
   /** Email every admin (best effort — needs working SMTP). */

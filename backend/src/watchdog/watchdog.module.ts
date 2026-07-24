@@ -10,5 +10,6 @@ import { WatchdogService } from './watchdog.service';
 @Module({
   imports: [TypeOrmModule.forFeature([Post, Campaign, User]), MailModule, CredentialsModule],
   providers: [WatchdogService],
+  exports: [WatchdogService],
 })
 export class WatchdogModule {}

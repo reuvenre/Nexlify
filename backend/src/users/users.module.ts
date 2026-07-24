@@ -7,9 +7,10 @@ import { SubscriptionModule } from '../subscription/subscription.module';
 import { MailModule } from '../mail/mail.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { CredentialsModule } from '../credentials/credentials.module';
+import { WatchdogModule } from '../watchdog/watchdog.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User]), SubscriptionModule, MailModule, ChannelsModule, CredentialsModule],
+  imports: [TypeOrmModule.forFeature([User]), SubscriptionModule, MailModule, ChannelsModule, CredentialsModule, WatchdogModule],
   providers: [UsersService],
   controllers: [AdminController],
   exports: [UsersService],
