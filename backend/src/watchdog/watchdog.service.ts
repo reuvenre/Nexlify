@@ -89,7 +89,7 @@ export class WatchdogService {
           '',
           ...stuck.map((p) => `- \`${p.id}\` · user \`${p.user_id}\` · group \`${p.channel_override || 'default'}\` · scheduled_at ${new Date(p.scheduled_at).toISOString()} · ${String(p.product_title || '').slice(0, 40)}`),
           '',
-          'כיווני חקירה: findDueScheduledPosts (דריפ + isRateLimited), שעון הקבוצה schedule_last_sent_at, sendScheduledPosts בסקדולר.',
+          'כיווני חקירה: findDueScheduledPosts (דריפ + lastTelegramSendToGroup), sendScheduled/markSent, sendScheduledPosts בסקדולר.',
         ].join('\n'),
       });
     }

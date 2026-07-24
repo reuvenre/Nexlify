@@ -791,34 +791,53 @@ export class PostsService {
   // ── Due scheduled posts (called by cron) ──────────────────────────────────
 
   async findDueScheduledPosts(): Promise<Post[]> {
+    const now = new Date();
     const due = await this.repo
       .createQueryBuilder('p')
       .where('p.status = :status', { status: 'scheduled' })
-      .andWhere('p.scheduled_at <= :now', { now: new Date() })
+      .andWhere('p.scheduled_at <= :now', { now })
       .orderBy('p.scheduled_at', 'ASC')
       .getMany();
 
-    // Drip, don't flood: release at most ONE overdue post per destination group per tick,
-    // AND only when the group's send clock has a full interval behind it. One-per-tick
-    // alone drained a backlog at one post per MINUTE — the group got 06:00 and 06:01
-    // posts back-to-back; the interval check makes a backlog drain at the group's real
-    // rate (e.g. one per hour). A post with no override drips on the 'default' key.
+    // Drip, don't flood: at most ONE overdue post per destination group per tick, and
+    // only when a full interval passed since the last ACTUAL Telegram publish to that
+    // group. The gate reads MAX(sent_at) of posts that really went to Telegram — NOT the
+    // shared channel clock, which the hourly Instagram campaign and the auto-send queue
+    // also stamp. That shared clock never went stale, so Telegram posts froze for hours
+    // (watchdog #9/#10). Sourcing the gate from real Telegram sends means only a genuine
+    // Telegram publish can defer the next one — nothing else can deadlock it.
     const seen = new Set<string>();
     const picked: Post[] = [];
-    const now = new Date();
     for (const p of due) {
       const key = `${p.user_id}::${p.channel_override || 'default'}`;
       if (seen.has(key)) continue;
       seen.add(key);
       if (p.channel_override) {
-        const limited = await this.channels
-          .isRateLimited(p.user_id, p.channel_override, now)
-          .catch(() => false);
-        if (limited) continue; // group had a post within its interval — next tick re-checks
+        const intervalMin = (await this.channels.getIntervalMinutes(p.user_id, p.channel_override).catch(() => null)) ?? 60;
+        const lastMs = await this.lastTelegramSendToGroup(p.user_id, p.channel_override).catch(() => 0);
+        if (lastMs && now.getTime() - lastMs < intervalMin * 60_000) continue; // published to TG within interval
       }
       picked.push(p);
     }
     return picked;
+  }
+
+  /**
+   * MAX(sent_at) of posts that actually PUBLISHED to this Telegram group — a sent post
+   * targeting the group whose campaign isn't platform-filtered away from Telegram. Same
+   * filter as nextGroupSlot, so booking and release agree on what "a Telegram post to the
+   * group" is. Returns 0 when none. This is the ONLY thing that paces the scheduled drip.
+   */
+  private async lastTelegramSendToGroup(userId: string, groupId: string): Promise<number> {
+    const row = await this.repo.createQueryBuilder('p')
+      .select('MAX(p.sent_at)', 'max')
+      .leftJoin(Campaign, 'c', 'c.id = p.campaign_id')
+      .where('p.user_id = :userId', { userId })
+      .andWhere("p.status = 'sent'")
+      .andWhere('(p.channel_override = :g OR p.channel_overrides LIKE :like)', { g: groupId, like: `%"${groupId}"%` })
+      .andWhere('(p.campaign_id IS NULL OR c.target_platforms IS NULL OR c.target_platforms LIKE :tg)', { tg: '%telegram%' })
+      .getRawOne();
+    return row?.max ? new Date(row.max).getTime() : 0;
   }
 
   async sendScheduled(post: Post) {

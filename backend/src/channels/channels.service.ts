@@ -554,20 +554,6 @@ export class ChannelsService {
     if (stale.length) await this.markSent(userId, stale, now);
   }
 
-  /**
-   * True when the group sent within its interval — i.e. it must NOT receive another
-   * post yet. Used by the overdue-backlog drip so a backlog drains one post per
-   * INTERVAL per group, not one per scheduler tick (which put 06:00 and 06:01 posts
-   * into the same group a minute apart).
-   */
-  async isRateLimited(userId: string, channelId: string, now: Date, fallbackIntervalMin = 60): Promise<boolean> {
-    const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
-    if (!c) return false;
-    const interval = c.schedule_interval_minutes ?? fallbackIntervalMin;
-    const last = c.schedule_last_sent_at ? new Date(c.schedule_last_sent_at).getTime() : 0;
-    return !!last && now.getTime() - last < interval * 60_000;
-  }
-
   /** The saved channel's display name (for multi-group error labels). Null if unknown. */
   async getName(userId: string, channelId: string): Promise<string | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
