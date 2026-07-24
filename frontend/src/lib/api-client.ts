@@ -564,10 +564,13 @@ export const earningsApi = {
 
   // Sync loops 4 order statuses with pacing against the AliExpress rate limit —
   // can take ~10-40s, well past the 15s global timeout.
-  sync: () => http.post<{
-    synced: number; updated: number;
-    by_status?: Record<string, { found: number; new: number; updated: number; error?: string }>;
-  }>('/earnings/sync', {}, { timeout: 120_000 }).then(extract),
+  /** Starts a BACKGROUND sync (returns immediately) — poll syncStatus for the outcome. */
+  sync: () => http.post<{ state: 'started' | 'running' }>('/earnings/sync', {}).then(extract),
+  syncStatus: () => http.get<{
+    state: 'idle' | 'running' | 'done' | 'error';
+    result?: { synced: number; updated: number; by_status?: Record<string, { found: number; new: number; updated: number; error?: string }> };
+    error?: string;
+  }>('/earnings/sync/status').then(extract),
 };
 
 // ─── Channels API ────────────────────────────────────────────────────────────

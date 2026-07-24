@@ -68,24 +68,40 @@ export default function OrdersPage() {
 
   useEffect(() => { load(1); }, [load]);
 
-  /** Pulls fresh orders from AliExpress — this is what actually populates the screen. */
+  /**
+   * Pulls fresh orders from AliExpress. The sync runs in the BACKGROUND server-side
+   * (a full pass can outlive the host's request timeout — it used to show "failed"
+   * while actually succeeding), so we start it and poll for the outcome.
+   */
   const handleSync = async () => {
     setSyncing(true); setError(''); setSyncMsg('');
     try {
-      const r = await earningsApi.sync();
-      // Full per-status diagnostics — "the portal shows 84 and here there are fewer"
-      // is only debuggable when each pass reports what it found (or how it failed).
+      await earningsApi.sync(); // starts (or joins) the background job
       const HE: Record<string, string> = {
         'Payment Completed': 'שולם',
         'Buyer Confirmed Goods Receipt': 'התקבל אצל הקונה',
         'Completed Settlement': 'הוסדר (עמלה אושרה)',
         Invalid: 'בוטל/נפסל',
       };
-      const parts = Object.entries(r.by_status || {}).map(([api, d]: [string, any]) =>
-        d?.error ? `${HE[api] || api}: ⚠️ ${d.error}` : `${HE[api] || api}: ${d?.found ?? 0}`);
-      setSyncMsg(`✓ ${r.synced} הזמנות חדשות · ${r.updated} עודכנו${parts.length ? ` · נמצאו — ${parts.join(' · ')}` : ''}`);
-      load(1);
+      setSyncMsg('⏳ הסנכרון רץ ברקע — התוצאה תופיע כאן בעוד רגע...');
+      // Poll every 4s, up to 5 minutes.
+      for (let i = 0; i < 75; i++) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const s = await earningsApi.syncStatus().catch(() => null);
+        if (!s || s.state === 'running') continue;
+        if (s.state === 'error') {
+          setSyncMsg('');
+          setError(s.error || 'הסנכרון נכשל — בדוק את פרטי ה-AliExpress בהגדרות');
+        } else if (s.state === 'done' && s.result) {
+          const parts = Object.entries(s.result.by_status || {}).map(([api, d]: [string, any]) =>
+            d?.error ? `${HE[api] || api}: ⚠️ ${d.error}` : `${HE[api] || api}: ${d?.found ?? 0}`);
+          setSyncMsg(`✓ ${s.result.synced} הזמנות חדשות · ${s.result.updated} עודכנו${parts.length ? ` · נמצאו — ${parts.join(' · ')}` : ''}`);
+          load(1);
+        }
+        break;
+      }
     } catch (e: any) {
+      setSyncMsg('');
       setError(e?.response?.data?.message || 'הסנכרון נכשל — בדוק את פרטי ה-AliExpress בהגדרות');
     } finally {
       setSyncing(false);

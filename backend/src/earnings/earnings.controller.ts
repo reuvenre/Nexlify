@@ -36,10 +36,17 @@ export class EarningsController {
     );
   }
 
+  /** STARTS a background sync and returns immediately — the full pass can outlive
+   *  the host's request timeout, so the UI polls sync/status for the outcome. */
   @Post('sync')
   @HttpCode(200)
   sync(@Req() req: Request) {
-    return this.svc.sync((req.user as any).id);
+    return this.svc.startSync((req.user as any).id);
+  }
+
+  @Get('sync/status')
+  syncStatus(@Req() req: Request) {
+    return this.svc.syncStatus((req.user as any).id);
   }
 
   /** "What actually earns" — commissions by keyword/campaign merged with click data.

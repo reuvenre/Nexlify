@@ -362,6 +362,42 @@ export class EarningsService {
     }
   }
 
+  /** Latest manual-sync outcome per user — what the polling endpoint serves. */
+  private readonly syncState = new Map<string, {
+    state: 'running' | 'done' | 'error';
+    result?: { synced: number; updated: number; by_status?: Record<string, StatusDiag> };
+    error?: string;
+    finished_at?: string;
+  }>();
+
+  /**
+   * Manual sync, BACKGROUND edition. The full pass (4 statuses × ≤30-day slices,
+   * paced ≥1.1s/call, plus per-row updates) can exceed the host proxy's request
+   * timeout — the UI saw "failed" while the server finished fine. So the HTTP
+   * request only STARTS the job; the UI polls syncStatus() for the result.
+   */
+  async startSync(userId: string): Promise<{ state: 'running' | 'started' }> {
+    if (this.syncing.has(userId)) return { state: 'running' };
+    // Validate creds inside the request so a missing-keys error still surfaces immediately.
+    const creds = await this.credentials.getRaw(userId);
+    if (!creds?.aliexpress_app_key || !creds?.aliexpress_app_secret) {
+      throw new BadRequestException('מפתחות AliExpress לא מוגדרים — הגדר אותם בהגדרות ← שווקים');
+    }
+    this.syncState.set(userId, { state: 'running' });
+    void this.sync(userId)
+      .then((result) => this.syncState.set(userId, { state: 'done', result, finished_at: new Date().toISOString() }))
+      .catch((err: any) => this.syncState.set(userId, {
+        state: 'error',
+        error: err?.response?.data?.message || err?.message || 'הסנכרון נכשל',
+        finished_at: new Date().toISOString(),
+      }));
+    return { state: 'started' };
+  }
+
+  syncStatus(userId: string) {
+    return this.syncState.get(userId) || { state: 'idle' as const };
+  }
+
   /**
    * Scheduled "live" pull: auto-sync affiliate orders for EVERY user with AliExpress keys,
    * so the orders/earnings screens stay current without a manual refresh. Paced between users
