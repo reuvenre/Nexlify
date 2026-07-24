@@ -109,6 +109,17 @@ export interface ActiveDeal {
   ends_at: string | null;
 }
 
+/** One row in the security audit log. */
+export interface SecurityEvent {
+  id: string;
+  type: 'login_failed' | 'login_success' | 'password_reset_requested' | 'role_changed' | 'admin_created' | 'decrypt_failed';
+  email: string | null;
+  user_id: string | null;
+  ip: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
 export interface AdminStats {
   total_users: number;
   admins: number;

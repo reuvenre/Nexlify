@@ -11,6 +11,13 @@ import { AuthDto } from './dto/auth.dto';
 import { UsersService } from '../users/users.service';
 import { primaryUrl } from '../common/urls';
 
+/** Best-effort client IP: first hop of X-Forwarded-For (set by Vercel/Render), else socket. */
+function clientIp(req: Request): string | null {
+  const xff = req.headers['x-forwarded-for'];
+  const raw = Array.isArray(xff) ? xff[0] : xff;
+  return (raw ? raw.split(',')[0].trim() : req.ip) || null;
+}
+
 // Brute-force / enumeration protection on unauthenticated auth endpoints.
 @UseGuards(ThrottlerGuard)
 @Throttle({ default: { ttl: 60_000, limit: 10 } })
@@ -29,8 +36,8 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
-  login(@Body() dto: AuthDto, @Res({ passthrough: true }) res: Response) {
-    return this.auth.login(dto.email, dto.password, res);
+  login(@Body() dto: AuthDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.auth.login(dto.email, dto.password, res, clientIp(req));
   }
 
   /** Second login step for 2FA-enabled accounts: exchange mfa_token + code for a session. */

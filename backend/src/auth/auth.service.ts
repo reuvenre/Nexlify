@@ -1,5 +1,5 @@
 import {
-  Injectable, UnauthorizedException, BadRequestException, Logger,
+  Injectable, Optional, UnauthorizedException, BadRequestException, Logger,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { JwtService } from '@nestjs/jwt';
@@ -10,6 +10,7 @@ import { User } from '../users/user.entity';
 import { encrypt, decrypt } from '../common/crypto';
 import { generateTotpSecret, verifyTotp, totpUri } from '../common/totp';
 import { primaryUrl } from '../common/urls';
+import { SecurityService } from '../security/security.service';
 import * as QRCode from 'qrcode';
 
 const REFRESH_COOKIE = 'refresh_token';
@@ -24,6 +25,7 @@ export class AuthService {
     private jwt: JwtService,
     private config: ConfigService,
     private mail: MailService,
+    @Optional() private security?: SecurityService,
   ) {}
 
   // ── Token helpers ──────────────────────────────────────────────────────────
@@ -108,11 +110,18 @@ export class AuthService {
     );
   }
 
-  async login(email: string, password: string, res: any) {
+  async login(email: string, password: string, res: any, ip?: string | null) {
     const user = await this.users.findByEmail(email);
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (!user) {
+      void this.security?.record('login_failed', { email, ip, detail: 'no such user' });
+      throw new UnauthorizedException('Invalid credentials');
+    }
     const valid = await this.users.validatePassword(user, password);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!valid) {
+      void this.security?.record('login_failed', { email, userId: user.id, ip, detail: 'bad password' });
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    void this.security?.record('login_success', { email, userId: user.id, ip });
 
     // 2FA gate: don't issue session tokens yet — hand back a short-lived
     // challenge token the client exchanges together with a TOTP code.
@@ -190,6 +199,7 @@ export class AuthService {
     // Always respond the same way to prevent email enumeration
     if (!user) return { message: 'If that email exists, a reset link has been sent.' };
 
+    void this.security?.record('password_reset_requested', { email, userId: user.id });
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await this.users.saveResetToken(user.id, token, expires);

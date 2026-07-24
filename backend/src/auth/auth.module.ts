@@ -8,9 +8,10 @@ import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
-  imports: [
+  imports: [SecurityModule, 
     PassportModule,
     JwtModule.register({}),
     ConfigModule,

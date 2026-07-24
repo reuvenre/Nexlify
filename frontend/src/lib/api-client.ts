@@ -37,6 +37,7 @@ import type {
   CreditPack,
   Promotion,
   ActiveDeal,
+  SecurityEvent,
   BillingCycle,
   SupplierCatalog,
   SupplierProduct,
@@ -274,6 +275,9 @@ export const adminApi = {
   /** Fire a Watchdog Telegram test alert; returns whether it reached Telegram. */
   watchdogTest: () =>
     http.post<{ ok: boolean; error?: string }>('/admin/watchdog-test', {}, { timeout: 20000 }).then(extract),
+  /** Security audit log (brute-force, privilege escalation, logins, resets). */
+  securityEvents: (type?: string) =>
+    http.get<SecurityEvent[]>('/admin/security/events', { params: { limit: 100, ...(type ? { type } : {}) } }).then(extract),
   /** Grant one-time credits (manual credit-pack fulfilment until billing lands). */
   addCredits: (userId: string, amount: number) =>
     http.post<{ ok: boolean; credits_remaining: number | null }>(`/admin/users/${userId}/credits`, { amount }).then(extract),

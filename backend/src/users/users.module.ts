@@ -8,9 +8,10 @@ import { MailModule } from '../mail/mail.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { WatchdogModule } from '../watchdog/watchdog.module';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User]), SubscriptionModule, MailModule, ChannelsModule, CredentialsModule, WatchdogModule],
+  imports: [SecurityModule, TypeOrmModule.forFeature([User]), SubscriptionModule, MailModule, ChannelsModule, CredentialsModule, WatchdogModule],
   providers: [UsersService],
   controllers: [AdminController],
   exports: [UsersService],

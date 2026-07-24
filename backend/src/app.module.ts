@@ -31,6 +31,7 @@ import { PinterestModule } from './pinterest/pinterest.module';
 import { LinksModule } from './links/links.module';
 import { PromotionsModule } from './promotions/promotions.module';
 import { WatchdogModule } from './watchdog/watchdog.module';
+import { SecurityModule } from './security/security.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -98,6 +99,7 @@ import { HealthController } from './health.controller';
     LinksModule,
     PromotionsModule,
     WatchdogModule,
+    SecurityModule,
   ],
   controllers: [HealthController],
 })

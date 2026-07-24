@@ -7,6 +7,7 @@ import { Post } from '../posts/post.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 import { User } from '../users/user.entity';
 import { MailService } from '../mail/mail.service';
+import { SecurityService } from '../security/security.service';
 import { CredentialsService } from '../credentials/credentials.service';
 
 /**
@@ -37,6 +38,7 @@ export class WatchdogService {
     @InjectRepository(User) private readonly users: Repository<User>,
     private readonly mail: MailService,
     private readonly credentials: CredentialsService,
+    private readonly security: SecurityService,
   ) {}
 
   @Cron('0 */15 * * * *')
@@ -141,6 +143,12 @@ export class WatchdogService {
         ].join('\n'),
       });
     }
+
+    // 4. Security anomalies (brute-force, privilege escalation) from the audit log.
+    //    Reported through the same channels; the 6h throttle per key still applies so
+    //    an ongoing attack alerts once, not every 15 minutes.
+    const sec = await this.security.scan().catch(() => []);
+    out.push(...sec);
 
     return out;
   }

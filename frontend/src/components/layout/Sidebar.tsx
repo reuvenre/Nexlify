@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Megaphone, Zap, FileText, Layout,
   Users, BarChart3, Settings, LogOut,
   ShoppingCart, Sun, Moon, Sparkles, Package,
-  Shield, Ticket, LayoutTemplate, ExternalLink, CalendarClock, BookOpen,
+  Shield, ShieldAlert, Ticket, LayoutTemplate, ExternalLink, CalendarClock, BookOpen,
 } from 'lucide-react';
 
 // The user's landing-page system (ClickLead), unlocked for the top plan. Override in
@@ -209,6 +209,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             )}
             <Sparkles size={14} className={`shrink-0 ${isActive('/admin/promotions') ? 'text-violet-300' : 'text-white/30 group-hover:text-white/55'}`} />
             <span>מבצעים</span>
+          </Link>
+          <Link
+            href="/admin/security"
+            onClick={onNavigate}
+            className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
+              ${isActive('/admin/security')
+                ? 'bg-violet-500/[0.14] text-violet-300'
+                : 'text-white/40 hover:text-white/80 hover:bg-white/[0.05]'}`}
+          >
+            {isActive('/admin/security') && (
+              <span className="absolute inset-y-1.5 right-0 w-[3px] rounded-full bg-violet-500" />
+            )}
+            <ShieldAlert size={14} className={`shrink-0 ${isActive('/admin/security') ? 'text-violet-300' : 'text-white/30 group-hover:text-white/55'}`} />
+            <span>יומן אבטחה</span>
           </Link>
         </div>
       )}

@@ -11,6 +11,7 @@ import { ChannelsService } from '../channels/channels.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { WatchdogService } from '../watchdog/watchdog.service';
+import { SecurityService } from '../security/security.service';
 import { BillingCycle } from '../subscription/plans.const';
 
 type BroadcastChannel = 'email' | 'telegram' | 'whatsapp';
@@ -26,6 +27,7 @@ export class AdminController {
     private readonly channels: ChannelsService,
     private readonly credentials: CredentialsService,
     private readonly watchdog: WatchdogService,
+    private readonly security: SecurityService,
   ) {}
 
   private uid(req: Request) { return (req.user as any).id; }
@@ -44,6 +46,7 @@ export class AdminController {
   @Post('users')
   @HttpCode(201)
   async createUser(
+    @Req() req: Request,
     @Body('email') email: string,
     @Body('password') password: string,
     @Body('role') role?: 'user' | 'admin',
@@ -51,6 +54,9 @@ export class AdminController {
   ) {
     const user = await this.users.adminCreate(email, password, role === 'admin' ? 'admin' : 'user');
     if (plan) await this.subscription.setPlanForUser(user.id, plan, 'monthly').catch(() => undefined);
+    if (role === 'admin') {
+      void this.security.record('admin_created', { email, userId: user.id, detail: `by admin ${this.uid(req)}` });
+    }
     return this.users.toPublic(user);
   }
 
@@ -62,6 +68,11 @@ export class AdminController {
       throw new BadRequestException('אי אפשר להסיר לעצמך הרשאת אדמין');
     }
     await this.users.setRole(id, role);
+    // Audit privilege changes — an unexpected grant-to-admin is the classic
+    // post-compromise persistence move; the watchdog flags these.
+    void this.security.record('role_changed', {
+      userId: id, detail: `→ ${role} (by admin ${this.uid(req)})`,
+    });
     return { ok: true };
   }
 
