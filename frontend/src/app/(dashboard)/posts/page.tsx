@@ -472,15 +472,27 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
             failed on another (e.g. Telegram OK, Facebook rejected) — show it as a
             partial success (amber) instead of a misleading all-green "נשלח". */}
         {post.status === 'sent' && post.error_message ? (
-          <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400" title={post.error_message}>
+          <button type="button" onClick={() => alert(post.error_message)}
+            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 cursor-pointer" title={post.error_message}>
             <AlertTriangle size={11} />
             פורסם חלקית
-          </span>
+          </button>
         ) : (
           <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${cfg.cls}`}>
             <cfg.Icon size={11} />
             {cfg.label}
           </span>
+        )}
+        {/* ANY status can carry an error (a pending FLYLINK post whose send hiccuped,
+            a failed post…) — surface it as a CLICKABLE row, not a hover-only tooltip
+            the user can't discover. */}
+        {post.error_message && post.status !== 'sent' && (
+          <button type="button" onClick={() => alert(post.error_message)}
+            className="mt-1 flex items-center gap-1 text-2xs text-amber-400/90 hover:text-amber-300 max-w-[180px] text-right"
+            title={post.error_message}>
+            <AlertTriangle size={10} className="shrink-0" />
+            <span className="truncate">{post.error_message}</span>
+          </button>
         )}
       </td>
       <td className="py-3 px-4 text-sm text-white/50">

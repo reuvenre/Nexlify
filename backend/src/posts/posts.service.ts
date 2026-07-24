@@ -798,17 +798,24 @@ export class PostsService {
       .orderBy('p.scheduled_at', 'ASC')
       .getMany();
 
-    // Drip, don't flood: release at most ONE overdue post per destination group per tick.
-    // When the server wakes from sleep (free tier) with a backlog of overdue posts, sending
-    // them all at once dumped a burst into a single group at, e.g., 6am. The every-minute
-    // cron still drains the backlog quickly — just one post per group per minute, spaced —
-    // instead of all at once. A post with no override drips on the 'default' key.
+    // Drip, don't flood: release at most ONE overdue post per destination group per tick,
+    // AND only when the group's send clock has a full interval behind it. One-per-tick
+    // alone drained a backlog at one post per MINUTE — the group got 06:00 and 06:01
+    // posts back-to-back; the interval check makes a backlog drain at the group's real
+    // rate (e.g. one per hour). A post with no override drips on the 'default' key.
     const seen = new Set<string>();
     const picked: Post[] = [];
+    const now = new Date();
     for (const p of due) {
       const key = `${p.user_id}::${p.channel_override || 'default'}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      if (p.channel_override) {
+        const limited = await this.channels
+          .isRateLimited(p.user_id, p.channel_override, now)
+          .catch(() => false);
+        if (limited) continue; // group had a post within its interval — next tick re-checks
+      }
       picked.push(p);
     }
     return picked;
@@ -934,7 +941,7 @@ export class PostsService {
 
   /**
    * Place a new post to `groupId` in that group's NEXT FREE slot: spaced by the group's
-   * interval from the latest pending (scheduled/queued) post ALREADY targeting the group —
+   * interval from the latest pending (scheduled/queued) OR just-sent post targeting the group —
    * from any campaign or source THAT PUBLISHES TO TELEGRAM (a platform-filtered campaign,
    * e.g. Instagram-only, never reaches the group's Telegram channel and is not counted).
    * Returns { slot, skip }; skip=true when the group is already
@@ -943,11 +950,17 @@ export class PostsService {
    */
   async nextGroupSlot(userId: string, groupId: string, notBefore: Date): Promise<{ slot: Date; skip: boolean }> {
     const intervalMin = (await this.channels.getIntervalMinutes(userId, groupId).catch(() => null)) ?? 60;
+    // Count pending posts AND posts SENT within the last interval. Pending-only left a
+    // hole: the moment the 06:00 post went out it stopped counting, so any other source
+    // (a second campaign, a queued post released at window-open) saw a "free" group and
+    // fired at 06:01 — two posts a minute apart instead of one per interval.
+    const recentSentCutoff = new Date(Date.now() - intervalMin * 60_000);
     const row = await this.repo.createQueryBuilder('p')
-      .select('MAX(p.scheduled_at)', 'max')
+      .select('MAX(COALESCE(p.sent_at, p.scheduled_at))', 'max')
       .leftJoin(Campaign, 'c', 'c.id = p.campaign_id')
       .where('p.user_id = :userId', { userId })
-      .andWhere("p.status IN ('scheduled','queued')")
+      .andWhere("p.status IN ('scheduled','queued','sent')")
+      .andWhere("(p.status != 'sent' OR COALESCE(p.sent_at, p.scheduled_at) >= :recent)", { recent: recentSentCutoff })
       // A post targets the group via channel_override (single) OR channel_overrides (JSON
       // array of quoted ids) — match both. Quotes make the LIKE exact (no substring bleed).
       .andWhere('(p.channel_override = :g OR p.channel_overrides LIKE :like)', { g: groupId, like: `%"${groupId}"%` })
