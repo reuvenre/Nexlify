@@ -257,22 +257,30 @@ export class EarningsService {
     };
   }
 
-  async list(userId: string, page = 1, limit = 20, status?: string, from?: string, to?: string) {
+  async list(
+    userId: string, page = 1, limit = 20, status?: string, from?: string, to?: string,
+    dateBasis: 'order' | 'paid' = 'order',
+  ) {
     // `to` is inclusive of the whole day the user picked (end-of-day), so a same-day
     // from/to range still returns that day's orders.
     const fromD = from ? new Date(from) : null;
     const toD = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : null;
 
+    // basis 'paid' filters/sorts by payment-completed time — the SAME definition as the
+    // AliExpress portal's "Completed Payments Time", so counts match it 1:1. Orders
+    // synced before paid_date existed fall back to order_date until a sync backfills.
+    const dateCol = dateBasis === 'paid' ? 'COALESCE(e.paid_date, e.order_date)' : 'e.order_date';
+
     const applyFilters = <T>(qb: import('typeorm').SelectQueryBuilder<T>) => {
       qb.where('e.user_id = :userId', { userId });
       if (status) qb.andWhere('e.status = :status', { status });
-      if (fromD) qb.andWhere('e.order_date >= :fromD', { fromD });
-      if (toD) qb.andWhere('e.order_date <= :toD', { toD });
+      if (fromD) qb.andWhere(`${dateCol} >= :fromD`, { fromD });
+      if (toD) qb.andWhere(`${dateCol} <= :toD`, { toD });
       return qb;
     };
 
     const [data, total] = await applyFilters(this.repo.createQueryBuilder('e'))
-      .orderBy('e.order_date', 'DESC')
+      .orderBy(dateCol, 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -427,16 +435,22 @@ export class EarningsService {
               const commissionUsd = +(((parseFloat(order.estimated_finished_commission) || parseFloat(order.estimated_paid_commission) || 0) / 100)).toFixed(2);
               const amountUsd = +(((parseFloat(order.finished_amount) || parseFloat(order.paid_amount) || 0) / 100)).toFixed(2);
               const settleAt = parseAliTime(order.completed_settlement_time);
+              // Payment-completed time — the portal's "Completed Payments Time" basis.
+              // Field name varies across gateway versions; try the known spellings.
+              const paidAt = parseAliTime(order.paid_time || order.pay_time || order.payment_time);
 
               const exists = await this.repo.findOne({ where: { order_id: orderKey, user_id: userId } });
               if (exists) {
-                // Status/commission transitions (estimated → settled/cancelled).
-                if (exists.status !== st.local || Math.abs((exists.commission_usd || 0) - commissionUsd) > 0.001) {
+                // Status/commission transitions (estimated → settled/cancelled) — and a
+                // one-time paid_date backfill for rows synced before the column existed.
+                const needsPaidBackfill = !exists.paid_date && !!paidAt;
+                if (exists.status !== st.local || Math.abs((exists.commission_usd || 0) - commissionUsd) > 0.001 || needsPaidBackfill) {
                   exists.status = st.local;
                   exists.order_amount_usd = amountUsd;
                   exists.commission_usd = commissionUsd;
                   exists.commission_ils = +(commissionUsd * rate).toFixed(2);
                   exists.settlement_date = settleAt;
+                  if (paidAt) exists.paid_date = paidAt;
                   await this.repo.save(exists);
                   updated++;
                   diag.updated++;
@@ -453,6 +467,7 @@ export class EarningsService {
                 commission_ils: +(commissionUsd * rate).toFixed(2),
                 status: st.local,
                 order_date: parseAliTime(order.created_time) || new Date(),
+                paid_date: paidAt,
                 settlement_date: settleAt,
               });
               try {

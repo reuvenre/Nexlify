@@ -28,8 +28,12 @@ export class EarningsController {
     @Query('status') status?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('date_basis') dateBasis?: string,
   ) {
-    return this.svc.list((req.user as any).id, +page, +limit, status, from, to);
+    return this.svc.list(
+      (req.user as any).id, +page, +limit, status, from, to,
+      dateBasis === 'paid' ? 'paid' : 'order',
+    );
   }
 
   @Post('sync')

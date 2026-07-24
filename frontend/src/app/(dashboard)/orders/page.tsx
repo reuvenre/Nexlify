@@ -37,6 +37,9 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState<'all' | EarningStatus>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  // 'paid' = filter by payment-completed time — the SAME definition as the AliExpress
+  // portal's "Completed Payments Time", so counts match its screen 1:1.
+  const [dateBasis, setDateBasis] = useState<'order' | 'paid'>('paid');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
@@ -50,6 +53,7 @@ export default function OrdersPage() {
         status: filter === 'all' ? undefined : filter,
         from: from || undefined,
         to: to || undefined,
+        date_basis: dateBasis,
       });
       setOrders(res.data);
       setTotal(res.total);
@@ -60,7 +64,7 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, from, to]);
+  }, [filter, from, to, dateBasis]);
 
   useEffect(() => { load(1); }, [load]);
 
@@ -181,6 +185,24 @@ export default function OrdersPage() {
             נקה טווח
           </button>
         )}
+        {/* Date basis: 'paid' mirrors the AliExpress portal ("Completed Payments Time")
+            so the count here matches its Live Order Tracking screen 1:1. */}
+        <div className="flex items-center gap-1 mr-2 bg-surface-secondary border border-edge rounded-lg p-0.5">
+          <button onClick={() => setDateBasis('paid')}
+            className={`px-2.5 py-1 rounded-md text-2xs font-medium transition-all ${
+              dateBasis === 'paid' ? 'bg-blue-600 text-white' : 'text-white/40 hover:text-white/70'
+            }`}
+            title='לפי מועד השלמת התשלום — תואם 1:1 את מסך "Live Order Tracking" באלי אקספרס'>
+            לפי תשלום
+          </button>
+          <button onClick={() => setDateBasis('order')}
+            className={`px-2.5 py-1 rounded-md text-2xs font-medium transition-all ${
+              dateBasis === 'order' ? 'bg-blue-600 text-white' : 'text-white/40 hover:text-white/70'
+            }`}
+            title="לפי מועד יצירת ההזמנה">
+            לפי הזמנה
+          </button>
+        </div>
       </div>
 
       {/* Table */}

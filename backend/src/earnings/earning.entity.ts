@@ -54,6 +54,11 @@ export class Earning {
   @Column()
   order_date: Date;
 
+  /** When the buyer's payment completed — the date basis the AliExpress portal's
+   *  "Completed Payments Time" filter uses, so counts here can match it 1:1. */
+  @Column({ type: 'timestamptz', nullable: true })
+  paid_date: Date | null;
+
   @Column({ nullable: true })
   settlement_date: Date;
 

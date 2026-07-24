@@ -557,7 +557,7 @@ export const earningsApi = {
   /** "What actually earns" — commissions by keyword/campaign + clicks. */
   attribution: () => http.get<AttributionSummary>('/earnings/attribution').then(extract),
 
-  list: (params?: { page?: number; limit?: number; status?: string; from?: string; to?: string }) =>
+  list: (params?: { page?: number; limit?: number; status?: string; from?: string; to?: string; date_basis?: 'order' | 'paid' }) =>
     http.get<PaginatedResponse<Earning> & {
       totals: { amount_usd: number; commission_usd: number; commission_ils: number; count: number };
     }>('/earnings', { params }).then(extract),
