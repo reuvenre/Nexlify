@@ -7,6 +7,7 @@ import { Post } from '../posts/post.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 import { User } from '../users/user.entity';
 import { MailService } from '../mail/mail.service';
+import { CredentialsService } from '../credentials/credentials.service';
 
 /**
  * 24/7 self-monitoring. Every 15 minutes the watchdog scans for anomalies that
@@ -35,6 +36,7 @@ export class WatchdogService {
     @InjectRepository(Campaign) private readonly campaigns: Repository<Campaign>,
     @InjectRepository(User) private readonly users: Repository<User>,
     private readonly mail: MailService,
+    private readonly credentials: CredentialsService,
   ) {}
 
   @Cron('0 */15 * * * *')
@@ -49,6 +51,7 @@ export class WatchdogService {
         this.reported.set(a.key, Date.now());
         this.logger.warn(`Watchdog: ${a.key} — ${a.title}`);
         await this.reportGithub(a).catch((err) => this.logger.warn(`watchdog github failed: ${err?.message}`));
+        await this.reportTelegram(a).catch((err) => this.logger.warn(`watchdog telegram failed: ${err?.message}`));
         await this.reportEmail(a).catch(() => {});
       }
     } catch (err: any) {
@@ -177,6 +180,37 @@ export class WatchdogService {
       },
       { headers, timeout: 15000 },
     );
+  }
+
+  /**
+   * Instant Telegram DM to the owner's personal chat, sent with the admin's own
+   * bot (the one already posting to the groups). Needs WATCHDOG_TELEGRAM_CHAT_ID
+   * (the owner's numeric Telegram ID — from @userinfobot) and the owner having
+   * opened a private chat with the bot (/start) so it is allowed to DM them.
+   * WATCHDOG_TELEGRAM_BOT_TOKEN overrides the bot when set.
+   */
+  private async reportTelegram(a: { title: string; body: string }): Promise<void> {
+    const chatId = process.env.WATCHDOG_TELEGRAM_CHAT_ID;
+    if (!chatId) return;
+    let token = process.env.WATCHDOG_TELEGRAM_BOT_TOKEN || null;
+    if (!token) {
+      const admins = await this.users.find({ where: { role: 'admin' } });
+      for (const admin of admins) {
+        token = await this.credentials.getTelegramToken(admin.id).catch(() => null);
+        if (token) break;
+      }
+    }
+    if (!token) return;
+    const text = [
+      `⚠️ Nexlify Watchdog זיהה תקלה:`,
+      ``,
+      `${a.title}`,
+      ``,
+      `נפתח Issue אוטומטי ב-GitHub — Claude יטפל בבדיקה הקרובה (כל 4 שעות) ויעדכן בשיחה.`,
+    ].join('\n');
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId, text,
+    }, { timeout: 12000 });
   }
 
   /** Email every admin (best effort — needs working SMTP). */
