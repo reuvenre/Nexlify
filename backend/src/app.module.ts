@@ -30,6 +30,7 @@ import { AmazonModule } from './amazon/amazon.module';
 import { PinterestModule } from './pinterest/pinterest.module';
 import { LinksModule } from './links/links.module';
 import { PromotionsModule } from './promotions/promotions.module';
+import { WatchdogModule } from './watchdog/watchdog.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -96,6 +97,7 @@ import { HealthController } from './health.controller';
     PinterestModule,
     LinksModule,
     PromotionsModule,
+    WatchdogModule,
   ],
   controllers: [HealthController],
 })
