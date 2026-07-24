@@ -69,7 +69,17 @@ export default function OrdersPage() {
     setSyncing(true); setError(''); setSyncMsg('');
     try {
       const r = await earningsApi.sync();
-      setSyncMsg(`✓ ${r.synced} הזמנות חדשות · ${r.updated} עודכנו`);
+      // Full per-status diagnostics — "the portal shows 84 and here there are fewer"
+      // is only debuggable when each pass reports what it found (or how it failed).
+      const HE: Record<string, string> = {
+        'Payment Completed': 'שולם',
+        'Buyer Confirmed Goods Receipt': 'התקבל אצל הקונה',
+        'Completed Settlement': 'הוסדר (עמלה אושרה)',
+        Invalid: 'בוטל/נפסל',
+      };
+      const parts = Object.entries(r.by_status || {}).map(([api, d]: [string, any]) =>
+        d?.error ? `${HE[api] || api}: ⚠️ ${d.error}` : `${HE[api] || api}: ${d?.found ?? 0}`);
+      setSyncMsg(`✓ ${r.synced} הזמנות חדשות · ${r.updated} עודכנו${parts.length ? ` · נמצאו — ${parts.join(' · ')}` : ''}`);
       load(1);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'הסנכרון נכשל — בדוק את פרטי ה-AliExpress בהגדרות');

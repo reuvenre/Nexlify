@@ -38,10 +38,24 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Per-status outcome of one sync, returned to the UI so an empty 'settled' is explainable. */
 type StatusDiag = { found: number; new: number; updated: number; error?: string };
 
-/** The API wants 'yyyy-MM-dd HH:mm:ss' (date-only returns code 407 invalid-pattern). */
+/**
+ * The API wants 'yyyy-MM-dd HH:mm:ss' (date-only returns code 407 invalid-pattern) —
+ * in AliExpress PLATFORM time (GMT+8). The server runs UTC, so formatting local parts
+ * put every window 8 hours in the past: orders paid in the last ~8h fell outside
+ * end_time on every sync and looked "missing" next to the portal's live count.
+ */
 function apiTime(d: Date): string {
+  const t = new Date(d.getTime() + 8 * 3600_000);
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
+}
+
+/** Parse an API timestamp ('yyyy-MM-dd HH:mm:ss', GMT+8) to a real Date. Plain
+ *  `new Date(s)` read it as server-local (UTC) and stored every order 8h late. */
+function parseAliTime(s: string | null | undefined): Date | null {
+  if (!s) return null;
+  const d = new Date(`${String(s).trim().replace(' ', 'T')}+08:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 @Injectable()
@@ -412,7 +426,7 @@ export class EarningsService {
               const orderKey = String(order.sub_order_id || order.order_id);
               const commissionUsd = +(((parseFloat(order.estimated_finished_commission) || parseFloat(order.estimated_paid_commission) || 0) / 100)).toFixed(2);
               const amountUsd = +(((parseFloat(order.finished_amount) || parseFloat(order.paid_amount) || 0) / 100)).toFixed(2);
-              const settleAt = order.completed_settlement_time ? new Date(order.completed_settlement_time) : null;
+              const settleAt = parseAliTime(order.completed_settlement_time);
 
               const exists = await this.repo.findOne({ where: { order_id: orderKey, user_id: userId } });
               if (exists) {
@@ -438,7 +452,7 @@ export class EarningsService {
                 commission_usd: commissionUsd,
                 commission_ils: +(commissionUsd * rate).toFixed(2),
                 status: st.local,
-                order_date: order.created_time ? new Date(order.created_time) : new Date(),
+                order_date: parseAliTime(order.created_time) || new Date(),
                 settlement_date: settleAt,
               });
               try {
