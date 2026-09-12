@@ -53,6 +53,21 @@ export const metadata: Metadata = {
     icon: '/icon-192.png',
     apple: '/apple-touch-icon.png',
   },
+  // Pinterest domain verification.
+  //
+  // A pin whose destination is an UNCLAIMED domain is the weakest possible signal to
+  // Pinterest's index — and an affiliate redirect (s.click.aliexpress.com) is a domain we
+  // could never claim, on top of having no page for them to read. 50 pins drew 23
+  // impressions in 30 days and none of them appeared in search for their own exact title:
+  // created, public, and never indexed.
+  //
+  // Claiming THIS host is the prerequisite for pointing pins at the storefront instead.
+  // The value comes from Pinterest (Settings → Claim → Add HTML tag) and is a public
+  // verification token, not a secret — it lives in the environment only so claiming a
+  // domain never needs a code change.
+  ...(process.env.NEXT_PUBLIC_PINTEREST_DOMAIN_VERIFY
+    ? { other: { 'p:domain_verify': process.env.NEXT_PUBLIC_PINTEREST_DOMAIN_VERIFY } }
+    : {}),
 };
 
 export const viewport: Viewport = {
