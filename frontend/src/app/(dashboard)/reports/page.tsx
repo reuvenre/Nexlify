@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   BarChart3, TrendingUp, TrendingDown, Loader2,
-  DollarSign, FileText, Award, Calendar, RefreshCw,
+  DollarSign, FileText, Award, Calendar, RefreshCw, ExternalLink,
 } from 'lucide-react';
 import { earningsApi, postsApi, pinterestApi, statsApi, type PinterestAnalytics, type AttributionSummary } from '@/lib/api-client';
 import type { EarningsSummary } from '@/types';
@@ -498,7 +498,20 @@ function PinterestPanel() {
           </p>
           <div className="space-y-2">
             {(showAll ? data.pins : data.pins.slice(0, 8)).map((p) => (
-              <div key={p.pin_id} className="flex items-center gap-3 py-2 px-3 bg-white/3 rounded-lg">
+              // The pin's CANONICAL address, not a pin.it share shortcut. Diagnosing a pin
+              // that gets no distribution starts with opening it as a stranger would, and
+              // that address appears nowhere in the Pinterest app — the share button hands
+              // out a pin.it link instead, which expires and answers a different question.
+              // The id is already ours (posts.pinterest_post_id); linking it turns a
+              // ten-minute hunt into one click.
+              <a
+                key={p.pin_id}
+                href={`https://www.pinterest.com/pin/${p.pin_id}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="פתח את הפין בפינטרסט"
+                className="flex items-center gap-3 py-2 px-3 bg-white/3 hover:bg-white/8 rounded-lg transition-colors"
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {p.image && <img src={p.image} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />}
                 <div className="flex-1 min-w-0">
@@ -511,7 +524,8 @@ function PinterestPanel() {
                   <p className="text-sm font-bold text-emerald-400">{p.outbound_clicks}</p>
                   <p className="text-2xs text-white/30">קליקים</p>
                 </div>
-              </div>
+                <ExternalLink size={12} className="text-white/20 shrink-0" />
+              </a>
             ))}
           </div>
           {data.pins.length > 8 && (
