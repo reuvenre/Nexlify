@@ -17,6 +17,26 @@ const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-T2ZQPV5QCT';
 /** The company behind the product — surfaced in metadata, schema.org and the UI. */
 const VENDOR = { name: 'Win Solutions', url: 'https://win-solutions.co.il' };
 
+/**
+ * The Pinterest verification token, however it was pasted.
+ *
+ * Pinterest's claim dialog offers a copy button, and that button copies the WHOLE tag —
+ * `<meta name="p:domain_verify" content="abc123">` — not the token. Pasting that into the
+ * environment variable emitted a tag whose content was the entire line, and Pinterest
+ * answered "we found a different verification code than expected": the one failure message
+ * that reads like the token is wrong when the token is fine and only its wrapping is not.
+ *
+ * So accept what the copy button actually produces. A bare token passes through untouched;
+ * a full tag is unwrapped; stray quotes and whitespace are trimmed either way.
+ */
+function pinterestVerifyToken(): string | null {
+  const raw = (process.env.NEXT_PUBLIC_PINTEREST_DOMAIN_VERIFY || '').trim();
+  if (!raw) return null;
+  const fromTag = raw.match(/content\s*=\s*["']?([^"'>\s]+)/i)?.[1];
+  const token = (fromTag || raw).replace(/^["']|["']$/g, '').trim();
+  return token || null;
+}
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
@@ -65,8 +85,8 @@ export const metadata: Metadata = {
   // The value comes from Pinterest (Settings → Claim → Add HTML tag) and is a public
   // verification token, not a secret — it lives in the environment only so claiming a
   // domain never needs a code change.
-  ...(process.env.NEXT_PUBLIC_PINTEREST_DOMAIN_VERIFY
-    ? { other: { 'p:domain_verify': process.env.NEXT_PUBLIC_PINTEREST_DOMAIN_VERIFY } }
+  ...(pinterestVerifyToken()
+    ? { other: { 'p:domain_verify': pinterestVerifyToken() as string } }
     : {}),
 };
 
