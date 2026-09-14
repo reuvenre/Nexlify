@@ -1,4 +1,6 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,6 +14,7 @@ import { MailService } from '../mail/mail.service';
 import { SecurityService } from '../security/security.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { ChannelsService } from '../channels/channels.service';
+import { cacheGet, cacheSet } from '../common/safe-cache';
 import { formatTelegramAlert } from './alert-format';
 import {
   CLICK_FILTER_DEPLOYED_AT, CtrRegression, MIN_BASELINE_CLICKS, MIN_DROP_PERCENT,
@@ -24,7 +27,10 @@ import { driftVerdict } from './drift-verdict';
 import { countRecentFailedRuns } from '../campaigns/run-failure-log';
 import { isTierBlockError } from '../pinterest/pinterest-scopes';
 import { feasibleCadenceMin } from './cadence-feasible';
-import { forgetOldPartials, unreportedPartials } from './partial-alerts';
+import {
+  PARTIALS_CACHE_KEY, PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials,
+  serializePartials, unreportedPartials,
+} from './partial-alerts';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
  *  Three weeks of baseline absorbs a single odd week; one week of "recent" still reacts fast. */
@@ -74,9 +80,9 @@ export class WatchdogService implements OnModuleInit {
   private running = false;
   /** anomaly key → last-reported ms; suppresses repeats for THROTTLE_MS. */
   private readonly reported = new Map<string, number>();
-  /** post id → reported-at ms, for the one-off failures the key throttle cannot hold
-   *  (see partial-alerts.ts). */
-  private readonly partialsReported = new Map<string, number>();
+  /** post id → reported-at ms, for the one-off failures the key throttle cannot hold.
+   *  Mirrors the cache (see partial-alerts.ts) so it survives a deploy. */
+  private partialsReported = new Map<string, number>();
   private static readonly THROTTLE_MS = 6 * 60 * 60 * 1000;
 
   constructor(
@@ -87,6 +93,7 @@ export class WatchdogService implements OnModuleInit {
     private readonly credentials: CredentialsService,
     private readonly security: SecurityService,
     private readonly channels: ChannelsService,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
   @Cron('0 */15 * * * *')
@@ -94,18 +101,34 @@ export class WatchdogService implements OnModuleInit {
     if (this.running) return;
     this.running = true;
     try {
+      // Restore what earlier processes already reported, BEFORE the scan reads the memory.
+      // A dead cache yields an empty one: a duplicate alert is a far better failure than a
+      // watchdog that stops watching.
+      this.partialsReported = deserializePartials(
+        await cacheGet<Record<string, number>>(this.cache, PARTIALS_CACHE_KEY), Date.now(),
+      );
+
       const anomalies = await this.scan();
+      let remembered = false;
       for (const a of anomalies) {
         const last = this.reported.get(a.key) || 0;
         if (Date.now() - last < WatchdogService.THROTTLE_MS) continue;
         this.reported.set(a.key, Date.now());
         // Remembered HERE, not when the alert was composed: one dropped by the throttle
         // above must stay reportable on a later tick.
-        for (const id of a.postIds || []) this.partialsReported.set(id, Date.now());
+        for (const id of a.postIds || []) { this.partialsReported.set(id, Date.now()); remembered = true; }
         this.logger.warn(`Watchdog: ${a.key} — ${a.title}`);
         await this.reportGithub(a).catch((err) => this.logger.warn(`watchdog github failed: ${err?.message}`));
         await this.reportTelegram(a).catch((err) => this.logger.warn(`watchdog telegram failed: ${err?.message}`));
         await this.reportEmail(a).catch(() => {});
+      }
+      // Persist only when something new went out — and only AFTER it did, so a crash mid-report
+      // leaves the post reportable rather than silently forgotten.
+      if (remembered) {
+        await cacheSet(
+          this.cache, PARTIALS_CACHE_KEY,
+          serializePartials(this.partialsReported), PARTIAL_MEMORY_MS,
+        );
       }
       // Close the loop the other way: tell the owner on Telegram when a fault was RESOLVED
       // (a '[watchdog]' issue Claude fixed and closed), not just when one was detected.

@@ -14,11 +14,43 @@
  * naming a post already fixed and closed.
  *
  * So the memory is kept per POST, not per key: a post is reported once, and never again.
+ *
+ * "Never again" has to outlive the PROCESS to mean anything. Held only in a field, the memory
+ * died with every deploy, and the next tick re-reported every post still inside the 6h window
+ * as though it were new — watchdog #74 re-raised two posts whose issues had been fixed and
+ * closed that same hour, during an incident, which reads as "the fix didn't work". On a day
+ * with deploys, in-process memory is no memory at all. Hence the cache round-trip below.
  */
 
 /** How long a reported post id is remembered. Comfortably longer than the 6h scan window,
  *  so an id is forgotten only once it can no longer be found by the query at all. */
 export const PARTIAL_MEMORY_MS = 24 * 60 * 60 * 1000;
+
+/** Where the memory lives between processes. One key holding the whole map: it is bounded by
+ *  one day of partial failures, so a single read beats a round trip per post id. */
+export const PARTIALS_CACHE_KEY = 'watchdog:partials_reported';
+
+/** The memory, for storing. A plain object so it survives JSON in any cache backend. */
+export function serializePartials(reported: ReadonlyMap<string, number>): Record<string, number> {
+  return Object.fromEntries(reported);
+}
+
+/**
+ * The memory, restored — pruned to the window on the way in, so a restart cannot resurrect
+ * ids the running process would already have forgotten.
+ *
+ * Anything unreadable (a dead cache, a shape from an older version) yields an EMPTY memory,
+ * never a throw: the cost of forgetting is a duplicate alert, and the cost of throwing here
+ * is a watchdog that stops watching.
+ */
+export function deserializePartials(raw: unknown, now: number): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [id, at] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof at === 'number' && Number.isFinite(at) && now - at <= PARTIAL_MEMORY_MS) out.set(id, at);
+  }
+  return out;
+}
 
 /** Drop ids that have aged past the scan window, so the memory of a long-lived process
  *  stays bounded by the traffic of one day rather than growing forever. */
