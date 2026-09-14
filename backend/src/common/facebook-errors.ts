@@ -128,13 +128,19 @@ export function metaGraphError(payload: any): Error & { error?: any } {
   return err;
 }
 
-export function facebookError(err: any, platform: MetaPlatform = 'facebook'): FacebookErrorInfo {
+export function facebookError(err: any, platform: MetaPlatform = 'facebook', pageId?: string | null): FacebookErrorInfo {
   const e = graphPayload(err);
   const code: number | null = typeof e?.code === 'number' ? e.code : null;
   const subcode: number | null = typeof e?.error_subcode === 'number' ? e.error_subcode : null;
   const raw = e?.message || err?.response?.data?.message || err?.message || 'שגיאה לא ידועה';
 
-  const act = (message: string): FacebookErrorInfo => ({ code, message, needsUserAction: true });
+  // WHICH page. Every message below that ends in "go re-issue a token" is useless without
+  // it on an account that publishes to several pages: the owner is told exactly what to do
+  // and not where to do it, and a page id is the one identifier both this system and the
+  // Meta UI share. Only attached where the owner has to act — a transient blip needs no
+  // address. The send path knows it; it simply was not passing it.
+  const at = String(pageId || '').trim() ? ` (דף ${String(pageId).trim()})` : '';
+  const act = (message: string): FacebookErrorInfo => ({ code, message: `${message}${at}`, needsUserAction: true });
 
   // A timeout is not a Graph error and carries no code, but it is the most common failure
   // when a post attaches a link: Graph fetches that URL to build the preview before it
@@ -258,8 +264,8 @@ export function facebookError(err: any, platform: MetaPlatform = 'facebook'): Fa
 export const NET_SAFE_TAG = '[net]';
 
 /** One-line form for a post's error_message / the errors list shown in the UI. */
-export function facebookErrorText(err: any, platform: MetaPlatform = 'facebook'): string {
-  const { code, message } = facebookError(err, platform);
+export function facebookErrorText(err: any, platform: MetaPlatform = 'facebook', pageId?: string | null): string {
+  const { code, message } = facebookError(err, platform, pageId);
   const text = code ? `(#${code}) ${message}` : message;
   // The tag is the auto-retry's only input: a connect-phase failure published nothing, so
   // re-sending it cannot duplicate. Everything else is left for the owner to read.

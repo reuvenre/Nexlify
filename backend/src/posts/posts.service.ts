@@ -3864,7 +3864,7 @@ export class PostsService {
         if ((failed('Facebook') && !wantMake)) {
           const token = await this.resolveFacebookPageToken(userId, target, creds);
           tasks.push(this.sendToFacebook(post, creds, body, pageId, token)
-            .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err)}`); }));
+            .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId)}`); }));
         }
         if (failed('Make') || (failed('Facebook') && wantMake)) {
           tasks.push(this.sendToMakeWebhook(post, creds, body, pageId)
@@ -4379,7 +4379,7 @@ export class PostsService {
           tasks.push(
             this.sendToFacebook(post, creds, body, pageId, ownToken)
               .then(() => { anySuccess = true; markSent(); })
-              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err)}`); }),
+              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId)}`); }),
           );
         } else if (makeRelay) {
           tasks.push(
@@ -4392,7 +4392,7 @@ export class PostsService {
           tasks.push(
             this.sendToFacebook(post, creds, body, pageId, token)
               .then(() => { anySuccess = true; markSent(); })
-              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err)}`); }),
+              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId)}`); }),
           );
         }
       }

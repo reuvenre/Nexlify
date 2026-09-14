@@ -143,6 +143,43 @@ describe('#100 — Graph\'s generic "invalid parameter"', () => {
   });
 });
 
+/**
+ * Watchdog #72: "Facebook: (#200) אין הרשאת פרסום לדף. נדרש Page Access Token…" — a perfect
+ * instruction with no address. On an account publishing to several pages it says exactly
+ * what to do and not where, and the send path knew the page id all along.
+ */
+describe('naming the page the owner has to go fix', () => {
+  const PAGE = '1015551234567';
+
+  it('names the page on a failure only the owner can clear', () => {
+    const info = facebookError(graph(200, 'permissions essay'), 'facebook', PAGE);
+    expect(info.needsUserAction).toBe(true);
+    expect(info.message).toContain(PAGE);
+  });
+
+  it('names it for an expired token too — the commonest "which page?" of all', () => {
+    expect(facebookError(graph(190, 'Session has expired'), 'facebook', PAGE).message).toContain(PAGE);
+  });
+
+  it('stays SILENT about the page on a transient blip', () => {
+    // #1/#2 need no address: nothing is broken and there is nowhere to go.
+    const info = facebookError(graph(2, 'unexpected error'), 'facebook', PAGE);
+    expect(info.needsUserAction).toBe(false);
+    expect(info.message).not.toContain(PAGE);
+  });
+
+  it('reads exactly as before when no page is passed', () => {
+    // Every existing caller and every stored message keeps its wording.
+    expect(facebookError(graph(200, 'x'), 'facebook'))
+      .toEqual(facebookError(graph(200, 'x'), 'facebook', ''));
+    expect(facebookError(graph(200, 'x'), 'facebook', '   ').message).not.toContain('(דף');
+  });
+
+  it('carries through to the one-line report', () => {
+    expect(facebookErrorText(graph(200, 'x'), 'facebook', PAGE)).toContain(PAGE);
+  });
+});
+
 describe('isTransientFacebookError', () => {
   const graphErr = (code: number, message: string) =>
     ({ response: { data: { error: { code, message } } } });
