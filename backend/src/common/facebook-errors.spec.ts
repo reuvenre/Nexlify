@@ -180,6 +180,71 @@ describe('naming the page the owner has to go fix', () => {
   });
 });
 
+/**
+ * Naming the page was half the address. The other half is WHICH SCREEN holds the token that
+ * just failed — and the two screens are not interchangeable: a group carrying its own Page
+ * token overrides the account-level one, so the send path never reads Settings → Integrations
+ * for that group. Watchdog #73 was a #190 landing while the owner was mid-way through pasting
+ * a fresh token, asking out loud which of the two fields it belonged in; the message he had in
+ * front of him named only Settings, which for a group token is the field nothing reads.
+ */
+describe('naming the screen that holds the failing token', () => {
+  const SETTINGS = 'הגדרות ← אינטגרציות';
+  const GROUPS = 'מסך קבוצות';
+  const expired = graph(190, 'Session has expired');
+
+  it('sends the owner to the GROUP when the group token is the one that failed', () => {
+    const msg = facebookError(expired, 'facebook', null, 'channel').message;
+    expect(msg).toContain(GROUPS);
+    expect(msg).not.toContain(SETTINGS);
+  });
+
+  it('sends the owner to SETTINGS when the account token is the one that failed', () => {
+    const msg = facebookError(expired, 'facebook', null, 'account').message;
+    expect(msg).toContain(SETTINGS);
+    expect(msg).not.toContain(GROUPS);
+  });
+
+  it('says the group token WINS, so re-pasting in Settings is not the fix', () => {
+    // Without this the owner updates Settings, retries, fails identically, and concludes the
+    // new token is bad — the loop that made #73 cost an hour.
+    expect(facebookError(expired, 'facebook', null, 'channel').message).toContain('גובר');
+  });
+
+  it('names BOTH screens in precedence order when the caller did not say', () => {
+    // A guess here is what produces a wrong address. Callers that cannot know (Instagram
+    // resolves its token deeper in the stack) get the honest answer instead.
+    const msg = facebookError(expired).message;
+    expect(msg).toContain(SETTINGS);
+    expect(msg).toContain('טוקן משלה');
+  });
+
+  it('addresses a missing PERMISSION the same way — #200 and #10 are one owner action', () => {
+    // #72 and #73 were the same question a day apart: the token is right, where does it go?
+    for (const code of [200, 10]) {
+      const msg = facebookError(graph(code, 'permissions essay'), 'facebook', null, 'channel').message;
+      expect(msg).toContain('pages_manage_posts');
+      expect(msg).toContain(GROUPS);
+    }
+  });
+
+  it('leaves the Instagram #10 message alone — it is not about a Page token at all', () => {
+    const msg = facebookError(graph(10, 'no permission'), 'instagram', null, 'account').message;
+    expect(msg).toContain('instagram_content_publish');
+    expect(msg).not.toContain(SETTINGS);
+  });
+
+  it('still says nothing about screens on a transient blip', () => {
+    const msg = facebookError(graph(2, 'unexpected error'), 'facebook', null, 'channel').message;
+    expect(msg).not.toContain(GROUPS);
+    expect(msg).not.toContain(SETTINGS);
+  });
+
+  it('carries through to the one-line report', () => {
+    expect(facebookErrorText(expired, 'facebook', null, 'channel')).toContain(GROUPS);
+  });
+});
+
 describe('isTransientFacebookError', () => {
   const graphErr = (code: number, message: string) =>
     ({ response: { data: { error: { code, message } } } });

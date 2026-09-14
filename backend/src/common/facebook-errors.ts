@@ -18,6 +18,17 @@ export interface FacebookErrorInfo {
 
 export type MetaPlatform = 'facebook' | 'instagram';
 
+/**
+ * WHICH of the two stored tokens the failed call used.
+ *
+ * A group carrying its own Page token OVERRIDES the account-level one — the send path reads
+ * the channel's token first and never looks at Settings → Integrations when it finds one. So
+ * a #190 on a group token that told the owner to go re-paste in Settings sent them to a
+ * screen whose value that send will not even read, and the next attempt failed identically.
+ * The send site has always known which token it picked; it simply was not saying.
+ */
+export type TokenSource = 'channel' | 'account';
+
 /** Codes that mean the request died at the wire — DNS/socket — before reaching Graph. */
 const CONNECTION_CODES = new Set([
   'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH',
@@ -128,7 +139,9 @@ export function metaGraphError(payload: any): Error & { error?: any } {
   return err;
 }
 
-export function facebookError(err: any, platform: MetaPlatform = 'facebook', pageId?: string | null): FacebookErrorInfo {
+export function facebookError(
+  err: any, platform: MetaPlatform = 'facebook', pageId?: string | null, tokenSource?: TokenSource,
+): FacebookErrorInfo {
   const e = graphPayload(err);
   const code: number | null = typeof e?.code === 'number' ? e.code : null;
   const subcode: number | null = typeof e?.error_subcode === 'number' ? e.error_subcode : null;
@@ -141,6 +154,20 @@ export function facebookError(err: any, platform: MetaPlatform = 'facebook', pag
   // address. The send path knows it; it simply was not passing it.
   const at = String(pageId || '').trim() ? ` (דף ${String(pageId).trim()})` : '';
   const act = (message: string): FacebookErrorInfo => ({ code, message: `${message}${at}`, needsUserAction: true });
+
+  // WHERE to put the new token — see {@link TokenSource}. When the caller doesn't say, name
+  // both screens in precedence order rather than guessing one: a wrong address is what makes
+  // the owner re-paste into a field nothing reads.
+  const tokenScreen = (): string => {
+    if (tokenSource === 'channel') return 'במסך קבוצות, אצל הקבוצה שנכשלה — הטוקן שלה גובר על זה שבהגדרות';
+    if (tokenSource === 'account') return 'בהגדרות ← אינטגרציות';
+    return 'בהגדרות ← אינטגרציות, ואם לקבוצה שנכשלה יש טוקן משלה — גם שם, כי הוא גובר';
+  };
+
+  /** #10 and #200 are the same owner action with two Graph codes — one sentence, one place. */
+  const noPublishPermission = (): string =>
+    'אין הרשאת פרסום לדף. נדרש Page Access Token (לא טוקן משתמש) של אדמין הדף, '
+    + `עם ההרשאות pages_manage_posts ו-pages_read_engagement, ויש להדביק אותו ${tokenScreen()}.`;
 
   // A timeout is not a Graph error and carries no code, but it is the most common failure
   // when a post attaches a link: Graph fetches that URL to build the preview before it
@@ -190,13 +217,9 @@ export function facebookError(err: any, platform: MetaPlatform = 'facebook', pag
       return act(platform === 'instagram'
         ? 'חסרה ההרשאה instagram_content_publish. במסך האישור של פייסבוק יש לאשר פרסום תוכן באינסטגרם — '
           + 'ההרשאה instagram_manage_events אינה מספיקה לפרסום.'
-        : 'אין הרשאת פרסום לדף. נדרש Page Access Token (לא טוקן משתמש) של אדמין הדף, '
-          + 'עם ההרשאות pages_manage_posts ו-pages_read_engagement.');
+        : noPublishPermission());
     case 200:
-      return act(
-        'אין הרשאת פרסום לדף. נדרש Page Access Token (לא טוקן משתמש) של אדמין הדף, '
-        + 'עם ההרשאות pages_manage_posts ו-pages_read_engagement.',
-      );
+      return act(noPublishPermission());
     case 190:
       // #190 covers four different owner actions, and the generic "renew the token" wording
       // sent the account owner to re-paste a token from a session Facebook had already killed
@@ -221,7 +244,7 @@ export function facebookError(err: any, platform: MetaPlatform = 'facebook', pag
           + 'ממשתמש עם הרשאת אדמין על הדף.',
         );
       }
-      return act('טוקן הפייסבוק פג תוקף או בוטל. יש לחדש אותו בהגדרות ← אינטגרציות.');
+      return act(`טוקן הפייסבוק פג תוקף או בוטל. יש לחדש אותו ${tokenScreen()}.`);
     case 100:
     case 803: {
       // #100 is Graph's GENERIC "invalid parameter" — a wrong Page ID is only its most
@@ -264,8 +287,10 @@ export function facebookError(err: any, platform: MetaPlatform = 'facebook', pag
 export const NET_SAFE_TAG = '[net]';
 
 /** One-line form for a post's error_message / the errors list shown in the UI. */
-export function facebookErrorText(err: any, platform: MetaPlatform = 'facebook', pageId?: string | null): string {
-  const { code, message } = facebookError(err, platform, pageId);
+export function facebookErrorText(
+  err: any, platform: MetaPlatform = 'facebook', pageId?: string | null, tokenSource?: TokenSource,
+): string {
+  const { code, message } = facebookError(err, platform, pageId, tokenSource);
   const text = code ? `(#${code}) ${message}` : message;
   // The tag is the auto-retry's only input: a connect-phase failure published nothing, so
   // re-sending it cannot duplicate. Everything else is left for the owner to read.

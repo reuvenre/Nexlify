@@ -70,7 +70,7 @@ import { normalizeTelegramChatId } from '../common/crypto';
 import { assertSafeOutboundUrl } from '../common/ssrf';
 import {
   facebookErrorText, isTransientFacebookError, isMetaConnectionError, isMetaTimeoutError,
-  metaGraphError,
+  metaGraphError, type TokenSource,
 } from '../common/facebook-errors';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
@@ -3862,9 +3862,9 @@ export class PostsService {
         const body = await this.buildPostBody(post, creds, target, 'facebook');
         const label = await this.targetLabel(userId, target, multi && pages.size > 1);
         if ((failed('Facebook') && !wantMake)) {
-          const token = await this.resolveFacebookPageToken(userId, target, creds);
+          const { token, source } = await this.resolveFacebookPageToken(userId, target, creds);
           tasks.push(this.sendToFacebook(post, creds, body, pageId, token)
-            .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId)}`); }));
+            .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId, source)}`); }));
         }
         if (failed('Make') || (failed('Facebook') && wantMake)) {
           tasks.push(this.sendToMakeWebhook(post, creds, body, pageId)
@@ -3957,13 +3957,16 @@ export class PostsService {
         for (const [pageId, target] of pages) {
           const body = await this.buildPostBody(post, creds, target, 'facebook');
           const label = await this.targetLabel(userId, target, multi && pages.size > 1);
+          const fb = wantMake ? null : await this.resolveFacebookPageToken(userId, target, creds);
           try {
             if (wantMake) await this.sendToMakeWebhook(post, creds, body, pageId);
-            else await this.sendToFacebook(post, creds, body, pageId, await this.resolveFacebookPageToken(userId, target, creds));
+            else await this.sendToFacebook(post, creds, body, pageId, fb!.token);
             anySuccess = true;
             markDelivered(target);
           } catch (err: any) {
-            errors.push(`${wantMake ? 'Make' : 'Facebook'}: ${label}${wantMake ? (err?.response?.data?.message || err?.message) : facebookErrorText(err)}`);
+            errors.push(`${wantMake ? 'Make' : 'Facebook'}: ${label}${wantMake
+              ? (err?.response?.data?.message || err?.message)
+              : facebookErrorText(err, 'facebook', pageId, fb!.source)}`);
           }
         }
       })());
@@ -4379,7 +4382,7 @@ export class PostsService {
           tasks.push(
             this.sendToFacebook(post, creds, body, pageId, ownToken)
               .then(() => { anySuccess = true; markSent(); })
-              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId)}`); }),
+              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId, 'channel')}`); }),
           );
         } else if (makeRelay) {
           tasks.push(
@@ -4392,7 +4395,7 @@ export class PostsService {
           tasks.push(
             this.sendToFacebook(post, creds, body, pageId, token)
               .then(() => { anySuccess = true; markSent(); })
-              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId)}`); }),
+              .catch((err: any) => { errors.push(`Facebook: ${label}${facebookErrorText(err, 'facebook', pageId, 'account')}`); }),
           );
         }
       }
@@ -4982,13 +4985,20 @@ export class PostsService {
    * The Page Access Token to publish with: the target group's OWN token when it has one
    * (a Page token is page-specific), otherwise the account's global token. This is what lets
    * two groups on DIFFERENT Facebook pages each publish with their own token.
+   *
+   * It returns WHICH of the two it picked alongside the token, because a token error has to
+   * name the screen that actually holds the failing value — and this method is the only place
+   * that knows. Callers used to receive the string alone and then tell the owner to go fix
+   * "הגדרות ← אינטגרציות" even when the group's own token was the one Facebook rejected.
    */
-  private async resolveFacebookPageToken(userId: string, channelOverride: string | undefined, creds: DecryptedCredentials): Promise<string> {
+  private async resolveFacebookPageToken(
+    userId: string, channelOverride: string | undefined, creds: DecryptedCredentials,
+  ): Promise<{ token: string; source: TokenSource }> {
     if (channelOverride) {
       const tok = await this.channels.getFacebookPageToken(userId, channelOverride);
-      if (tok) return tok;
+      if (tok) return { token: tok, source: 'channel' };
     }
-    return creds?.facebook_page_token || '';
+    return { token: creds?.facebook_page_token || '', source: 'account' };
   }
 
   /** Publishes the post to a specific Facebook Page feed with the given token. Throws on failure. */
