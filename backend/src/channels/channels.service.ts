@@ -7,6 +7,7 @@ import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { encrypt, decrypt, mask, normalizeTelegramChatId } from '../common/crypto';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { CredentialsService, GRAPH_VERSION } from '../credentials/credentials.service';
+import { verifyFacebookPage } from '../common/meta-token';
 import { facebookErrorText } from '../common/facebook-errors';
 import { classifyChannelChats, ChannelSupport } from './whatsapp-channel-support';
 import { describeGreenSendResult, GreenSendResult } from './green-send-result';
@@ -195,9 +196,10 @@ export class ChannelsService {
   /**
    * Verify the Facebook Page configured for THIS channel — the per-channel page override,
    * falling back to the account's default page. Non-destructive: it reads the page with the
-   * saved Page token and checks PUBLISH capability (the `tasks` list), so a token that can
-   * only READ the page is reported as not-publishable instead of a false "OK". Mirrors the
-   * Settings → Integrations check, but for the channel's own page (which that check ignores).
+   * saved Page token and checks PUBLISH capability, so a token that can only READ the page is
+   * reported as not-publishable instead of a false "OK". Shares that check with the
+   * Settings → Integrations one (verifyFacebookPage) and differs only in the remedy it offers:
+   * here a user token can be converted in place, because there is a channel row to save it to.
    */
   async testFacebook(userId: string, id: string) {
     const channel = await this.findOwned(userId, id);
@@ -213,17 +215,13 @@ export class ChannelsService {
       return { ok: false, error: 'לא הוגדר Page Access Token בהגדרות ← אינטגרציות.' };
     }
     try {
-      // Only request `name`: it's valid for BOTH a user token and a PAGE token. Asking for
-      // `tasks` here broke the test for the (correct!) page tokens returned by /me/accounts —
-      // `tasks` is not a field on the page node when queried with a page token (#100
-      // "nonexisting field (tasks)"). Reaching the page by name is enough to confirm the
-      // token covers it; publish permission is validated by the actual publish call.
-      const res = await axios.get(
-        `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}`,
-        { params: { fields: 'name', access_token: token }, timeout: 6000, validateStatus: () => true },
-      );
-      if (res.data?.error) {
-        const msg = res.data.error.message || 'unknown error';
+      // The read + publish-capability check is shared with Settings → Integrations — see
+      // verifyFacebookPage, including why it must not ask Graph for `tasks`. Only the REMEDY
+      // differs between the two screens, and that is what the branches below are.
+      const verdict = await verifyFacebookPage(pageId, token);
+
+      if (verdict.problem === 'graph') {
+        const msg = verdict.graphError?.message || 'unknown error';
         // Object not found / wrong node type: usually the saved Page ID is stale, or is the
         // profile.php number from the URL, or an Instagram id pasted into the wrong field.
         if (/nonexisting|does not exist|Unsupported|cannot be loaded/i.test(msg)) {
@@ -242,19 +240,15 @@ export class ChannelsService {
         }
         // Anything else: reuse the publish path's Hebrew mapping instead of echoing Graph's
         // English paragraph. The owner reads this button's answer far more often than a failed
-        // post's error, so it must say the same actionable sentence.
-        return { ok: false, error: facebookErrorText({ error: res.data.error }) };
+        // post's error, so it must say the same actionable sentence. This channel's own token
+        // is the one under test, so the message names the group's screen, not Settings.
+        return {
+          ok: false,
+          error: facebookErrorText({ error: verdict.graphError }, 'facebook', pageId, ownToken ? 'channel' : 'account'),
+        };
       }
-      const pageName = res.data?.name || pageId;
 
-      // Reaching the page by name proves the token covers it, but NOT that it may publish —
-      // that gap is why a channel could test green and then fail every post with #200.
-      // debug_token (a token can debug itself) exposes the type and granted scopes, so the
-      // misconfiguration surfaces here instead of in the owner's failed-post list.
-      const info = await this.tokenInfo(token);
-      if (!info) return { ok: true, page_name: pageName }; // lookup down — publish stays the authority
-
-      if (info.type === 'USER') {
+      if (verdict.problem === 'user-token') {
         // Self-heal rather than send the owner back to Graph Explorer. A user token that can
         // already read the page can also read that page's OWN token from the page node, and
         // that works even when /me/accounts comes back empty — which is what happens when the
@@ -264,52 +258,29 @@ export class ChannelsService {
           await this.repo.update(channel.id, { facebook_page_token_enc: encrypt(derived) });
           return {
             ok: true,
-            page_name: pageName,
+            page_name: verdict.pageName,
             note: 'נשמר טוקן משתמש — הומר אוטומטית ל-Page Access Token של הדף. הפרסום אמור לעבוד כעת.',
           };
         }
         return {
           ok: false,
-          page_name: pageName,
+          page_name: verdict.pageName,
           error: 'זהו טוקן משתמש (User Token) ולא Page Access Token, ולא הצלחנו להמיר אותו אוטומטית. '
             + 'ודא שבמסך האישור של פייסבוק סומן הדף הזה ואושרה ההרשאה "Create and manage content on your Page".',
         };
       }
 
-      const missing = ['pages_manage_posts', 'pages_read_engagement'].filter((s) => !info.scopes.includes(s));
-      if (missing.length) {
+      if (verdict.problem === 'scopes') {
         return {
           ok: false,
-          page_name: pageName,
-          error: `לטוקן חסרות ההרשאות: ${missing.join(', ')}. יש להפיק מחדש Page Access Token של אדמין הדף עם ההרשאות האלה.`,
+          page_name: verdict.pageName,
+          error: `לטוקן חסרות ההרשאות: ${verdict.missing.join(', ')}. יש להפיק מחדש Page Access Token של אדמין הדף עם ההרשאות האלה.`,
         };
       }
 
-      return { ok: true, page_name: pageName };
+      return { ok: true, page_name: verdict.pageName };
     } catch (err: any) {
       return { ok: false, error: err?.response?.data?.error?.message || err?.message || 'הבדיקה נכשלה.' };
-    }
-  }
-
-  /**
-   * What a token actually is, per Graph debug_token (a token can debug itself).
-   *
-   * Returns null when the lookup fails or answers in an unexpected shape — callers treat
-   * that as "no opinion" and let the real publish call decide. A connectivity blip must
-   * never tell the owner their working setup is broken.
-   */
-  private async tokenInfo(token: string): Promise<{ type: string; scopes: string[] } | null> {
-    try {
-      const res = await axios.get(`https://graph.facebook.com/${GRAPH_VERSION}/debug_token`, {
-        params: { input_token: token, access_token: token },
-        timeout: 6000,
-        validateStatus: () => true,
-      });
-      const data = res.data?.data;
-      if (!data || !Array.isArray(data.scopes)) return null;
-      return { type: String(data.type || '').toUpperCase(), scopes: data.scopes as string[] };
-    } catch {
-      return null;
     }
   }
 

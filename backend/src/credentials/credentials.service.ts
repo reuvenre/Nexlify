@@ -5,7 +5,9 @@ import { IsNull, Not, Repository } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { CredentialSet } from './credential-set.entity';
 import { Channel } from '../channels/channel.entity';
-import { daysUntil, resolveMetaTokenExpiry, tokenNeedsWarning } from '../common/meta-token';
+import {
+  daysUntil, resolveMetaTokenExpiry, tokenNeedsWarning, verifyFacebookPage,
+} from '../common/meta-token';
 import { CredentialSetDto } from './dto/credential-set.dto';
 import { encrypt, decrypt, mask } from '../common/crypto';
 import { verifyState } from '../pinterest/pinterest-oauth';
@@ -504,33 +506,28 @@ export class CredentialsService {
       }
     } catch (err: any) { errors.anthropic = apiErrorMessage(err); }
 
-    // Verify Facebook page token — check PUBLISH capability, not just readability.
-    // A plain user token (or a token missing pages_manage_posts) can read the page
-    // name but CANNOT POST to /{page}/feed, so a name-only check gives a false "OK".
-    // Asking for `tasks` reveals whether the token may create content on the page,
-    // and — if the id is a personal profile, not a Page — Graph errors on `tasks`,
-    // which is exactly the misconfiguration we want to surface.
+    // Verify the Facebook page token — readability AND publish capability, because a plain
+    // user token can read the page name but cannot POST to /{page}/feed, and a name-only
+    // check would give a false "OK". See verifyFacebookPage for why the check does NOT ask
+    // for `tasks`: that field is absent for a PAGE token, so the old check failed the exact
+    // token it then told the owner to go and produce.
     try {
       const token = decrypt(cred.facebook_page_token_enc);
       if (token && cred.facebook_page_id) {
-        const res = await axios.get(
-          `https://graph.facebook.com/${GRAPH_VERSION}/${cred.facebook_page_id}?fields=name,tasks&access_token=${token}`,
-          { timeout: 6000, validateStatus: () => true },
-        );
-        if (res.data?.error) {
-          results.facebook = false;
-          const msg = res.data.error.message || 'unknown error';
+        const verdict = await verifyFacebookPage(cred.facebook_page_id, token);
+        results.facebook = verdict.problem === 'ok';
+        if (verdict.problem === 'graph') {
+          const msg = verdict.graphError?.message || 'unknown error';
           // #100/#803: object not found or wrong node type (e.g. a personal profile id)
-          errors.facebook = /tasks|nonexisting|does not exist|Unsupported/i.test(msg)
-            ? `${msg} — ודא שהמזהה הוא של דף עסקי (Page), לא פרופיל אישי, ושהטוקן הוא Page Access Token`
+          errors.facebook = /nonexisting|does not exist|Unsupported|cannot be loaded/i.test(msg)
+            ? `${msg} — ודא שהמזהה הוא של דף עסקי (Page), לא פרופיל אישי, ושהטוקן מכסה את הדף הזה`
             : msg;
-        } else {
-          const tasks: string[] = Array.isArray(res.data?.tasks) ? res.data.tasks : [];
-          const canPublish = tasks.includes('CREATE_CONTENT') || tasks.includes('MANAGE');
-          results.facebook = res.status === 200 && canPublish;
-          if (!canPublish) {
-            errors.facebook = 'הטוקן קורא את הדף אך אין לו הרשאת פרסום. נדרש Page Access Token של אדמין הדף עם ההרשאה pages_manage_posts.';
-          }
+        } else if (verdict.problem === 'user-token') {
+          errors.facebook = 'זהו טוקן משתמש (User Token) ולא Page Access Token. ב-Graph API Explorer יש לבחור '
+            + 'את הדף עצמו בתפריט "User or Page", ולא את המשתמש.';
+        } else if (verdict.problem === 'scopes') {
+          errors.facebook = `לטוקן חסרות ההרשאות: ${verdict.missing.join(', ')}. `
+            + 'יש להפיק מחדש Page Access Token של אדמין הדף עם ההרשאות האלה.';
         }
       } else if (!token) {
         errors.facebook = 'לא הוזן Page Access Token';
