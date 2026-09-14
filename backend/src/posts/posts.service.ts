@@ -5520,13 +5520,35 @@ export class PostsService {
       image = rawImage;
     }
 
+    // WHERE THE PIN POINTS decides whether Pinterest indexes it at all.
+    //
+    // The affiliate redirect was the destination until now, and it is the weakest one
+    // available: a domain we neither own nor can claim, with no page behind it to read, and
+    // the commonest affiliate-spam shape on the platform. Measured: 50 pins, 23 impressions
+    // in 30 days, and not one findable in search by its own exact title — created, public,
+    // never indexed.
+    //
+    // The storefront product page is our claimed host, has real content, and its buy button
+    // already routes through the tracked short link, so a sale that starts on Pinterest is
+    // finally attributable. The affiliate URL stays the fallback for an account with no live
+    // store, or a post that page would never render (see postProductUrl).
+    const destination = (this.storefront
+      ? await this.storefront.postProductUrl(post.user_id, post).catch(() => null)
+      : null) || post.affiliate_url || undefined;
+    if (destination && destination !== post.affiliate_url) {
+      this.logger.log(`pin ${post.id} → storefront product page (claimed domain)`);
+    }
+    // Pinterest reads alt text to understand what the image SHOWS — it is part of how a pin
+    // is classified, not only an accessibility courtesy, and we were sending none.
+    const altText = (post.product_title || title).replace(/\s+/g, ' ').trim().slice(0, 500);
     const createPin = (img: string) => axios.post(
       `${apiBase}/v5/pins`,
       {
         board_id: boardId,
         title,
         description,
-        link: post.affiliate_url || undefined,
+        link: destination,
+        ...(altText ? { alt_text: altText } : {}),
         media_source: { source_type: 'image_url', url: img },
       },
       {

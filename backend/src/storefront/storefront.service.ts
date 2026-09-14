@@ -125,6 +125,45 @@ export class StorefrontService {
     return /^https?:\/\//.test(url) ? { url, name: store.name } : null;
   }
 
+  /**
+   * The public product page for one post, or null when there is nowhere to send traffic.
+   *
+   * Pinterest decides what to INDEX largely from a pin's destination, and an affiliate
+   * redirect is the weakest destination there is: a domain we do not own and cannot claim,
+   * with no page behind it to read. Fifty pins drew 23 impressions in a month and not one
+   * appeared in search for its own exact title. This page is the opposite — our claimed
+   * host, real content, and a buy button that already goes through the tracked link, so a
+   * sale that starts on Pinterest stops being invisible.
+   *
+   * Returns null rather than a guess. The page renders a post only when it satisfies the
+   * catalog query, so the same conditions are checked here: a pin aimed at a page that will
+   * never render is worse than the redirect it replaced.
+   */
+  async postProductUrl(userId: string, post: {
+    id?: string | null;
+    product_id?: string | null;
+    product_title?: string | null;
+    price_ils?: number | null;
+    affiliate_url?: string | null;
+  }): Promise<string | null> {
+    if (!post?.id || !post.product_id) return null;
+    if (!String(post.product_title || '').trim()) return null;
+    if (!(Number(post.price_ils) > 0)) return null;
+    if (!String(post.affiliate_url || '').trim()) return null;
+
+    const store = await this.repo
+      .findOne({ where: { user_id: userId, enabled: true } })
+      .catch(() => null);
+    if (!store) return null;
+
+    const base = this.storeUrl(store.slug);
+    // FRONTEND_URL unset yields "/s/slug" — a relative path is not a destination a crawler
+    // can follow, and handing Pinterest one would be worse than sending it nowhere.
+    if (!/^https?:\/\//.test(base)) return null;
+    // encodeURIComponent to match the link the store's own grid builds ("p:<uuid>").
+    return `${base}/p/${encodeURIComponent(`p:${post.id}`)}`;
+  }
+
   // ── Public side ────────────────────────────────────────────────────────────
 
   /** A live store by its address, or 404. A disabled store does not exist publicly. */
