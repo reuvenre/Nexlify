@@ -5057,7 +5057,11 @@ export class PostsService {
       await new Promise((r) => setTimeout(r, 2500));
       res = await attempt();
     }
-    if (res.data?.error) throw new Error(res.data.error.message);
+    // Graph can answer 200 with an error BODY. Re-throwing `new Error(error.message)` here
+    // dropped the code, and with it every mapping in facebook-errors: a #190 arrived as raw
+    // English marked "no user action needed", and a transient #1/#2 got no retry. That is
+    // watchdog #68 exactly — fixed then for the Instagram path, while this copy kept the bug.
+    if (res.data?.error) throw metaGraphError(res.data.error);
     // A 200 without an id means nothing was actually published — treat it as a failure
     // instead of marking the post 'sent' (Telegram validates delivery; FB didn't).
     // /photos answers with the PHOTO id plus `post_id`, the story on the page; prefer that,
