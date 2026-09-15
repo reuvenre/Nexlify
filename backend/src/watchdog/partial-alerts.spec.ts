@@ -1,5 +1,6 @@
 import {
-  PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials, serializePartials, unreportedPartials,
+  PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials, mergePartials, serializePartials,
+  unreportedPartials,
 } from './partial-alerts';
 
 /**
@@ -111,5 +112,57 @@ describe('remembering across a restart', () => {
 
   it('round-trips an EMPTY memory without inventing anything', () => {
     expect(deserializePartials(serializePartials(new Map()), NOW).size).toBe(0);
+  });
+});
+
+/**
+ * The cache SUPPLEMENTS this process's memory. It must never be able to empty it.
+ *
+ * Assigning the restored map over the live one reads as equivalent and is not. cacheGet
+ * answers undefined whenever it cannot reach the store inside 1.2s, and where no REDIS_URL is
+ * configured the store is per-process and starts empty after every deploy. Under assignment,
+ * both cases wipe the memory at the top of every tick — worse than the plain field this
+ * replaced, which at least survived until the process died. Watchdog #78 re-raised three
+ * posts, every one already reported and its issue closed, minutes after a deploy.
+ */
+describe('mergePartials', () => {
+  const NOW = Date.UTC(2026, 8, 15, 11, 0, 0);
+
+  it('leaves this process\'s memory ALONE when the cache answers empty', () => {
+    const own = new Map([['post-a', NOW - 60_000]]);
+    mergePartials(own, deserializePartials(undefined, NOW));
+    expect(own.has('post-a')).toBe(true);
+    expect(unreportedPartials([{ id: 'post-a' }], own)).toEqual([]);
+  });
+
+  it('adds what another process reported', () => {
+    const own = new Map([['mine', NOW - 60_000]]);
+    mergePartials(own, new Map([['theirs', NOW - 30_000]]));
+    expect([...own.keys()].sort()).toEqual(['mine', 'theirs']);
+  });
+
+  it('keeps the EARLIEST sighting, so a merge cannot reset the forget clock', () => {
+    // Refreshing the timestamp on every merge would keep an id alive indefinitely and
+    // permanently mute a post that failed again days later.
+    const first = NOW - 5 * 60 * 60 * 1000;
+    const own = new Map([['post-a', first]]);
+    mergePartials(own, new Map([['post-a', NOW]]));
+    expect(own.get('post-a')).toBe(first);
+  });
+
+  it('takes the cached time when this process has never seen the id', () => {
+    const own = new Map<string, number>();
+    mergePartials(own, new Map([['post-a', NOW - 90_000]]));
+    expect(own.get('post-a')).toBe(NOW - 90_000);
+  });
+
+  it('survives a full tick cycle: report, persist, restart, restore', () => {
+    // What #78 should have done.
+    const reported = new Map([['post-a', NOW - 60_000]]);
+    const stored = serializePartials(reported);
+    const afterRestart = new Map<string, number>();          // a fresh process
+    mergePartials(afterRestart, deserializePartials(stored, NOW));
+    expect(unreportedPartials([{ id: 'post-a' }, { id: 'post-b' }], afterRestart))
+      .toEqual([{ id: 'post-b' }]);
   });
 });

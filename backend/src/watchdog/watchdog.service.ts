@@ -28,7 +28,7 @@ import { countRecentFailedRuns } from '../campaigns/run-failure-log';
 import { isTierBlockError } from '../pinterest/pinterest-scopes';
 import { feasibleCadenceMin } from './cadence-feasible';
 import {
-  PARTIALS_CACHE_KEY, PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials,
+  PARTIALS_CACHE_KEY, PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials, mergePartials,
   serializePartials, unreportedPartials,
 } from './partial-alerts';
 
@@ -82,7 +82,7 @@ export class WatchdogService implements OnModuleInit {
   private readonly reported = new Map<string, number>();
   /** post id → reported-at ms, for the one-off failures the key throttle cannot hold.
    *  Mirrors the cache (see partial-alerts.ts) so it survives a deploy. */
-  private partialsReported = new Map<string, number>();
+  private readonly partialsReported = new Map<string, number>();
   private static readonly THROTTLE_MS = 6 * 60 * 60 * 1000;
 
   constructor(
@@ -101,11 +101,12 @@ export class WatchdogService implements OnModuleInit {
     if (this.running) return;
     this.running = true;
     try {
-      // Restore what earlier processes already reported, BEFORE the scan reads the memory.
-      // A dead cache yields an empty one: a duplicate alert is a far better failure than a
-      // watchdog that stops watching.
-      this.partialsReported = deserializePartials(
-        await cacheGet<Record<string, number>>(this.cache, PARTIALS_CACHE_KEY), Date.now(),
+      // Fold in what earlier processes reported, BEFORE the scan reads the memory. Merged,
+      // not assigned — see mergePartials: an empty cache answer must leave this process's own
+      // memory alone, or the memory resets every tick wherever the cache cannot answer.
+      mergePartials(
+        this.partialsReported,
+        deserializePartials(await cacheGet<Record<string, number>>(this.cache, PARTIALS_CACHE_KEY), Date.now()),
       );
 
       const anomalies = await this.scan();

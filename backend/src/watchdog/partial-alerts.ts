@@ -36,6 +36,26 @@ export function serializePartials(reported: ReadonlyMap<string, number>): Record
 }
 
 /**
+ * Fold what OTHER processes reported into this one's memory.
+ *
+ * Merge, never replace. Assigning the restored map over the live one looked equivalent and is
+ * not: the cache can answer empty at any moment — it times out at 1.2s by design, and where
+ * no REDIS_URL is configured it is a per-process store that starts empty after every deploy.
+ * An assignment there wipes the memory at the top of EVERY tick, which is strictly worse than
+ * the plain field this was meant to improve on: that at least held for the life of a process.
+ * Watchdog #78 re-raised three posts, all already reported and closed, for exactly this.
+ *
+ * The EARLIEST timestamp wins, so an id is forgotten a day after it was first reported rather
+ * than having its clock reset by every merge that sees it.
+ */
+export function mergePartials(own: Map<string, number>, restored: ReadonlyMap<string, number>): void {
+  for (const [id, at] of restored) {
+    const mine = own.get(id);
+    if (mine === undefined || at < mine) own.set(id, at);
+  }
+}
+
+/**
  * The memory, restored — pruned to the window on the way in, so a restart cannot resurrect
  * ids the running process would already have forgotten.
  *
