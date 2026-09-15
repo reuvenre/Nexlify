@@ -81,3 +81,21 @@ export function igFetchHeaders(host: string): Record<string, string> {
   if (/(^|\.)yupoo\.com$/i.test(host)) headers.Referer = 'https://x.yupoo.com/';
   return headers;
 }
+
+/**
+ * What the owner reads when Instagram rejects the media itself (#9004).
+ *
+ * "Only photo or video can be accepted as media type" means Meta fetched the url and what
+ * came back was not an image. It reached the owner exactly like that — Graph's English, in a
+ * Hebrew UI, with no url and classified as needing no action.
+ *
+ * Both halves of that were wrong. The url is the only thing that says WHICH image path
+ * failed (the designed frame, the letterboxed variant, or the supplier's own photo), which
+ * is the lesson #36003 already learned one branch away. And there IS an action: swapping the
+ * product photo in the editor, which nobody would guess from Graph's wording.
+ */
+export function igMediaRejectedMessage(rejected: string, alsoTried?: string): string {
+  return '(#9004) אינסטגרם לא הצליחה לקרוא את התמונה — הכתובת לא החזירה קובץ תמונה תקין. '
+    + `החלף את תמונת המוצר בעורך הפוסט ונסה שוב. התמונה שנדחתה: ${rejected}`
+    + (alsoTried ? ` (נוסתה גם: ${alsoTried})` : '');
+}

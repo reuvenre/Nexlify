@@ -1,5 +1,6 @@
 import {
-  IG_MAX_RATIO, IG_MIN_RATIO, igFetchHeaders, igFitBox, isIgFittableHost, unwrapOwnProxy,
+  IG_MAX_RATIO, IG_MIN_RATIO, igFetchHeaders, igFitBox, igMediaRejectedMessage, isIgFittableHost,
+  unwrapOwnProxy,
 } from './instagram-image';
 
 describe('igFitBox', () => {
@@ -68,5 +69,46 @@ describe('igFetchHeaders', () => {
   it('sends the hotlink Referer only to Yupoo', () => {
     expect(igFetchHeaders('photo.yupoo.com').Referer).toBe('https://x.yupoo.com/');
     expect(igFetchHeaders('ae01.alicdn.com').Referer).toBeUndefined();
+  });
+});
+
+/**
+ * #9004 is Instagram saying "I fetched your url and it was not an image".
+ *
+ * Watchdog #77 is what the owner got: `(#9004) Only photo or video can be accepted as media
+ * type.` — Graph's English in a Hebrew UI, no url, and classified as needing no action. There
+ * are three different urls a publish can hand Instagram (the designed frame, the letterboxed
+ * variant, the supplier's own photo) and the message named none of them, so there was no way
+ * to tell which path had failed. The #36003 branch one `else if` away had already learned to
+ * name the url it measured.
+ */
+describe('igMediaRejectedMessage', () => {
+  const CDN = 'https://ae01.alicdn.com/kf/S1234.jpg';
+  const FRAME = 'https://nexlify.win-solutions.co.il/api/posts/abc/frame.jpg';
+
+  it('names the url that was rejected', () => {
+    expect(igMediaRejectedMessage(CDN)).toContain(CDN);
+  });
+
+  it('keeps the code, so the report stays traceable', () => {
+    expect(igMediaRejectedMessage(CDN)).toMatch(/^\(#9004\)/);
+  });
+
+  it('gives the owner the one action that is actually theirs', () => {
+    // Graph's own sentence describes a media type. It never suggests swapping the photo,
+    // which is the only move available from the editor.
+    expect(igMediaRejectedMessage(CDN)).toContain('החלף את תמונת המוצר');
+  });
+
+  it('names BOTH urls when the fallback was tried and failed too', () => {
+    // Two failures on two different urls means the frame was never the suspect — the supplier
+    // photo is gone as well. Showing only one of them hides half the diagnosis.
+    const msg = igMediaRejectedMessage(CDN, FRAME);
+    expect(msg).toContain(CDN);
+    expect(msg).toContain(FRAME);
+  });
+
+  it('says nothing about a second url when there was no fallback to try', () => {
+    expect(igMediaRejectedMessage(CDN)).not.toContain('נוסתה גם');
   });
 });

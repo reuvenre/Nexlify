@@ -35,7 +35,9 @@ import { PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdic
 import { hotHours } from '../optimizer/hot-hours';
 import { PriceBand, preferInBand, soldPriceBand } from '../optimizer/sold-price-band';
 import { VariantStat, pickVariant, variantHint } from './copy-variants';
-import { igFetchHeaders, isIgFittableHost, isOwnUploadedUrl, unwrapOwnProxy } from './instagram-image';
+import {
+  igFetchHeaders, igMediaRejectedMessage, isIgFittableHost, isOwnUploadedUrl, unwrapOwnProxy,
+} from './instagram-image';
 import { composePinFrame } from './pin-frame-compose';
 import {
   buildSmartIntakePrompt, fallbackKeyword, parseIntakeVerdict,
@@ -5223,16 +5225,30 @@ export class PostsService {
           }
           throw again;
         }
-      } else if (err?.response?.data?.error?.code === 9004 && cdnImage && image !== cdnImage) {
+      } else if (err?.response?.data?.error?.code === 9004) {
         // "Only photo or video can be accepted as media type" — Meta fetched the URL and
         // what came back was not an image. The URL it fetched was OURS (a designed frame,
         // or the letterboxed variant), so the frame is the suspect, not the product: an
         // expired in-memory frame answers with a redirect, and a restart between the send
         // and Meta's fetch loses it entirely. Fall back to the supplier's own CDN photo —
         // the publish loses its designed frame, which is the cheaper of the two losses.
-        this.logger.warn(`instagram #9004 on ${image} — retrying with the supplier photo ${cdnImage}`);
-        image = cdnImage;
-        create = await createContainer();
+        if (cdnImage && image !== cdnImage) {
+          this.logger.warn(`instagram #9004 on ${image} — retrying with the supplier photo ${cdnImage}`);
+          const designed = image;
+          image = cdnImage;
+          try {
+            create = await createContainer();
+          } catch (again: any) {
+            if (again?.response?.data?.error?.code !== 9004) throw again;
+            // BOTH urls came back as not-an-image, so the frame was never the suspect and
+            // the supplier photo is gone too. Name them, for the reason #36003 below already
+            // learned: without the url this is a guessing game over which image path failed.
+            throw new Error(igMediaRejectedMessage(cdnImage, designed));
+          }
+        } else {
+          // Nothing to fall back TO — Instagram already had the supplier's own photo.
+          throw new Error(igMediaRejectedMessage(image));
+        }
       } else if (isTransientFacebookError(err)) {
         // Graph's #1/#2 family — it ANSWERED, said "please retry your request later", and
         // created nothing. Safe to send again, and the container step is where a retry costs
