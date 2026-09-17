@@ -1,7 +1,7 @@
 import {
   COPY_VARIANTS, EXPLORE_RATE, FLYLINK_VARIANTS, MIN_CLICKS_TO_PICK_WINNER,
   MIN_POSTS_PER_VARIANT, TRUST_VARIANT, VariantStat,
-  bestVariant, pickVariant, scoreVariants, variantById, variantHint,
+  bestVariant, pickVariant, scoreVariants, variantById, variantHint, variantLabel,
 } from './copy-variants';
 
 /** Every angle sampled enough to be comparable, so the "untried first" rule is satisfied. */
@@ -40,8 +40,8 @@ describe('scoreVariants', () => {
 
 describe('bestVariant', () => {
   it('names a winner once the evidence supports one', () => {
-    const stats = sampled({ problem: { posts: 40, clicks: 30 }, benefit: { posts: 40, clicks: 5 } });
-    expect(bestVariant(stats)?.variant).toBe('problem');
+    const stats = sampled({ value: { posts: 40, clicks: 30 }, benefit: { posts: 40, clicks: 5 } });
+    expect(bestVariant(stats)?.variant).toBe('value');
   });
 
   it('refuses to name one on too few clicks account-wide', () => {
@@ -74,25 +74,25 @@ describe('bestVariant', () => {
 
 describe('pickVariant', () => {
   it('tries an under-sampled angle before comparing any of them', () => {
-    // "curiosity" has had 1 post; the bandit cannot rank what it has not measured.
-    const stats = sampled({ curiosity: { posts: 1, clicks: 0 }, problem: { posts: 90, clicks: 80 } });
+    // "value" has had 1 post; the bandit cannot rank what it has not measured.
+    const stats = sampled({ value: { posts: 1, clicks: 0 }, benefit: { posts: 90, clicks: 80 } });
     for (const roll of [0, 0.3, 0.6, 0.99]) {
-      expect(pickVariant(stats, roll).id).toBe('curiosity');
+      expect(pickVariant(stats, roll).id).toBe('value');
     }
   });
 
   it('writes in the winner once there is one', () => {
-    const stats = sampled({ problem: { posts: 40, clicks: 35 } });
+    const stats = sampled({ value: { posts: 40, clicks: 35 } });
     // A roll above the explore share means exploit.
-    expect(pickVariant(stats, 0.9).id).toBe('problem');
+    expect(pickVariant(stats, 0.9).id).toBe('value');
   });
 
   it('still explores a share of the time, so a better angle can overtake', () => {
     // Without this the first lucky angle wins forever and the rest are never measured again.
-    const stats = sampled({ problem: { posts: 40, clicks: 35 } });
+    const stats = sampled({ value: { posts: 40, clicks: 35 } });
     const explored = [0, 0.05, 0.1, 0.2]
       .map((roll) => pickVariant(stats, roll).id)
-      .filter((id) => id !== 'problem');
+      .filter((id) => id !== 'value');
     expect(explored.length).toBeGreaterThan(0);
     expect(EXPLORE_RATE).toBeGreaterThan(0);
   });
@@ -160,6 +160,53 @@ describe('the trust angle (FLYLINK pool)', () => {
 
   it('resolves from a stored post id, so digests can label it', () => {
     expect(variantById('trust')?.label).toBe('ביטחון');
+  });
+});
+
+/**
+ * Retiring an angle is two separate things, and only one of them is "stop using it".
+ *
+ * כאב and סקרנות were measured over ~90 posts between them and produced ZERO clicks, while
+ * מחיר returned 0.13 per post. Retiring them hands their airtime to the two that work.
+ *
+ * The other half is what makes it safe: the owner decided this by reading a report built on
+ * those very posts. Deleting the angles would have turned every one of those rows into
+ * "סגנון קודם" — erasing the evidence behind the decision at the moment it was acted on. So
+ * they stay READABLE while becoming unwritable, and the two must not be confused.
+ */
+describe('retired angles', () => {
+  const RETIRED = ['problem', 'curiosity'];
+
+  it('are never handed to the copywriter again', () => {
+    for (const id of RETIRED) {
+      expect(COPY_VARIANTS.some((v) => v.id === id)).toBe(false);
+      expect(FLYLINK_VARIANTS.some((v) => v.id === id)).toBe(false);
+    }
+  });
+
+  it('cannot be picked, however the history favours them', () => {
+    // The exact trap: a retired angle still carries stats, so bestVariant could name it, the
+    // pool lookup would miss it, and every post would silently collapse onto pool[0].
+    const stats: VariantStat[] = [
+      ...sampled(),
+      { variant: 'problem', posts: 90, clicks: 400 },
+      { variant: 'curiosity', posts: 90, clicks: 300 },
+    ];
+    const picked = new Set([0, 0.2, 0.4, 0.6, 0.8, 0.99].map((r) => pickVariant(stats, r).id));
+    for (const id of RETIRED) expect(picked.has(id)).toBe(false);
+    // ...and exploration survives: the live angles are still spread across, not pinned.
+    expect(picked.size).toBeGreaterThan(1);
+  });
+
+  it('still resolve to their Hebrew labels, so old reports keep reading correctly', () => {
+    expect(variantById('problem')?.label).toBe('כאב');
+    expect(variantById('curiosity')?.label).toBe('סקרנות');
+    expect(variantLabel('problem')).toBe('כאב');
+    expect(variantLabel('curiosity')).toBe('סקרנות');
+  });
+
+  it('keeps the angles the owner chose to keep', () => {
+    expect(COPY_VARIANTS.map((v) => v.id).sort()).toEqual(['benefit', 'value']);
   });
 });
 

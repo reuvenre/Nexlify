@@ -28,8 +28,10 @@ export interface CopyVariant {
 }
 
 /**
- * The angles. Deliberately few and clearly distinct — a bandit over twenty near-identical
- * options would need traffic this account does not have to tell any of them apart.
+ * The angles in play. Deliberately few and clearly distinct — a bandit over twenty
+ * near-identical options would need traffic this account does not have to tell any of them
+ * apart. Retiring the two that measured zero (below) is the same argument applied again:
+ * fewer angles means each survivor gets more airtime and reaches an answer sooner.
  */
 export const COPY_VARIANTS: CopyVariant[] = [
   {
@@ -41,6 +43,31 @@ export const COPY_VARIANTS: CopyVariant[] = [
       ar: 'زاوية الكتابة: ابدأ بما يقدمه المنتج للقارئ في حياته اليومية — الفائدة الملموسة وليس المواصفات.',
     },
   },
+  {
+    id: 'value',
+    label: 'מחיר',
+    hint: {
+      he: 'זווית כתיבה: הדגש/י מוקדם את העסקה עצמה — כמה זה עולה מול מה שמקבלים. ענייני, בלי לחץ מלאכותי.',
+      en: 'Copy angle: lead with the deal itself — what it costs against what you get. Matter-of-fact, no artificial pressure.',
+      ar: 'زاوية الكتابة: ابدأ بالصفقة نفسها — الثمن مقابل ما تحصل عليه. بشكل واقعي وبلا ضغط مصطنع.',
+    },
+  },
+];
+
+/**
+ * Angles no longer written, kept so history stays readable.
+ *
+ * Measured over ~200 posts: כאב 0 clicks in 49 posts, סקרנות 0 in 42 — against מחיר 0.13
+ * per post and תועלת 0.033. Zero is not a low score to keep exploring around; two angles
+ * that produced nothing across ninety posts were spending a quarter of the airtime each on
+ * a question already answered. Retiring them hands that airtime to the two that work.
+ *
+ * DELETING them would have been the obvious move and the wrong one: variantById backs the
+ * owner's own reports, and a stored post carrying 'problem' would start rendering as
+ * "סגנון קודם" — quietly erasing the evidence this decision was made on. They stay
+ * resolvable, they are simply never chosen.
+ */
+export const RETIRED_VARIANTS: CopyVariant[] = [
   {
     id: 'problem',
     label: 'כאב',
@@ -57,15 +84,6 @@ export const COPY_VARIANTS: CopyVariant[] = [
       he: 'זווית כתיבה: פתח/י בשורה שמעוררת סקרנות או בשאלה קצרה שגורמת לקורא לרצות לראות את המוצר. בלי קליקבייט ובלי הבטחות שאינן נכונות.',
       en: 'Copy angle: open with a curiosity hook or a short question that makes the reader want to look. No clickbait, no promises that are not true.',
       ar: 'زاوية الكتابة: ابدأ بجملة تثير الفضول أو بسؤال قصير يدفع القارئ للاطلاع. بلا مبالغة وبلا وعود غير صحيحة.',
-    },
-  },
-  {
-    id: 'value',
-    label: 'מחיר',
-    hint: {
-      he: 'זווית כתיבה: הדגש/י מוקדם את העסקה עצמה — כמה זה עולה מול מה שמקבלים. ענייני, בלי לחץ מלאכותי.',
-      en: 'Copy angle: lead with the deal itself — what it costs against what you get. Matter-of-fact, no artificial pressure.',
-      ar: 'زاوية الكتابة: ابدأ بالصفقة نفسها — الثمن مقابل ما تحصل عليه. بشكل واقعي وبلا ضغط مصطنع.',
     },
   },
 ];
@@ -156,14 +174,19 @@ export function bestVariant(stats: VariantStat[]): VariantScore | null {
  * `roll` is the caller's random draw, passed in so this stays a pure function.
  */
 export function pickVariant(stats: VariantStat[], roll: number, pool: CopyVariant[] = COPY_VARIANTS): CopyVariant {
-  const byId = new Map((stats || []).map((s) => [s.variant, s]));
+  // Only angles this pool can actually write get a say. A retired angle keeps its history in
+  // `stats` for the owner's reports, and must not be able to win a race it can no longer
+  // run: bestVariant would name it, the lookup below would miss it, and every post would
+  // quietly fall back to pool[0] — exploration dead, and for an invisible reason.
+  const live = (stats || []).filter((s) => pool.some((v) => v.id === s.variant));
+  const byId = new Map(live.map((s) => [s.variant, s]));
 
   // Anything under-sampled goes first, so every angle gets a real trial before any
   // comparison between them is allowed to mean something.
   const untried = pool.filter((v) => (byId.get(v.id)?.posts || 0) < MIN_POSTS_PER_VARIANT);
   if (untried.length) return untried[Math.floor(roll * untried.length) % untried.length];
 
-  const winner = bestVariant(stats);
+  const winner = bestVariant(live);
   if (!winner || roll < EXPLORE_RATE) {
     return pool[Math.floor(roll * pool.length) % pool.length];
   }
@@ -191,6 +214,8 @@ export function variantLabel(id: string): string {
 
 export function variantById(id: string | null | undefined): CopyVariant | null {
   if (!id) return null;
-  // Search every pool — a stored 'trust' post must still resolve to its label in digests.
-  return FLYLINK_VARIANTS.find((v) => v.id === id) || null;
+  // Search every pool INCLUDING the retired one — a stored 'trust', 'problem' or 'curiosity'
+  // post must still resolve to its Hebrew label in the owner's reports. What we stopped
+  // writing is separate from what we can still read.
+  return [...FLYLINK_VARIANTS, ...RETIRED_VARIANTS].find((v) => v.id === id) || null;
 }
