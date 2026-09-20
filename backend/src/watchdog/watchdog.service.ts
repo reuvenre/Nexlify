@@ -31,6 +31,11 @@ import {
   PARTIALS_CACHE_KEY, PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials, mergePartials,
   serializePartials, unreportedPartials,
 } from './partial-alerts';
+import {
+  REGRESSIONS_CACHE_KEY, REGRESSION_MEMORY_MS, ReportedDrop, deserializeRegressions,
+  forgetOldRegressions, mergeRegressions, rememberRegressions, serializeRegressions,
+  unreportedRegressions,
+} from './regression-memory';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
  *  Three weeks of baseline absorbs a single odd week; one week of "recent" still reacts fast. */
@@ -72,6 +77,9 @@ export interface WatchdogAlert {
   /** Post ids this alert is ABOUT, remembered once it goes out so the same one-off failure
    *  is never re-reported while it lingers in the scan window (see partial-alerts.ts). */
   postIds?: string[];
+  /** CTR regressions this alert is ABOUT, remembered once it goes out for the same reason —
+   *  over a window seven times longer (see regression-memory.ts). */
+  regressions?: CtrRegression[];
 }
 
 @Injectable()
@@ -83,6 +91,9 @@ export class WatchdogService implements OnModuleInit {
   /** post id → reported-at ms, for the one-off failures the key throttle cannot hold.
    *  Mirrors the cache (see partial-alerts.ts) so it survives a deploy. */
   private readonly partialsReported = new Map<string, number>();
+  /** campaign id → the drop already reported for it, so a 7-day rolling window does not
+   *  re-raise the same finding every throttle period (see regression-memory.ts). */
+  private readonly regressionsReported = new Map<string, ReportedDrop>();
   private static readonly THROTTLE_MS = 6 * 60 * 60 * 1000;
 
   constructor(
@@ -108,6 +119,12 @@ export class WatchdogService implements OnModuleInit {
         this.partialsReported,
         deserializePartials(await cacheGet<Record<string, number>>(this.cache, PARTIALS_CACHE_KEY), Date.now()),
       );
+      mergeRegressions(
+        this.regressionsReported,
+        deserializeRegressions(
+          await cacheGet<Record<string, ReportedDrop>>(this.cache, REGRESSIONS_CACHE_KEY), Date.now(),
+        ),
+      );
 
       const anomalies = await this.scan();
       let remembered = false;
@@ -118,6 +135,10 @@ export class WatchdogService implements OnModuleInit {
         // Remembered HERE, not when the alert was composed: one dropped by the throttle
         // above must stay reportable on a later tick.
         for (const id of a.postIds || []) { this.partialsReported.set(id, Date.now()); remembered = true; }
+        if (a.regressions?.length) {
+          rememberRegressions(a.regressions, this.regressionsReported, Date.now());
+          remembered = true;
+        }
         this.logger.warn(`Watchdog: ${a.key} — ${a.title}`);
         await this.reportGithub(a).catch((err) => this.logger.warn(`watchdog github failed: ${err?.message}`));
         await this.reportTelegram(a).catch((err) => this.logger.warn(`watchdog telegram failed: ${err?.message}`));
@@ -129,6 +150,10 @@ export class WatchdogService implements OnModuleInit {
         await cacheSet(
           this.cache, PARTIALS_CACHE_KEY,
           serializePartials(this.partialsReported), PARTIAL_MEMORY_MS,
+        );
+        await cacheSet(
+          this.cache, REGRESSIONS_CACHE_KEY,
+          serializeRegressions(this.regressionsReported), REGRESSION_MEMORY_MS,
         );
       }
       // Close the loop the other way: tell the owner on Telegram when a fault was RESOLVED
@@ -926,17 +951,23 @@ export class WatchdogService implements OnModuleInit {
       this.logger.warn(`watchdog ctr scan failed: ${err?.message}`);
       return [] as CtrRegression[];
     });
-    if (regressions.length) {
+    // A regression is a CONDITION over a 7-day rolling window, so the same drop answers this
+    // query every tick for a week — and the 6h key throttle turns one finding into dozens of
+    // issues (#80 → #81: same campaign, six hours apart, one click of difference). Remember
+    // it for the length of the window, and speak again only if the floor falls further.
+    forgetOldRegressions(this.regressionsReported, now);
+    const freshRegressions = unreportedRegressions(regressions, this.regressionsReported);
+    if (freshRegressions.length) {
       out.push({
         // Keyed by campaign so a second group regressing later is its own alert rather
         // than being swallowed by the first one's 6h throttle.
-        key: `ctr_regression:${regressions.map((r) => r.campaignId).sort().join(',').slice(0, 80)}`,
-        title: `${regressions.length} קמפיינים שההמרה שלהם צנחה (הגרוע: ${regressions[0].campaignName} — ${regressions[0].dropPercent}%)`,
+        key: `ctr_regression:${freshRegressions.map((r) => r.campaignId).sort().join(',').slice(0, 80)}`,
+        title: `${freshRegressions.length} קמפיינים שההמרה שלהם צנחה (הגרוע: ${freshRegressions[0].campaignName} — ${freshRegressions[0].dropPercent}%)`,
         body: [
           `**בדיקה:** קליקים לפוסט ב-${RECENT_DAYS} הימים האחרונים מול ${BASELINE_DAYS} הימים שלפניהם, לכל קמפיין מול עצמו.`,
           `**סף:** ירידה של ${MIN_DROP_PERCENT}%+, עם ${MIN_POSTS_PER_WINDOW}+ פוסטים בכל חלון ו-${MIN_BASELINE_CLICKS}+ קליקים בבסיס.`,
           '',
-          ...regressions.map((r) =>
+          ...freshRegressions.map((r) =>
             `- "${r.campaignName}" \`${r.campaignId}\` · ${r.recentRate} קליקים/פוסט (${r.recentClicks}/${r.recentPosts})`
             + ` מול ${r.baselineRate} (${r.baselineClicks}/${r.baselinePosts}) → **-${r.dropPercent}%**`),
           '',
@@ -944,7 +975,8 @@ export class WatchdogService implements OnModuleInit {
           'לאחרונה (retired_keywords / learned), סגנון כתיבה (copy_variant), שינוי בשעות הפרסום,',
           'או ירידה אמיתית בפעילות הקבוצה. השווה מול התאריך שבו המגמה נשברה לפני שמשנים משהו.',
         ].join('\n'),
-        details: regressions.slice(0, 5).map(regressionLine),
+        details: freshRegressions.slice(0, 5).map(regressionLine),
+        regressions: freshRegressions,
       });
     }
 
