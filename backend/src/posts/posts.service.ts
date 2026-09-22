@@ -9,6 +9,7 @@ import FormData = require('form-data');
 import { Post } from './post.entity';
 import { PostedProduct } from './posted-product.entity';
 import { copyDefect } from './copy-guard';
+import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-policy';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, weightedRotation } from './keyword-rotation';
@@ -3736,6 +3737,14 @@ export class PostsService {
     // leading ✔️ on top of the template's. Fixed at import too; this display-time collapse
     // also heals the posts already sitting in the queue with the doubled form.
     body = body.replace(/(?:[✔✓☑]️?\s*){2,}/gu, '✔️ ');
+    // The owner's vocabulary, enforced LAST — after the footer, coupon, store and trust
+    // lines have all been appended, so no later addition can slip a banned word past it.
+    // The copy model is told the same rule in its brief; this is what holds when the text
+    // came from a supplier title or an imported row and no model ever saw it.
+    if (violatesWordPolicy(body)) {
+      this.logger.log(`word policy rewrote post ${post.id}`);
+      body = applyWordPolicy(body);
+    }
     // Hebrew bodies: pin every line right (emoji/price/link-opening lines otherwise render
     // LTR — each line's direction follows its first strong character) and collapse the
     // blank-line runs the copy model produces. English bodies pass through untouched.
@@ -3997,7 +4006,12 @@ export class PostsService {
         })
         : undefined;
       if (!(opts?.pinterestRewrite && !rewrite)) {
-        const body = rewrite?.text ?? await this.buildPostBody(post, creds, targetList[0], 'pinterest');
+        // The Pinterest rewrite is its own AI draft and does NOT pass through
+        // buildPostBody, so the vocabulary policy is applied to it here — otherwise the one
+        // path that skips the choke point is the one that reaches a public board.
+        const body = rewrite?.text
+          ? applyWordPolicy(rewrite.text)
+          : await this.buildPostBody(post, creds, targetList[0], 'pinterest');
         tasks.push(this.sendToPinterest(post, creds, body, rewrite
           ? { titleFromMessage: true, priceLabel: rewrite.priceLabel }
           : undefined)
@@ -6182,6 +6196,13 @@ export class PostsService {
       : opts?.style === 'pinterest'
         ? this.pinterestSystemPrompt(language)
         : this.defaultSystemPrompt(language);
+
+    // The owner's vocabulary rule, appended to EVERY brief — the default, the Pinterest
+    // style and a custom template alike. A template is authoritative about structure and
+    // tone, never about which words may reach the group. The deterministic filter in
+    // buildPostBody guarantees the outcome; saying it here is what makes the sentence read
+    // naturally instead of being patched after the fact (see word-policy.ts).
+    systemPrompt += `\n\n${WORD_POLICY_BRIEF[language === 'he' ? 'he' : 'en']}`;
 
     // A product-type hint (from the user) is the AUTHORITATIVE ground truth — it fixes the
     // case where vision misreads an ambiguous first photo (e.g. flip-flops → "lighting").

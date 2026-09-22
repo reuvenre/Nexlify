@@ -13,6 +13,8 @@
  * endpoint (instagram-image.controller.ts) only fetches, composites and streams.
  */
 
+import { applyWordPolicy } from './word-policy';
+
 export const PIN_W = 1000;
 export const PIN_H = 1500;
 /** The product image lives above the band, letterboxed onto this area. */
@@ -62,7 +64,12 @@ export function wrapPinTitle(title: string, perLine = 30, maxLines = 2): string[
  * without text rather than failing the pin.
  */
 export function buildPinOverlaySvg(title: string, price: string): string {
-  const lines = wrapPinTitle(title);
+  // The title here is display copy burned into an image, which puts it beyond every text
+  // filter downstream — once the pin is composited nothing can revise it. The vocabulary
+  // policy is applied at this one function because both renderers (the live controller and
+  // the batch composer) pass through it, and the title usually comes straight from a
+  // supplier listing that no copy model ever touched.
+  const lines = wrapPinTitle(applyWordPolicy(title));
   const two = lines.length > 1;
   // Vertically center 1 or 2 lines inside the band.
   const firstY = PIN_IMAGE_H + (two ? BAND_H / 2 - 14 : BAND_H / 2 + 22);
