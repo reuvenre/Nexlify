@@ -38,6 +38,7 @@ import {
   THROTTLE_MEMORY_KEY, THROTTLE_MS, deserializeThrottle, forgetOldThrottles, mergeThrottle,
   serializeThrottle, throttled,
 } from './throttle-memory';
+import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
  *  Three weeks of baseline absorbs a single odd week; one week of "recent" still reacts fast. */
@@ -232,14 +233,59 @@ export class WatchdogService implements OnModuleInit {
     }
   }
 
+  /**
+   * Clicks per campaign this week against last week, for the morning digest.
+   *
+   * Only SENT posts count, for the same reason the regression scan gives: an unpublished post
+   * cannot draw a click, and counting it would turn a delivery problem into a trend.
+   */
+  private async campaignTrends(): Promise<CampaignTrend[]> {
+    // Both windows must be measured in the same click unit — see windowsComparable. A prior
+    // window predating the crawler-click filter counts hits the recent one throws away, and
+    // every campaign would appear to have collapsed. Resumes itself.
+    if (!windowsComparable(new Date(), TREND_WINDOW_DAYS, TREND_WINDOW_DAYS)) return [];
+    const rows: any[] = await this.campaigns.query(
+      `SELECT c.id                                                        AS "campaignId",
+              c.name                                                      AS "campaignName",
+              count(*) FILTER (WHERE p.sent_at > now() - ($1 || ' days')::interval)::int
+                                                                          AS "recentPosts",
+              coalesce(sum(p.clicks_count) FILTER (
+                WHERE p.sent_at > now() - ($1 || ' days')::interval), 0)::int
+                                                                          AS "recentClicks",
+              count(*) FILTER (WHERE p.sent_at <= now() - ($1 || ' days')::interval)::int
+                                                                          AS "priorPosts",
+              coalesce(sum(p.clicks_count) FILTER (
+                WHERE p.sent_at <= now() - ($1 || ' days')::interval), 0)::int
+                                                                          AS "priorClicks"
+       FROM campaigns c
+       JOIN posts p ON p.campaign_id = c.id AND p.status = 'sent'
+       WHERE c.status = 'active'
+         AND p.sent_at > now() - ($2 || ' days')::interval
+       GROUP BY c.id, c.name`,
+      [String(TREND_WINDOW_DAYS), String(TREND_WINDOW_DAYS * 2)],
+    );
+    return campaignTrends(rows.map((r) => ({
+      campaignId: String(r.campaignId),
+      campaignName: String(r.campaignName || ''),
+      recentPosts: Number(r.recentPosts) || 0,
+      recentClicks: Number(r.recentClicks) || 0,
+      priorPosts: Number(r.priorPosts) || 0,
+      priorClicks: Number(r.priorClicks) || 0,
+    })));
+  }
+
   private async buildDailyDigest(): Promise<string> {
     const since = new Date(Date.now() - 24 * 3600_000);
-    const [sent, failed, scheduled, anomalies, sec] = await Promise.all([
+    const [sent, failed, scheduled, anomalies, sec, trends] = await Promise.all([
       this.posts.count({ where: { status: 'sent', sent_at: MoreThan(since) } }).catch(() => 0),
       this.posts.count({ where: { status: 'failed', created_at: MoreThan(since) } }).catch(() => 0),
       this.posts.count({ where: { status: 'scheduled' } }).catch(() => 0),
       this.scan().catch(() => []),
       this.security.summarySince(since).catch(() => null),
+      this.campaignTrends().catch((err: any) => {
+        this.logger.warn(`digest trend scan failed: ${err?.message}`);
+        return [] as CampaignTrend[];
+      }),
     ]);
 
     const date = new Date().toLocaleDateString('he-IL', {
@@ -256,6 +302,14 @@ export class WatchdogService implements OnModuleInit {
     lines.push(`• ✅ ${sent} פוסטים פורסמו`);
     if (failed) lines.push(`• ❌ ${failed} פוסטים נכשלו`);
     lines.push(`• ⏳ ${scheduled} פוסטים ממתינים בתור`);
+
+    // What the week is EARNING, next to what it spent earning it. The anomaly checks only
+    // speak when something breaks; this is the line that lets a deliberate change — a setting
+    // turned off to see what it was worth — actually be read, in either direction.
+    if (trends.length) {
+      lines.push('', `📈 קליקים ליום (${TREND_WINDOW_DAYS} ימים מול ה-${TREND_WINDOW_DAYS} שלפניהם):`);
+      for (const t of trends.slice(0, 6)) lines.push(trendLine(t));
+    }
 
     if (sec) {
       const secLines: string[] = [];
