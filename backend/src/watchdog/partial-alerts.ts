@@ -19,7 +19,11 @@
  * died with every deploy, and the next tick re-reported every post still inside the 6h window
  * as though it were new — watchdog #74 re-raised two posts whose issues had been fixed and
  * closed that same hour, during an incident, which reads as "the fix didn't work". On a day
- * with deploys, in-process memory is no memory at all. Hence the cache round-trip below.
+ * with deploys, in-process memory is no memory at all.
+ *
+ * It was the CACHE next, and that was the same field wearing a hat: this deployment sets no
+ * REDIS_URL, so `CacheModule` falls back to a per-process store that empties on every deploy
+ * exactly as the field did. The memory lives in Postgres now — see watchdog-memory.store.ts.
  */
 
 /** How long a reported post id is remembered. Comfortably longer than the 6h scan window,
@@ -28,9 +32,9 @@ export const PARTIAL_MEMORY_MS = 24 * 60 * 60 * 1000;
 
 /** Where the memory lives between processes. One key holding the whole map: it is bounded by
  *  one day of partial failures, so a single read beats a round trip per post id. */
-export const PARTIALS_CACHE_KEY = 'watchdog:partials_reported';
+export const PARTIALS_MEMORY_KEY = 'watchdog:partials_reported';
 
-/** The memory, for storing. A plain object so it survives JSON in any cache backend. */
+/** The memory, for storing. A plain object so it survives a JSON round trip. */
 export function serializePartials(reported: ReadonlyMap<string, number>): Record<string, number> {
   return Object.fromEntries(reported);
 }
@@ -39,11 +43,11 @@ export function serializePartials(reported: ReadonlyMap<string, number>): Record
  * Fold what OTHER processes reported into this one's memory.
  *
  * Merge, never replace. Assigning the restored map over the live one looked equivalent and is
- * not: the cache can answer empty at any moment — it times out at 1.2s by design, and where
- * no REDIS_URL is configured it is a per-process store that starts empty after every deploy.
- * An assignment there wipes the memory at the top of EVERY tick, which is strictly worse than
- * the plain field this was meant to improve on: that at least held for the life of a process.
- * Watchdog #78 re-raised three posts, all already reported and closed, for exactly this.
+ * not: the store can answer empty at any moment — an unreachable database, a row not written
+ * yet, a shape from an older version. An assignment there wipes the memory at the top of
+ * EVERY tick, which is strictly worse than the plain field this was meant to improve on: that
+ * at least held for the life of a process. Watchdog #78 re-raised three posts, all already
+ * reported and closed, for exactly this.
  *
  * The EARLIEST timestamp wins, so an id is forgotten a day after it was first reported rather
  * than having its clock reset by every merge that sees it.

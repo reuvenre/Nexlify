@@ -44,7 +44,7 @@ export interface ReportedDrop {
 }
 
 /** Where the memory lives between processes — a deploy must not reset it (watchdog #78). */
-export const REGRESSIONS_CACHE_KEY = 'watchdog:regressions_reported';
+export const REGRESSIONS_MEMORY_KEY = 'watchdog:regressions_reported';
 
 /** Drop campaigns whose regression has aged out of the window, so the memory stays bounded
  *  by the campaigns of one week rather than growing forever. */

@@ -1,6 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Cache } from 'cache-manager';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,7 +12,7 @@ import { MailService } from '../mail/mail.service';
 import { SecurityService } from '../security/security.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { ChannelsService } from '../channels/channels.service';
-import { cacheGet, cacheSet } from '../common/safe-cache';
+import { WatchdogMemoryStore } from './watchdog-memory.store';
 import { formatTelegramAlert } from './alert-format';
 import {
   CLICK_FILTER_DEPLOYED_AT, CtrRegression, MIN_BASELINE_CLICKS, MIN_DROP_PERCENT,
@@ -28,14 +26,18 @@ import { countRecentFailedRuns } from '../campaigns/run-failure-log';
 import { isTierBlockError } from '../pinterest/pinterest-scopes';
 import { feasibleCadenceMin } from './cadence-feasible';
 import {
-  PARTIALS_CACHE_KEY, PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials, mergePartials,
+  PARTIALS_MEMORY_KEY, PARTIAL_MEMORY_MS, deserializePartials, forgetOldPartials, mergePartials,
   serializePartials, unreportedPartials,
 } from './partial-alerts';
 import {
-  REGRESSIONS_CACHE_KEY, REGRESSION_MEMORY_MS, ReportedDrop, deserializeRegressions,
+  REGRESSIONS_MEMORY_KEY, REGRESSION_MEMORY_MS, ReportedDrop, deserializeRegressions,
   forgetOldRegressions, mergeRegressions, rememberRegressions, serializeRegressions,
   unreportedRegressions,
 } from './regression-memory';
+import {
+  THROTTLE_MEMORY_KEY, THROTTLE_MS, deserializeThrottle, forgetOldThrottles, mergeThrottle,
+  serializeThrottle, throttled,
+} from './throttle-memory';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
  *  Three weeks of baseline absorbs a single odd week; one week of "recent" still reacts fast. */
@@ -86,15 +88,15 @@ export interface WatchdogAlert {
 export class WatchdogService implements OnModuleInit {
   private readonly logger = new Logger(WatchdogService.name);
   private running = false;
-  /** anomaly key → last-reported ms; suppresses repeats for THROTTLE_MS. */
+  /** anomaly key → last-reported ms; suppresses repeats for THROTTLE_MS.
+   *  Mirrored to the database (see throttle-memory.ts) so it survives a deploy. */
   private readonly reported = new Map<string, number>();
-  /** post id → reported-at ms, for the one-off failures the key throttle cannot hold.
-   *  Mirrors the cache (see partial-alerts.ts) so it survives a deploy. */
+  /** post id → reported-at ms, for the one-off failures the key throttle cannot hold
+   *  (see partial-alerts.ts). */
   private readonly partialsReported = new Map<string, number>();
   /** campaign id → the drop already reported for it, so a 7-day rolling window does not
    *  re-raise the same finding every throttle period (see regression-memory.ts). */
   private readonly regressionsReported = new Map<string, ReportedDrop>();
-  private static readonly THROTTLE_MS = 6 * 60 * 60 * 1000;
 
   constructor(
     @InjectRepository(Post) private readonly posts: Repository<Post>,
@@ -104,7 +106,7 @@ export class WatchdogService implements OnModuleInit {
     private readonly credentials: CredentialsService,
     private readonly security: SecurityService,
     private readonly channels: ChannelsService,
-    @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly memory: WatchdogMemoryStore,
   ) {}
 
   @Cron('0 */15 * * * *')
@@ -113,47 +115,52 @@ export class WatchdogService implements OnModuleInit {
     this.running = true;
     try {
       // Fold in what earlier processes reported, BEFORE the scan reads the memory. Merged,
-      // not assigned — see mergePartials: an empty cache answer must leave this process's own
-      // memory alone, or the memory resets every tick wherever the cache cannot answer.
+      // not assigned — see mergePartials: an empty answer must leave this process's own
+      // memory alone, or the memory resets every tick wherever the store cannot answer.
+      //
+      // All three memories are restored, the throttle included. It was the one left in a
+      // bare field, and it is the one that governs EVERY check: a deploy released it on all
+      // keys at once and the next tick re-raised every condition still true (#84).
+      mergeThrottle(
+        this.reported,
+        deserializeThrottle(await this.memory.load<Record<string, number>>(THROTTLE_MEMORY_KEY), Date.now()),
+      );
       mergePartials(
         this.partialsReported,
-        deserializePartials(await cacheGet<Record<string, number>>(this.cache, PARTIALS_CACHE_KEY), Date.now()),
+        deserializePartials(await this.memory.load<Record<string, number>>(PARTIALS_MEMORY_KEY), Date.now()),
       );
       mergeRegressions(
         this.regressionsReported,
         deserializeRegressions(
-          await cacheGet<Record<string, ReportedDrop>>(this.cache, REGRESSIONS_CACHE_KEY), Date.now(),
+          await this.memory.load<Record<string, ReportedDrop>>(REGRESSIONS_MEMORY_KEY), Date.now(),
         ),
       );
+      forgetOldThrottles(this.reported, Date.now());
 
       const anomalies = await this.scan();
       let remembered = false;
       for (const a of anomalies) {
-        const last = this.reported.get(a.key) || 0;
-        if (Date.now() - last < WatchdogService.THROTTLE_MS) continue;
+        if (throttled(this.reported, a.key, Date.now())) continue;
         this.reported.set(a.key, Date.now());
+        remembered = true;
         // Remembered HERE, not when the alert was composed: one dropped by the throttle
         // above must stay reportable on a later tick.
-        for (const id of a.postIds || []) { this.partialsReported.set(id, Date.now()); remembered = true; }
-        if (a.regressions?.length) {
-          rememberRegressions(a.regressions, this.regressionsReported, Date.now());
-          remembered = true;
-        }
+        for (const id of a.postIds || []) this.partialsReported.set(id, Date.now());
+        if (a.regressions?.length) rememberRegressions(a.regressions, this.regressionsReported, Date.now());
         this.logger.warn(`Watchdog: ${a.key} — ${a.title}`);
         await this.reportGithub(a).catch((err) => this.logger.warn(`watchdog github failed: ${err?.message}`));
         await this.reportTelegram(a).catch((err) => this.logger.warn(`watchdog telegram failed: ${err?.message}`));
         await this.reportEmail(a).catch(() => {});
       }
       // Persist only when something new went out — and only AFTER it did, so a crash mid-report
-      // leaves the post reportable rather than silently forgotten.
+      // leaves the finding reportable rather than silently forgotten.
       if (remembered) {
-        await cacheSet(
-          this.cache, PARTIALS_CACHE_KEY,
-          serializePartials(this.partialsReported), PARTIAL_MEMORY_MS,
+        await this.memory.save(THROTTLE_MEMORY_KEY, serializeThrottle(this.reported), THROTTLE_MS);
+        await this.memory.save(
+          PARTIALS_MEMORY_KEY, serializePartials(this.partialsReported), PARTIAL_MEMORY_MS,
         );
-        await cacheSet(
-          this.cache, REGRESSIONS_CACHE_KEY,
-          serializeRegressions(this.regressionsReported), REGRESSION_MEMORY_MS,
+        await this.memory.save(
+          REGRESSIONS_MEMORY_KEY, serializeRegressions(this.regressionsReported), REGRESSION_MEMORY_MS,
         );
       }
       // Close the loop the other way: tell the owner on Telegram when a fault was RESOLVED
@@ -1005,14 +1012,15 @@ export class WatchdogService implements OnModuleInit {
 
     // Dedupe against recent issues by title. An OPEN same-title issue is already being
     // handled. A CLOSED same-title issue updated within the throttle window was JUST fixed
-    // (and closed) — don't immediately reopen it: the in-memory throttle that normally
-    // suppresses this is wiped on every Render restart/deploy, and a persisting condition
-    // (e.g. waiting for the fix to deploy) would otherwise spawn a fresh issue on each boot.
+    // (and closed) — don't immediately reopen it while a persisting condition waits for the
+    // fix to deploy. The throttle itself now survives a restart (throttle-memory.ts), but
+    // this stays as the backstop: it is the only check that can see what ANOTHER instance,
+    // or a run whose memory write failed, has already opened.
     const recent = await axios.get(
       `https://api.github.com/repos/${repo}/issues?state=all&per_page=50&sort=updated&direction=desc`,
       { headers, timeout: 15000 },
     );
-    const throttleCutoff = Date.now() - WatchdogService.THROTTLE_MS;
+    const throttleCutoff = Date.now() - THROTTLE_MS;
     const dup = (recent.data || []).some((i: any) =>
       i.title === title && (i.state === 'open' || new Date(i.updated_at).getTime() > throttleCutoff),
     );
