@@ -16,6 +16,7 @@ import { ProductsModule } from './products/products.module';
 import { PostsModule } from './posts/posts.module';
 import { EarningsModule } from './earnings/earnings.module';
 import { RatesModule } from './rates/rates.module';
+import { PersistentValueModule } from './common/persistent-value.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { ChannelsModule } from './channels/channels.module';
 import { CouponsModule } from './coupons/coupons.module';
@@ -56,6 +57,11 @@ import { HealthController } from './health.controller';
       // Use Redis when REDIS_URL is configured; otherwise fall back to an
       // in-memory cache so the app runs with zero external dependencies
       // (e.g. a free single-instance deploy). Rates simply cache per-instance.
+      //
+      // That fallback makes this a per-PROCESS store, so a long TTL here buys nothing: a
+      // deploy empties it. Anything that must survive one belongs in PersistentValueModule,
+      // not here. Use this for what a cache is for — saving a repeat of work that can
+      // simply be done again.
       useFactory: (config: ConfigService) => {
         const redisUrl = config.get<string>('REDIS_URL');
         const options: { ttl: number; stores?: KeyvRedis[] } = { ttl: 0 };
@@ -91,6 +97,9 @@ import { HealthController } from './health.controller';
       }),
       inject: [ConfigService],
     }),
+    // Global: where a value goes when it has to outlive the process (see the CacheModule
+    // note above). Registered before the features so anything may inject its store.
+    PersistentValueModule,
     AuthModule,
     UsersModule,
     CredentialsModule,

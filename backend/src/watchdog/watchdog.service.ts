@@ -12,7 +12,7 @@ import { MailService } from '../mail/mail.service';
 import { SecurityService } from '../security/security.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { ChannelsService } from '../channels/channels.service';
-import { WatchdogMemoryStore } from './watchdog-memory.store';
+import { PersistentValueStore } from '../common/persistent-value.store';
 import { formatTelegramAlert } from './alert-format';
 import {
   CLICK_FILTER_DEPLOYED_AT, CtrRegression, MIN_BASELINE_CLICKS, MIN_DROP_PERCENT,
@@ -106,7 +106,7 @@ export class WatchdogService implements OnModuleInit {
     private readonly credentials: CredentialsService,
     private readonly security: SecurityService,
     private readonly channels: ChannelsService,
-    private readonly memory: WatchdogMemoryStore,
+    private readonly memory: PersistentValueStore,
   ) {}
 
   @Cron('0 */15 * * * *')
