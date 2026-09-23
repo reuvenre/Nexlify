@@ -463,6 +463,9 @@ export interface Campaign {
   /** Opt-in to order-driven keyword learning (top-selling categories) for this campaign. */
   learn_from_orders?: boolean;
   last_run_at?: string;
+  /** What the last run did, in one line: posts queued / skipped / failed, what the seasonal
+   *  calendar did, and up to three errors — a keyword whose search came back empty among them. */
+  last_run_note?: string | null;
   next_run_at?: string;
   /** When the next post will actually LEAVE — the next cron fire pushed into the send
    *  window. This is what the UI shows; the raw cron tick confused owners at night. */

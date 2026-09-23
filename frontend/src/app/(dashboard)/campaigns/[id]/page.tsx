@@ -188,6 +188,28 @@ export default function CampaignDetailPage() {
         ))}
       </div>
 
+      {/* The runner's own account of its last run. It was written on every run precisely so
+          "why is this campaign doing X" would not need the server logs — and then rendered
+          nowhere, so the one person who needed it could not read it. It answers the
+          questions no counter can: a keyword whose search came back empty, what the seasonal
+          calendar did, why the run queued fewer posts than configured. Shown whole, not
+          split on its separators: the seasonal line uses the same "·" inside itself. */}
+      {campaign.last_run_note && (
+        <div className="bg-surface-secondary border border-edge rounded-xl p-5 mb-8">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold text-white">ההרצה האחרונה</h2>
+            {campaign.last_run_at && (
+              <span className="text-2xs text-white/30">
+                {new Date(campaign.last_run_at).toLocaleString('he-IL', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-white/60 leading-relaxed whitespace-pre-line break-words">
+            {campaign.last_run_note}
+          </p>
+        </div>
+      )}
+
       {/* Posts */}
       <div className="bg-surface-secondary border border-edge rounded-xl p-5">
         <h2 className="text-sm font-semibold text-white mb-4">פוסטים אחרונים</h2>
