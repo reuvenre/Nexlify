@@ -35,12 +35,13 @@ import {
   unreportedRegressions,
 } from './regression-memory';
 import {
-  THROTTLE_MEMORY_KEY, THROTTLE_MS, deserializeThrottle, forgetOldThrottles, mergeThrottle,
-  serializeThrottle, throttled,
+  MAX_THROTTLE_MS, THROTTLE_MEMORY_KEY, THROTTLE_MS, deserializeThrottle, forgetOldThrottles,
+  mergeThrottle, serializeThrottle, throttled,
 } from './throttle-memory';
 import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
 import {
-  MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SeasonalCampaignRow, seasonalGapLine, seasonalGaps,
+  MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
+  seasonalGapLine, seasonalGaps,
 } from './seasonal-gap';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
@@ -86,6 +87,10 @@ export interface WatchdogAlert {
   /** CTR regressions this alert is ABOUT, remembered once it goes out for the same reason —
    *  over a window seven times longer (see regression-memory.ts). */
   regressions?: CtrRegression[];
+  /** How long this alert stays quiet after going out. Defaults to the 6h key throttle, which
+   *  suits a fault someone fixes today; a finding resolved by a business DECISION asks for
+   *  longer, or it files an issue every six hours until the decision is made. */
+  throttleMs?: number;
 }
 
 @Injectable()
@@ -144,7 +149,7 @@ export class WatchdogService implements OnModuleInit {
       const anomalies = await this.scan();
       let remembered = false;
       for (const a of anomalies) {
-        if (throttled(this.reported, a.key, Date.now())) continue;
+        if (throttled(this.reported, a.key, Date.now(), a.throttleMs)) continue;
         this.reported.set(a.key, Date.now());
         remembered = true;
         // Remembered HERE, not when the alert was composed: one dropped by the throttle
@@ -159,7 +164,9 @@ export class WatchdogService implements OnModuleInit {
       // Persist only when something new went out — and only AFTER it did, so a crash mid-report
       // leaves the finding reportable rather than silently forgotten.
       if (remembered) {
-        await this.memory.save(THROTTLE_MEMORY_KEY, serializeThrottle(this.reported), THROTTLE_MS);
+        // Stored for the LONGEST window any alert may claim — a row expiring at 6h would
+        // silently release a throttle that was asked to hold for a week.
+        await this.memory.save(THROTTLE_MEMORY_KEY, serializeThrottle(this.reported), MAX_THROTTLE_MS);
         await this.memory.save(
           PARTIALS_MEMORY_KEY, serializePartials(this.partialsReported), PARTIAL_MEMORY_MS,
         );
@@ -1111,6 +1118,9 @@ export class WatchdogService implements OnModuleInit {
         details: gaps.slice(0, 5).map(seasonalGapLine),
         action: 'קמפיינים ← בחר את הקמפיין ← הרפה את הפילטרים (דירוג מינימלי / אחוז הנחה)'
           + ' כדי שמוצרי החג יעברו. החלון נסגר בתאריך — זו החלטה עסקית, לא תקלת קוד.',
+        // Days, not hours: nothing here is fixed by a deploy, and a Christmas window open
+        // for three months would otherwise file an issue every six hours until it closed.
+        throttleMs: SEASONAL_GAP_REPEAT_MS,
       });
     }
 

@@ -35,6 +35,17 @@ import { activeSeasonalEvents, seasonalKeywords, sourceSupportsSeasonal } from '
 export const SEASONAL_GAP_DAYS = 3;
 
 /**
+ * How long this finding stays quiet after it goes out.
+ *
+ * The 6h default suits a fault someone fixes today. This one is resolved by a DECISION with
+ * a date on it — relax a filter, or let the season pass — and a Christmas window is open for
+ * three months. At six hours that is around 360 issues for one condition the owner already
+ * knows about, which is how an alert channel becomes noise. Three days still reminds him
+ * several times before a window closes, and each reminder carries the current numbers.
+ */
+export const SEASONAL_GAP_REPEAT_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
  * Posts a campaign must have published in that window before zero means anything.
  *
  * A campaign that published twice and missed the seasonal slot is a rotation that has not

@@ -1,4 +1,5 @@
 import {
+  MAX_THROTTLE_MS,
   THROTTLE_MEMORY_KEY, THROTTLE_MS, deserializeThrottle, forgetOldThrottles, mergeThrottle,
   serializeThrottle, throttled,
 } from './throttle-memory';
@@ -51,11 +52,18 @@ describe('the watchdog throttle memory', () => {
       expect(back.get(key)).toBe(NOW - MIN);
     });
 
-    it('drops a key whose throttle expired while the process was down', () => {
-      const stored = { fresh: NOW - HOUR, stale: NOW - THROTTLE_MS - MIN };
+    it('drops a key older than the longest window any alert may claim', () => {
+      const stored = { fresh: NOW - HOUR, stale: NOW - MAX_THROTTLE_MS - MIN };
       const back = deserializeThrottle(stored, NOW);
       expect(back.has('fresh')).toBe(true);
       expect(back.has('stale')).toBe(false);
+    });
+
+    it('keeps a key past the DEFAULT window — its alert may have asked for longer', () => {
+      // Nothing in the memory records which alert set a key, so pruning at six hours would
+      // silently release a throttle an alert asked to hold for days.
+      const back = deserializeThrottle({ slow: NOW - THROTTLE_MS - MIN }, NOW);
+      expect(back.has('slow')).toBe(true);
     });
   });
 
@@ -108,8 +116,8 @@ describe('the watchdog throttle memory', () => {
   });
 
   describe('forgetting', () => {
-    it('drops keys past the window and keeps the rest', () => {
-      const reported = new Map([['fresh', NOW - HOUR], ['stale', NOW - THROTTLE_MS - MIN]]);
+    it('drops keys past the longest window and keeps the rest', () => {
+      const reported = new Map([['fresh', NOW - HOUR], ['stale', NOW - MAX_THROTTLE_MS - MIN]]);
       forgetOldThrottles(reported, NOW);
       expect([...reported.keys()]).toEqual(['fresh']);
     });
@@ -131,5 +139,44 @@ describe('the watchdog throttle memory', () => {
     mergeThrottle(afterDeploy, deserializeThrottle(stored, NOW + 15 * MIN));
 
     expect(throttled(afterDeploy, 'ctr_regression:ali4you', NOW + 15 * MIN)).toBe(true);
+  });
+});
+
+describe('an alert that asks for a longer window than the default', () => {
+  const DAY = 24 * HOUR;
+
+  it('stays suppressed past six hours when it asked for three days', () => {
+    const reported = new Map([['seasonal_gap:c1', NOW - 2 * DAY]]);
+    expect(throttled(reported, 'seasonal_gap:c1', NOW)).toBe(false);          // default window
+    expect(throttled(reported, 'seasonal_gap:c1', NOW, 3 * DAY)).toBe(true);  // its own
+  });
+
+  it('speaks again once its own window passes', () => {
+    const reported = new Map([['seasonal_gap:c1', NOW - 4 * DAY]]);
+    expect(throttled(reported, 'seasonal_gap:c1', NOW, 3 * DAY)).toBe(false);
+  });
+
+  it('never shortens the default — an alert cannot ask to be noisier', () => {
+    const reported = new Map([['failure_spike', NOW - MIN]]);
+    expect(throttled(reported, 'failure_spike', NOW, 1000)).toBe(true);
+  });
+
+  it('is clamped to what the memory actually keeps', () => {
+    // A window longer than MAX_THROTTLE_MS is not a longer window: the key is pruned and
+    // then speaks again, which is the opposite of what asking for it meant.
+    const reported = new Map([['seasonal_gap:c1', NOW - MAX_THROTTLE_MS - MIN]]);
+    expect(throttled(reported, 'seasonal_gap:c1', NOW, 365 * DAY)).toBe(false);
+  });
+
+  it('keeps a long-window key across a restart instead of pruning it at six hours', () => {
+    const stored = serializeThrottle(new Map([['seasonal_gap:c1', NOW - 2 * DAY]]));
+    const restored = deserializeThrottle(stored, NOW);
+    expect(throttled(restored, 'seasonal_gap:c1', NOW, 3 * DAY)).toBe(true);
+  });
+
+  it('still drops a key older than the longest window any alert may claim', () => {
+    const reported = new Map([['old', NOW - MAX_THROTTLE_MS - MIN], ['fresh', NOW - 2 * DAY]]);
+    forgetOldThrottles(reported, NOW);
+    expect([...reported.keys()]).toEqual(['fresh']);
   });
 });

@@ -20,6 +20,19 @@
  *  short enough that a condition still true tomorrow is raised again. */
 export const THROTTLE_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * The longest window any single alert may ask for, and what the memory is pruned and stored
+ * against.
+ *
+ * Six hours is right for a fault someone will fix today. It is wrong for a finding whose
+ * resolution is a business decision with a date on it — a seasonal window open for six weeks
+ * would produce an issue every six hours until it closed, roughly 140 of them, for a
+ * condition the owner already knows about. Those alerts carry their own longer window, and
+ * the memory has to outlive the longest of them or pruning would release a throttle that
+ * was supposed to still be holding.
+ */
+export const MAX_THROTTLE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Where the throttle lives between processes. */
 export const THROTTLE_MEMORY_KEY = 'watchdog:throttle';
 
@@ -39,7 +52,10 @@ export function deserializeThrottle(raw: unknown, now: number): Map<string, numb
   const out = new Map<string, number>();
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
   for (const [key, at] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof at === 'number' && Number.isFinite(at) && now - at <= THROTTLE_MS) out.set(key, at);
+    // Pruned against the LONGEST window, not the default one: an entry belonging to an alert
+    // with a week-long throttle must survive a restart, and nothing here knows which alert a
+    // key came from. Dropping it early would release a throttle that is still meant to hold.
+    if (typeof at === 'number' && Number.isFinite(at) && now - at <= MAX_THROTTLE_MS) out.set(key, at);
   }
   return out;
 }
@@ -64,16 +80,28 @@ export function mergeThrottle(own: Map<string, number>, restored: ReadonlyMap<st
 }
 
 /** Drop keys whose throttle has expired, so a long-lived process's memory stays bounded by
- *  the anomalies of one window rather than growing forever. */
+ *  the anomalies of one window rather than growing forever. Against the LONGEST window, for
+ *  the same reason deserializeThrottle is: a key carries no record of which alert set it. */
 export function forgetOldThrottles(reported: Map<string, number>, now: number): void {
   for (const [key, at] of reported) {
-    if (now - at > THROTTLE_MS) reported.delete(key);
+    if (now - at > MAX_THROTTLE_MS) reported.delete(key);
   }
 }
 
-/** Is this key still suppressed? The single place the window is compared, so the throttle
- *  cannot drift apart from the memory that stores it. */
-export function throttled(reported: ReadonlyMap<string, number>, key: string, now: number): boolean {
+/**
+ * Is this key still suppressed? The single place the window is compared, so the throttle
+ * cannot drift apart from the memory that stores it.
+ *
+ * `windowMs` lets one alert ask for longer than the default — for a finding the owner
+ * resolves by making a decision rather than by someone fixing a bug. Clamped to
+ * MAX_THROTTLE_MS, because a window longer than the memory keeps is not a longer window: it
+ * is a key that gets pruned and then speaks again, which is the opposite of what was asked.
+ */
+export function throttled(
+  reported: ReadonlyMap<string, number>, key: string, now: number, windowMs: number = THROTTLE_MS,
+): boolean {
   const last = reported.get(key);
-  return last !== undefined && now - last < THROTTLE_MS;
+  if (last === undefined) return false;
+  const window = Math.min(Math.max(windowMs, THROTTLE_MS), MAX_THROTTLE_MS);
+  return now - last < window;
 }
