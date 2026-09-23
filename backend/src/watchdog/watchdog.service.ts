@@ -39,6 +39,9 @@ import {
   serializeThrottle, throttled,
 } from './throttle-memory';
 import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
+import {
+  MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SeasonalCampaignRow, seasonalGapLine, seasonalGaps,
+} from './seasonal-gap';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
  *  Three weeks of baseline absorbs a single odd week; one week of "recent" still reacts fast. */
@@ -445,6 +448,40 @@ export class WatchdogService implements OnModuleInit {
       baselineClicks: Number(r.baselineClicks) || 0,
       targetPlatforms: r.targetPlatforms ?? null,
     })));
+  }
+
+  /**
+   * Active, seasonal-enabled campaigns and the keywords their recent posts came from.
+   *
+   * Only SENT posts: a queued post has not reached anyone, and counting it would report a
+   * season as covered while the channel has seen none of it.
+   */
+  private async seasonalCampaignRows(): Promise<SeasonalCampaignRow[]> {
+    const rows: any[] = await this.campaigns.query(
+      `SELECT c.id                                                   AS "campaignId",
+              c.name                                                 AS "campaignName",
+              coalesce(c.language, 'he')                             AS "language",
+              count(*)::int                                          AS "recentPosts",
+              coalesce(
+                array_agg(DISTINCT lower(trim(p.keyword)))
+                  FILTER (WHERE p.keyword IS NOT NULL AND trim(p.keyword) <> ''),
+                '{}'
+              )                                                      AS "keywords"
+       FROM campaigns c
+       JOIN posts p ON p.campaign_id = c.id AND p.status = 'sent'
+       WHERE c.status = 'active'
+         AND c.seasonal_keywords = true
+         AND p.sent_at > now() - ($1 || ' days')::interval
+       GROUP BY c.id, c.name, c.language`,
+      [String(SEASONAL_GAP_DAYS)],
+    );
+    return rows.map((r) => ({
+      campaignId: String(r.campaignId),
+      campaignName: String(r.campaignName || ''),
+      language: String(r.language || 'he'),
+      recentPosts: Number(r.recentPosts) || 0,
+      keywords: Array.isArray(r.keywords) ? r.keywords.map((k: any) => String(k || '')) : [],
+    }));
   }
 
   private async scan(): Promise<WatchdogAlert[]> {
@@ -1041,7 +1078,41 @@ export class WatchdogService implements OnModuleInit {
       });
     }
 
-    // 10. Security anomalies (brute-force, privilege escalation) from the audit log.
+    // 10. SEASONAL GAP: the owner asked for seasonal stock, the campaign is publishing, and
+    //     none of it came from a seasonal keyword. No other check can see this — the
+    //     campaign is active, on cadence and failing at nothing. It is simply not selling
+    //     what the season is buying, and the windows are short enough that finding out by
+    //     eye means finding out after the holiday.
+    const gaps = seasonalGaps(await this.seasonalCampaignRows().catch((err: any) => {
+      this.logger.warn(`watchdog seasonal scan failed: ${err?.message}`);
+      return [];
+    }), new Date(now));
+    if (gaps.length) {
+      out.push({
+        // Per campaign: a second one missing its season later is its own alert rather than
+        // being swallowed by the first one's 6h throttle.
+        key: `seasonal_gap:${gaps.map((g) => g.campaignId).sort().join(',').slice(0, 80)}`,
+        title: `${gaps.length} קמפיינים עם מתג עונתי דלוק שלא מפרסמים כלום עונתי`,
+        body: [
+          `**בדיקה:** קמפיין פעיל עם \`seasonal_keywords\` דלוק, שפרסם ${MIN_POSTS_TO_JUDGE}+ פוסטים`,
+          `ב-${SEASONAL_GAP_DAYS} הימים האחרונים — ואף אחד מהם לא הגיע ממילת מפתח עונתית.`,
+          '',
+          ...gaps.map((g) =>
+            `- "${g.campaignName}" \`${g.campaignId}\` · חלון פתוח: ${g.events.join(', ')}`
+            + ` · ציפינו ל-${g.expected.join(', ')} · ${g.recentPosts} פוסטים, 0 עונתיים`),
+          '',
+          'זו אינה תקלה טכנית — הקמפיין רץ ומפרסם כרגיל. הסיבה השכיחה: הפילטרים של הקמפיין',
+          '(דירוג מינימלי / אחוז הנחה / טווח מחיר) דוחים כל מוצר שמילת המפתח העונתית מחזירה,',
+          'והמקום ברוטציה שואל מוצר ממילת מפתח אחרת בשקט. כיווני חקירה: min_rating / min_discount',
+          'בקמפיין, ו-last_run_note שאומר כמה פוסטים הגיעו ממילים עונתיות (seasonal-status.ts).',
+        ].join('\n'),
+        details: gaps.slice(0, 5).map(seasonalGapLine),
+        action: 'קמפיינים ← בחר את הקמפיין ← הרפה את הפילטרים (דירוג מינימלי / אחוז הנחה)'
+          + ' כדי שמוצרי החג יעברו. החלון נסגר בתאריך — זו החלטה עסקית, לא תקלת קוד.',
+      });
+    }
+
+    // 11. Security anomalies (brute-force, privilege escalation) from the audit log.
     //    Reported through the same channels; the 6h throttle per key still applies so
     //    an ongoing attack alerts once, not every 15 minutes.
     const sec = await this.security.scan().catch(() => []);
