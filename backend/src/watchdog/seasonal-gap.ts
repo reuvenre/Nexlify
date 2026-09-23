@@ -8,9 +8,17 @@
  * No existing check could see it. The campaign is active, publishing on schedule, at its
  * configured cadence, with no failures: every anomaly check in the scan is looking for
  * something BROKEN, and nothing here is broken. The campaign is simply not selling what the
- * season is buying, which is a business outcome that happens to have a technical cause —
- * usually the campaign's own rating/discount/price filters rejecting every holiday product
- * the keyword returns, after which the slot silently borrows from another keyword.
+ * season is buying, which is a business outcome that happens to have a technical cause.
+ *
+ * WHICH cause matters, because the obvious guess is wrong and acting on it costs quality.
+ * The rating and discount filters are NOT it: the runner's tiered pool relaxes both on its
+ * own whenever on-spec stock runs out (tiers 3–4 in runCampaign), so a keyword whose search
+ * returned anything at all is never silenced by them. The first version of this alert said
+ * otherwise, and the owner loosened his Pinterest quality bar on its advice for nothing.
+ *
+ * A seasonal slot only borrows when the SEARCH itself comes back empty — and the filters that
+ * can make it empty are the ones sent to the API, which no tier relaxes: the campaign's
+ * CATEGORY (a tactical category holds no Halloween decorations) and its PRICE RANGE.
  *
  * This is the narrowest statement of that failure: the owner ASKED for seasonal stock, the
  * campaign IS publishing, and none of what it published came from a seasonal keyword.
@@ -65,6 +73,11 @@ export interface SeasonalCampaignRow {
   recentPosts: number;
   /** Distinct lowercased keywords those posts came from. */
   keywords: string[];
+  /** The filters sent TO the search API — the only ones no fallback tier relaxes, and so
+   *  the only campaign settings that can make a seasonal search come back empty. */
+  categoryId?: string | null;
+  minPrice?: number | null;
+  maxPrice?: number | null;
 }
 
 export interface SeasonalGap {
@@ -75,6 +88,9 @@ export interface SeasonalGap {
   /** The seasonal keywords it should have been publishing from. */
   expected: string[];
   recentPosts: number;
+  categoryId: string | null;
+  minPrice: number | null;
+  maxPrice: number | null;
 }
 
 /**
@@ -106,13 +122,39 @@ export function seasonalGaps(rows: SeasonalCampaignRow[], now = new Date()): Sea
       events: activeSeasonalEvents(language, now).map((ev) => ev.name),
       expected,
       recentPosts: row.recentPosts,
+      categoryId: row.categoryId?.trim() || null,
+      minPrice: Number(row.minPrice) > 0 ? Number(row.minPrice) : null,
+      maxPrice: Number(row.maxPrice) > 0 ? Number(row.maxPrice) : null,
     });
   }
   return out;
 }
 
+/**
+ * The campaign settings that could have emptied the search, in the owner's words — or null
+ * when the campaign sets none of them.
+ *
+ * Null is a finding in its own right: with no category and no price range, nothing the
+ * campaign configured can explain an empty seasonal search, and the next place to look is
+ * the dry-keyword line in its run note ("החיפוש לא החזיר מוצרים כלל").
+ *
+ * Deliberately names NO rating or discount: those are relaxed automatically by the pool's
+ * fallback tiers and cannot silence a keyword, and naming them sends the owner to lower his
+ * quality bar for nothing — which is what the first version of this alert did.
+ */
+export function searchConstraints(gap: SeasonalGap): string | null {
+  const parts: string[] = [];
+  if (gap.categoryId) parts.push(`מוגבל לקטגוריה ${gap.categoryId}`);
+  if (gap.minPrice !== null || gap.maxPrice !== null) {
+    parts.push(`טווח מחיר ${gap.minPrice ?? 0}–${gap.maxPrice ?? '∞'}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
+}
+
 /** One owner-facing line. Plain text — the Telegram DM is sent without parse_mode. */
 export function seasonalGapLine(gap: SeasonalGap): string {
+  const constraint = searchConstraints(gap);
   return `"${gap.campaignName}" · ${gap.events.join(', ')} · `
-    + `${gap.recentPosts} פוסטים ב-${SEASONAL_GAP_DAYS} ימים, אף אחד מהם עונתי`;
+    + `${gap.recentPosts} פוסטים ב-${SEASONAL_GAP_DAYS} ימים, אף אחד מהם עונתי`
+    + (constraint ? ` · ${constraint}` : '');
 }

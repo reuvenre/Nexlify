@@ -117,6 +117,11 @@ Three suppression memories decide whether the owner hears something twice, all h
 
 A finding is remembered **when the alert actually goes out**, not when it is composed — one dropped by the throttle must stay reportable later.
 
+An alert resolved by a business *decision* rather than a code fix sets its own `throttleMs` (the seasonal gap uses 3 days). The 6 h default would otherwise file an issue every six hours for as long as the window stays open — hundreds for one known condition.
+
+### Why a campaign keyword comes back empty
+`runCampaign` builds each keyword's pool in **tiers**, and tiers 3–4 relax `min_rating` and `min_discount` automatically once on-spec stock runs out. So **rating and discount can never silence a keyword** — if the search returned anything, the slot is filled. A slot borrows from another keyword only when the *search itself* is empty, and the filters that can do that are the ones sent **to the API**, which no tier relaxes: `category_id` and `min_price`/`max_price`. Diagnose an empty keyword there, and read the run note's `"<kw>": החיפוש לא החזיר מוצרים כלל` line. Telling the owner to lower rating/discount lowers his quality bar for every keyword and fixes nothing — it has happened once already.
+
 ### Publishing pipeline
 `PostsService.buildPostBody` is the single choke point every platform (Telegram, Facebook, Instagram, WhatsApp, Pinterest) builds its message from. Anything that must apply to *published text* belongs there, at the end — after the footer, coupon, store and trust lines have been appended, so nothing added later can slip past it.
 

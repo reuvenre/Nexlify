@@ -14,11 +14,16 @@
  * which records posts queued and skipped and failed and never once mentions the calendar.
  *
  * There is a fifth way to get the same silence, and it is the one no switch explains: the
- * keywords ARE in the rotation, the runner searches them, and every product they return is
- * rejected by the campaign's own filters (rating, discount, price). The slot then quietly
- * borrows a product from another keyword, and the run looks perfectly healthy. So the note
- * does not stop at "seasonal is on" — it reports how many posts this run actually CAME from
- * a seasonal keyword. Zero, against an open window, is the whole diagnosis.
+ * keywords ARE in the rotation, the runner searches them, and the search comes back EMPTY.
+ * The slot then quietly borrows a product from another keyword, and the run looks perfectly
+ * healthy. So the note does not stop at "seasonal is on" — it reports how many posts this
+ * run actually CAME from a seasonal keyword. Zero, against an open window, is the finding.
+ *
+ * What empties the search is NOT the rating or discount filter: the pool's fallback tiers
+ * relax both automatically, so any keyword whose search returned something is never
+ * silenced by them. It is the filters sent to the API, which nothing relaxes — the
+ * campaign's category and its price range. The run note's own dry-keyword line
+ * ("החיפוש לא החזיר מוצרים כלל") confirms which keyword came back empty.
  */
 
 export interface SeasonalStatus {
@@ -61,7 +66,8 @@ export function seasonalRunNote(status: SeasonalStatus, postsFromSeasonal: numbe
   // says nothing about WHAT to sell).
   if (!keywords.length) return `🗓️ ${open} — הקשר לכתיבה בלבד, בלי מילות חיפוש לשפה זו`;
 
-  // The line that answers the question. `0 פוסטים` here means the keywords were searched
-  // and every product they found was filtered out — a campaign-filter problem, not a switch.
+  // The line that answers the question. `0 פוסטים` here means the keywords were searched and
+  // came back EMPTY — a category or price range the holiday stock does not fit, not a switch
+  // and not the rating/discount bar (the fallback tiers relax those on their own).
   return `🗓️ ${open} · ${list(keywords)} · ${postsFromSeasonal} פוסטים מהן`;
 }

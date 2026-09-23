@@ -41,7 +41,7 @@ import {
 import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
 import {
   MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
-  seasonalGapLine, seasonalGaps,
+  searchConstraints, seasonalGapLine, seasonalGaps,
 } from './seasonal-gap';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
@@ -469,6 +469,9 @@ export class WatchdogService implements OnModuleInit {
               c.name                                                 AS "campaignName",
               coalesce(c.source, 'aliexpress')                       AS "source",
               coalesce(c.language, 'he')                             AS "language",
+              c.category_id                                          AS "categoryId",
+              c.min_price                                            AS "minPrice",
+              c.max_price                                            AS "maxPrice",
               count(*)::int                                          AS "recentPosts",
               coalesce(
                 array_agg(DISTINCT lower(trim(p.keyword)))
@@ -480,7 +483,7 @@ export class WatchdogService implements OnModuleInit {
        WHERE c.status = 'active'
          AND c.seasonal_keywords = true
          AND p.sent_at > now() - ($1 || ' days')::interval
-       GROUP BY c.id, c.name, c.source, c.language`,
+       GROUP BY c.id, c.name, c.source, c.language, c.category_id, c.min_price, c.max_price`,
       [String(SEASONAL_GAP_DAYS)],
     );
     return rows.map((r) => ({
@@ -488,6 +491,9 @@ export class WatchdogService implements OnModuleInit {
       campaignName: String(r.campaignName || ''),
       source: String(r.source || 'aliexpress'),
       language: String(r.language || 'he'),
+      categoryId: r.categoryId ? String(r.categoryId) : null,
+      minPrice: r.minPrice !== null && r.minPrice !== undefined ? Number(r.minPrice) : null,
+      maxPrice: r.maxPrice !== null && r.maxPrice !== undefined ? Number(r.maxPrice) : null,
       recentPosts: Number(r.recentPosts) || 0,
       keywords: Array.isArray(r.keywords) ? r.keywords.map((k: any) => String(k || '')) : [],
     }));
@@ -1106,18 +1112,25 @@ export class WatchdogService implements OnModuleInit {
           `**בדיקה:** קמפיין פעיל עם \`seasonal_keywords\` דלוק, שפרסם ${MIN_POSTS_TO_JUDGE}+ פוסטים`,
           `ב-${SEASONAL_GAP_DAYS} הימים האחרונים — ואף אחד מהם לא הגיע ממילת מפתח עונתית.`,
           '',
-          ...gaps.map((g) =>
-            `- "${g.campaignName}" \`${g.campaignId}\` · חלון פתוח: ${g.events.join(', ')}`
-            + ` · ציפינו ל-${g.expected.join(', ')} · ${g.recentPosts} פוסטים, 0 עונתיים`),
+          ...gaps.map((g) => {
+            const constraint = searchConstraints(g);
+            return `- "${g.campaignName}" \`${g.campaignId}\` · חלון פתוח: ${g.events.join(', ')}`
+              + ` · ציפינו ל-${g.expected.join(', ')} · ${g.recentPosts} פוסטים, 0 עונתיים`
+              + (constraint ? `\n   └ מגבלות חיפוש: ${constraint}` : '\n   └ אין קטגוריה או טווח מחיר מוגדרים');
+          }),
           '',
-          'זו אינה תקלה טכנית — הקמפיין רץ ומפרסם כרגיל. הסיבה השכיחה: הפילטרים של הקמפיין',
-          '(דירוג מינימלי / אחוז הנחה / טווח מחיר) דוחים כל מוצר שמילת המפתח העונתית מחזירה,',
-          'והמקום ברוטציה שואל מוצר ממילת מפתח אחרת בשקט. כיווני חקירה: min_rating / min_discount',
-          'בקמפיין, ו-last_run_note שאומר כמה פוסטים הגיעו ממילים עונתיות (seasonal-status.ts).',
+          'זו אינה תקלה טכנית — הקמפיין רץ ומפרסם כרגיל. מקום עונתי שואל ממילה אחרת רק כשהחיפוש',
+          'עצמו חוזר ריק. **דירוג מינימלי ואחוז הנחה אינם הסיבה**: שכבות הגיבוי (tier 3–4 ב-runCampaign)',
+          'מרפות אותם אוטומטית ברגע שנגמר מלאי תקני. מה שכן מרוקן את החיפוש הם המסננים שנשלחים ל-API',
+          'ואף שכבה לא מרפה: category_id (קטגוריה טקטית לא מכילה קישוטי האלווין) ו-min/max_price.',
+          'אם אין אף אחד מהם — שורת "החיפוש לא החזיר מוצרים כלל" ב-last_run_note תאמר איזו מילה יבשה.',
         ].join('\n'),
         details: gaps.slice(0, 5).map(seasonalGapLine),
-        action: 'קמפיינים ← בחר את הקמפיין ← הרפה את הפילטרים (דירוג מינימלי / אחוז הנחה)'
-          + ' כדי שמוצרי החג יעברו. החלון נסגר בתאריך — זו החלטה עסקית, לא תקלת קוד.',
+        // Names only what can actually empty the search. The first version of this action
+        // sent the owner to lower his rating/discount bar, which the fallback tiers relax on
+        // their own — he loosened his Pinterest quality filters for nothing.
+        action: 'קמפיינים ← בחר את הקמפיין ← בדוק אם מוגדרת קטגוריה או טווח מחיר צר —'
+          + ' הם מגבילים את החיפוש ל-API ומוצרי החג לא קיימים בתוכם. אל תוריד דירוג/הנחה: הם לא הסיבה.',
         // Days, not hours: nothing here is fixed by a deploy, and a Christmas window open
         // for three months would otherwise file an issue every six hours until it closed.
         throttleMs: SEASONAL_GAP_REPEAT_MS,

@@ -1,5 +1,6 @@
 import {
-  MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SeasonalCampaignRow, seasonalGapLine, seasonalGaps,
+  MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SeasonalCampaignRow, searchConstraints, seasonalGapLine,
+  seasonalGaps,
 } from './seasonal-gap';
 
 /** Inside the Halloween (15/09–31/10) and Christmas (20/09–18/12) windows. */
@@ -118,5 +119,47 @@ describe('a season open and nothing publishing into it', () => {
       const line = seasonalGapLine(seasonalGaps([row()], IN_US_SEASON)[0]);
       expect(line).not.toMatch(/[*_`]|\[.*\]\(/);
     });
+  });
+});
+
+describe('naming what could have emptied the search', () => {
+  const gap = (over: Partial<SeasonalCampaignRow> = {}) => seasonalGaps([row(over)], IN_US_SEASON)[0];
+
+  it('names a category — a tactical category holds no Halloween decorations', () => {
+    expect(searchConstraints(gap({ categoryId: '200001234' }))).toBe('מוגבל לקטגוריה 200001234');
+  });
+
+  it('names a price range, open-ended on whichever side is unset', () => {
+    expect(searchConstraints(gap({ minPrice: 5, maxPrice: 30 }))).toBe('טווח מחיר 5–30');
+    expect(searchConstraints(gap({ maxPrice: 30 }))).toBe('טווח מחיר 0–30');
+    expect(searchConstraints(gap({ minPrice: 5 }))).toBe('טווח מחיר 5–∞');
+  });
+
+  it('names both when both are set', () => {
+    expect(searchConstraints(gap({ categoryId: '42', minPrice: 5, maxPrice: 30 })))
+      .toBe('מוגבל לקטגוריה 42 · טווח מחיר 5–30');
+  });
+
+  it('returns null when the campaign constrains nothing — itself a finding', () => {
+    expect(searchConstraints(gap())).toBeNull();
+    expect(searchConstraints(gap({ categoryId: '  ', minPrice: 0, maxPrice: 0 }))).toBeNull();
+  });
+
+  it('never names rating or discount — the fallback tiers relax those on their own', () => {
+    // The first version of this alert blamed them, and the owner lowered his Pinterest
+    // quality bar for nothing. Only filters sent TO the API can empty a search.
+    const text = [
+      searchConstraints(gap({ categoryId: '42', minPrice: 5, maxPrice: 30 })),
+      seasonalGapLine(gap({ categoryId: '42', minPrice: 5, maxPrice: 30 })),
+    ].join(' ');
+    expect(text).not.toMatch(/דירוג|הנחה|rating|discount/i);
+  });
+
+  it('carries the constraint into the owner-facing line', () => {
+    expect(seasonalGapLine(gap({ categoryId: '42' }))).toContain('מוגבל לקטגוריה 42');
+  });
+
+  it('leaves the line unchanged when nothing constrains the search', () => {
+    expect(seasonalGapLine(gap())).not.toContain('מוגבל');
   });
 });
