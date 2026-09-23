@@ -10,6 +10,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { ChannelsService } from '../channels/channels.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { nextPublishAt } from './next-run';
+import { sourceSupportsSeasonal } from '../common/seasonal';
 import { auditKeywords, KeywordFlag } from './brand-keywords';
 
 @Injectable()
@@ -187,7 +188,26 @@ export class CampaignsService {
       status: 'active' as const,
       next_run_at: this.nextRun(dto.schedule_cron),
     });
+    this.clearSeasonalWhereItCannotWork(campaign);
     return this.repo.save(campaign);
+  }
+
+  /**
+   * A source that cannot search cannot use seasonal keywords — so it must not store the flag.
+   *
+   * The commercial calendar injects SEARCH terms, and only the AliExpress runner searches:
+   * FLYLINK rotates a linked catalog (no search API exists) and Amazon walks its own cursor.
+   * A stored `true` there is a setting that nothing reads and nothing honours, and it cost
+   * a real Tishrei window — the toggle sat on for a FLYLINK campaign while 36 posts went out
+   * with no seasonal product among them, and it even fooled the watchdog into raising an
+   * alert no action could ever clear.
+   *
+   * Enforced here rather than only in the form, because hiding a control does not change
+   * what a campaign switched over from AliExpress already has stored, and the API is
+   * reachable without the form at all.
+   */
+  private clearSeasonalWhereItCannotWork(campaign: Campaign): void {
+    if (!sourceSupportsSeasonal(campaign.source)) campaign.seasonal_keywords = false;
   }
 
   async update(userId: string, id: string, dto: Partial<CampaignDto>) {
@@ -214,6 +234,9 @@ export class CampaignsService {
     if (dto.schedule_cron) {
       campaign.next_run_at = this.nextRun(dto.schedule_cron);
     }
+    // After the merge, so it sees the source this save is landing on — switching a campaign
+    // to FLYLINK clears the flag in the same write that switches it.
+    this.clearSeasonalWhereItCannotWork(campaign);
     return this.repo.save(campaign);
   }
 

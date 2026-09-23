@@ -1,4 +1,4 @@
-import { seasonalCopyHints, seasonalKeywords, activeSeasonalEvents } from './seasonal';
+import { seasonalCopyHints, seasonalKeywords, activeSeasonalEvents, sourceSupportsSeasonal } from './seasonal';
 
 /**
  * Reported: "the holiday template takes over every product". During Tishrei a tactical belt
@@ -63,5 +63,30 @@ describe('seasonalCopyHints', () => {
     // The hint is only allowed on posts these keywords found, so a hint with no keywords to
     // ride on would be a line nothing could ever carry.
     expect(seasonalKeywords('he', tishrei).length).toBeGreaterThan(0);
+  });
+});
+
+describe('which product sources the calendar can reach', () => {
+  it('reaches AliExpress — the only runner that searches keywords', () => {
+    expect(sourceSupportsSeasonal('aliexpress')).toBe(true);
+  });
+
+  it.each([
+    ['flylink', 'rotates a linked catalog; no search API exists'],
+    ['amazon', 'walks its own cursor and never sees the calendar'],
+  ])('does not reach %s — %s', (source) => {
+    expect(sourceSupportsSeasonal(source)).toBe(false);
+  });
+
+  it.each([['null', null], ['undefined', undefined], ['empty', '']])(
+    'treats %s as AliExpress, matching the column default', (_label, source) => {
+      expect(sourceSupportsSeasonal(source as any)).toBe(true);
+    },
+  );
+
+  it('does not reach a source it has never heard of', () => {
+    // Safer default for a source added later: it gets no seasonal behaviour until someone
+    // writes one, rather than silently claiming a calendar it cannot act on.
+    expect(sourceSupportsSeasonal('temu')).toBe(false);
   });
 });

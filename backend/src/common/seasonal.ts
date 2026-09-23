@@ -131,6 +131,22 @@ export const SEASONAL_EVENTS: SeasonalEvent[] = [
   },
 ];
 
+/**
+ * Can a campaign with this product source act on the calendar at all?
+ *
+ * The calendar's whole mechanism is injecting SEARCH terms, and only the AliExpress runner
+ * searches: FLYLINK rotates a linked supplier catalog (no search API exists) and Amazon
+ * walks its own cursor. Neither has a seasonal code path.
+ *
+ * One function, because this rule has to hold in three places that had no reason to agree —
+ * the campaign form hides the toggle, the service refuses to store it, and the watchdog
+ * declines to raise an alert no action could clear. It was the second of those that shipped
+ * wrong first (watchdog #86), which is what a rule living in two copies does here.
+ */
+export function sourceSupportsSeasonal(source: string | null | undefined): boolean {
+  return (source || 'aliexpress') === 'aliexpress';
+}
+
 /** Day-of-year style comparison that handles windows crossing the year boundary. */
 function inWindow(now: Date, ev: SeasonalEvent): boolean {
   const cur = (now.getMonth() + 1) * 100 + now.getDate();

@@ -144,6 +144,12 @@ export function CampaignForm({
   const isAmazon = source === 'amazon';
   const needsKeywords = !isFlylink;            // AliExpress + Amazon keyword-search
   const needsGroups = isFlylink || isAmazon;   // FLYLINK + Amazon require a target group
+  // The commercial calendar injects SEARCH terms, and only the AliExpress runner searches:
+  // FLYLINK rotates a linked catalog (it has no search API at all) and Amazon walks its own
+  // cursor. Offering the toggle there was a control that changed nothing — it sat on for a
+  // FLYLINK campaign through a whole Tishrei window while 36 posts went out with no seasonal
+  // product among them, and nothing said why.
+  const canUseSeasonal = !isFlylink && !isAmazon;
 
   // WHICH SHELF this autopilot rotates. A catalog linked to a group belongs to that group,
   // and only a campaign publishing there may draw from it; an unlinked catalog belongs to
@@ -207,10 +213,14 @@ export function CampaignForm({
       // toggling back and forth doesn't get persisted for the wrong source. Amazon is a hybrid:
       // it keyword-searches (like AliExpress) but publishes to a chosen group (like FLYLINK),
       // and PA-API exposes no rating/discount, so those filters are dropped.
+      // seasonal_keywords is cleared for the sources that cannot act on it — otherwise a
+      // campaign switched over from AliExpress keeps a stored `true` behind a hidden toggle,
+      // which is the same lie one layer down: nothing shows it, nothing honours it, and
+      // nothing can be switched off to explain why no seasonal products appear.
       const base: CampaignInput = isFlylink
-        ? { ...form, source: 'flylink', keywords: [], min_price: undefined, max_price: undefined, min_discount: undefined }
+        ? { ...form, source: 'flylink', keywords: [], min_price: undefined, max_price: undefined, min_discount: undefined, seasonal_keywords: false }
         : isAmazon
-          ? { ...form, source: 'amazon', target_channels: form.target_channels ?? [], min_discount: undefined, min_rating: undefined }
+          ? { ...form, source: 'amazon', target_channels: form.target_channels ?? [], min_discount: undefined, min_rating: undefined, seasonal_keywords: false }
           : { ...form, source: 'aliexpress', target_channels: form.target_channels ?? [] };
       // Custom window off → explicit nulls so a previously-saved window is CLEARED,
       // not silently kept. On → store ONLY what the user actually picked: an hour left on
@@ -663,7 +673,9 @@ export function CampaignForm({
         </div>
 
         {/* Seasonal search keywords: opt-in, because they change WHICH products are found.
-            A niche channel does not want beach gear in July just because it is summer. */}
+            A niche channel does not want beach gear in July just because it is summer.
+            AliExpress only — see canUseSeasonal: the other sources never search. */}
+        {canUseSeasonal && (
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">
           <div className="flex items-center justify-between">
             <div className="min-w-0 pl-4">
@@ -683,6 +695,7 @@ export function CampaignForm({
             </button>
           </div>
         </div>
+        )}
 
         {/* Order-driven learning. Off by default and per-campaign for the same reason the
             seasonal toggle is: the winning categories are learned from ALL orders on the

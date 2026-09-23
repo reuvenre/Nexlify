@@ -28,7 +28,7 @@
  * (That the UI offers the toggle there at all is a separate problem, and the owner's call.)
  */
 
-import { activeSeasonalEvents, seasonalKeywords } from '../common/seasonal';
+import { activeSeasonalEvents, seasonalKeywords, sourceSupportsSeasonal } from '../common/seasonal';
 
 /** How far back the check looks. Long enough to cover a slow campaign's full rotation,
  *  short enough that a window is not half over before the alert lands. */
@@ -41,10 +41,6 @@ export const SEASONAL_GAP_DAYS = 3;
  * come round yet, not a fault. Six is comfortably more than one cycle for any real cadence.
  */
 export const MIN_POSTS_TO_JUDGE = 6;
-
-/** The only product source that searches keywords, and therefore the only one the calendar
- *  can reach. Everything else rotates a fixed catalog or walks its own cursor. */
-export const SEASONAL_CAPABLE_SOURCE = 'aliexpress';
 
 /** One active, seasonal-enabled campaign and what it actually published. */
 export interface SeasonalCampaignRow {
@@ -83,7 +79,7 @@ export function seasonalGaps(rows: SeasonalCampaignRow[], now = new Date()): Sea
   for (const row of rows || []) {
     // A source that never searches keywords cannot publish from one. Judging it produces an
     // alert that no action can ever clear — the definition of noise.
-    if ((row.source || SEASONAL_CAPABLE_SOURCE) !== SEASONAL_CAPABLE_SOURCE) continue;
+    if (!sourceSupportsSeasonal(row.source)) continue;
     const language = row.language || 'he';
     const expected = seasonalKeywords(language, now);
     if (!expected.length) continue; // nothing this campaign could have published from
