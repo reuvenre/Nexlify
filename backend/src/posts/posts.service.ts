@@ -67,7 +67,8 @@ import {
 } from '../pinterest/pinterest-scopes';
 import { CollageService } from '../collage/collage.service';
 import { signAliexpress } from '../common/aliexpress-sign';
-import { seasonalKeywords, seasonalCopyHints } from '../common/seasonal';
+import { seasonalKeywords, seasonalCopyHints, activeSeasonalEvents } from '../common/seasonal';
+import { SeasonalStatus, seasonalRunNote } from './seasonal-status';
 import { seasonalPostsPerRun } from './seasonal-boost';
 import { normalizeTelegramChatId } from '../common/crypto';
 import { assertSafeOutboundUrl } from '../common/ssrf';
@@ -116,6 +117,9 @@ export interface CampaignKeywordPlan {
   seasonalKeywordSet: Set<string>;
   /** Lowercased bonus-pool keywords — the per-post copy angle keys off this. */
   bonusKeywordSet: Set<string>;
+  /** How far the seasonal calendar got on this run — reported in the run note so an open
+   *  window producing nothing is visible instead of silent (see seasonal-status.ts). */
+  seasonalStatus: SeasonalStatus;
 }
 
 /** Outcome of one campaign cycle — reported to the user instead of a blind "queued". */
@@ -2598,18 +2602,28 @@ export class PostsService {
     // either way, because it only angles the wording of a product the campaign chose itself.
     let occasionHint: string | null = null;
     let saleSeasonHint: string | null = null;
+    // Which gate the run reached, so the run note can say WHY nothing seasonal came out —
+    // three switches and a language all produce the same silence (see seasonal-status.ts).
+    const language = campaign.language || 'he';
+    const openEvents = activeSeasonalEvents(language).map((ev) => ev.name);
+    let seasonalState: SeasonalStatus['state'] = 'active';
     // The seasonal terms actually in this run's rotation. They earn a boost below — an
     // extra post and a proven keyword's emphasis — because the window is short and the
     // intent inside it is the highest of the year (see seasonal-boost.ts). They also decide
     // WHICH posts get the occasion hint, below.
     const seasonalInRotation: string[] = [];
-    if (creds.seasonal_enabled !== false
-      && (await this.subscription.allows(userId, 'seasonal_calendar').catch(() => true))) {
+    if (creds.seasonal_enabled === false) {
+      seasonalState = 'account-off';
+    } else if (!(await this.subscription.allows(userId, 'seasonal_calendar').catch(() => true))) {
+      seasonalState = 'plan-off';
+    } else {
       if (campaign.seasonal_keywords) {
-        for (const kw of seasonalKeywords(campaign.language || 'he')) {
+        for (const kw of seasonalKeywords(language)) {
           if (!kwList.includes(kw)) kwList.push(kw);
           seasonalInRotation.push(kw);
         }
+      } else {
+        seasonalState = 'campaign-off';
       }
       // The occasion hint is NOT unconditional. It asks the copywriter to tie the product to
       // the holiday, which is right for a serving platter and wrong for a tactical belt —
@@ -2617,7 +2631,7 @@ export class PostsService {
       // that found the product, so a campaign that never searches seasonal terms never
       // frames its products as holiday products. The sale-season line is different: it is a
       // fact about the calendar, not about the product, so it stays on every post.
-      ({ occasion: occasionHint, saleSeason: saleSeasonHint } = seasonalCopyHints(campaign.language || 'he'));
+      ({ occasion: occasionHint, saleSeason: saleSeasonHint } = seasonalCopyHints(language));
     }
 
     // BONUS POOLS (AliExpress incentive campaigns the owner registered for in the portal):
@@ -2691,6 +2705,7 @@ export class PostsService {
       occasionHint, saleSeasonHint,
       seasonalKeywordSet: new Set(seasonalInRotation.map((k) => k.trim().toLowerCase())),
       bonusKeywordSet,
+      seasonalStatus: { state: seasonalState, events: openEvents, keywords: seasonalInRotation },
     };
   }
 
@@ -2711,7 +2726,7 @@ export class PostsService {
     const {
       kwList, kwEffective, baseCursor, perPost,
       slotKeywords, distinctKeywords,
-      occasionHint, saleSeasonHint, seasonalKeywordSet, bonusKeywordSet,
+      occasionHint, saleSeasonHint, seasonalKeywordSet, bonusKeywordSet, seasonalStatus,
     } = await this.campaignKeywordPlan(campaign, userId, creds);
 
     // Products this campaign already posted — from the DURABLE de-dup table (survives
@@ -2941,6 +2956,10 @@ export class PostsService {
       }
       if (product) toPost.push({ product, kw: source });
     }
+    // Counted from the DONOR keyword, not the slot's: a seasonal slot that came up empty
+    // borrows from another keyword, and counting the slot would report a Halloween post
+    // that never happened — which is the exact failure the note exists to expose.
+    const fromSeasonal = toPost.filter((t) => seasonalKeywordSet.has(t.kw.trim().toLowerCase())).length;
 
     // A dedicated-Pinterest campaign writes pin-optimized copy (keyword-rich description,
     // no Telegram group voice) and must skip the account's default body template — that
@@ -3167,6 +3186,8 @@ export class PostsService {
       `${result.queued} פוסטים`,
       skipped ? `${skipped} דולגו (הקבוצה תפוסה)` : null,
       result.failed ? `${result.failed} נכשלו` : null,
+      // Before the errors, so a long error list cannot push it past the 400-char cut.
+      seasonalRunNote(seasonalStatus, fromSeasonal),
       ...result.errors.slice(0, 3),
     ].filter(Boolean).join(' · ').slice(0, 400);
     // A run that produced NOTHING because of failures leaves no post row (fail-loudly
