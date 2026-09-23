@@ -18,6 +18,14 @@
  * Deliberately NOT flagged: a campaign whose seasonal toggle is off. That is a choice, not a
  * fault — the owner switched two campaigns off this week on purpose, and alerting on them
  * would be exactly the noise that teaches him to ignore the alerts.
+ *
+ * Also not flagged: a campaign whose product SOURCE cannot use seasonal keywords at all. The
+ * calendar injects search terms, and only the AliExpress runner searches — FLYLINK rotates a
+ * linked supplier catalog (no search API exists) and Amazon walks its own cursor. Their
+ * seasonal toggle is decorative, so such a campaign can never satisfy this check and would
+ * alert every six hours forever. The first live run of this check caught exactly that: a
+ * FLYLINK campaign, toggle on, 36 posts, 0 seasonal — structurally impossible, not a fault.
+ * (That the UI offers the toggle there at all is a separate problem, and the owner's call.)
  */
 
 import { activeSeasonalEvents, seasonalKeywords } from '../common/seasonal';
@@ -34,10 +42,16 @@ export const SEASONAL_GAP_DAYS = 3;
  */
 export const MIN_POSTS_TO_JUDGE = 6;
 
+/** The only product source that searches keywords, and therefore the only one the calendar
+ *  can reach. Everything else rotates a fixed catalog or walks its own cursor. */
+export const SEASONAL_CAPABLE_SOURCE = 'aliexpress';
+
 /** One active, seasonal-enabled campaign and what it actually published. */
 export interface SeasonalCampaignRow {
   campaignId: string;
   campaignName: string;
+  /** 'aliexpress' | 'flylink' | 'amazon' — only the first can act on seasonal keywords. */
+  source: string;
   /** Decides WHICH events apply: US events reach English campaigns only. */
   language: string;
   /** Sent posts in the window. */
@@ -67,6 +81,9 @@ export interface SeasonalGap {
 export function seasonalGaps(rows: SeasonalCampaignRow[], now = new Date()): SeasonalGap[] {
   const out: SeasonalGap[] = [];
   for (const row of rows || []) {
+    // A source that never searches keywords cannot publish from one. Judging it produces an
+    // alert that no action can ever clear — the definition of noise.
+    if ((row.source || SEASONAL_CAPABLE_SOURCE) !== SEASONAL_CAPABLE_SOURCE) continue;
     const language = row.language || 'he';
     const expected = seasonalKeywords(language, now);
     if (!expected.length) continue; // nothing this campaign could have published from

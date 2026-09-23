@@ -10,6 +10,7 @@ const OUT_OF_SEASON = new Date('2026-05-20T09:00:00Z');
 const row = (over: Partial<SeasonalCampaignRow> = {}): SeasonalCampaignRow => ({
   campaignId: 'c1',
   campaignName: 'Pinterest US',
+  source: 'aliexpress',
   language: 'en',
   recentPosts: 12,
   keywords: ['tactical flashlight', 'camping gear'],
@@ -78,6 +79,19 @@ describe('a season open and nothing publishing into it', () => {
     it('waits until the campaign has published enough for zero to mean something', () => {
       expect(seasonalGaps([row({ recentPosts: MIN_POSTS_TO_JUDGE - 1 })], IN_US_SEASON)).toEqual([]);
       expect(seasonalGaps([row({ recentPosts: MIN_POSTS_TO_JUDGE })], IN_US_SEASON)).toHaveLength(1);
+    });
+
+    it.each([
+      ['flylink', 'rotates a linked catalog — no keyword search exists'],
+      ['amazon', 'walks its own cursor and never sees the calendar'],
+    ])('says nothing for a %s campaign — %s', (source) => {
+      // Caught on this check's first live run: a FLYLINK campaign, toggle on, 36 posts,
+      // 0 seasonal. Structurally impossible to satisfy, so the alert could never be cleared.
+      expect(seasonalGaps([row({ source, recentPosts: 36 })], IN_US_SEASON)).toEqual([]);
+    });
+
+    it('still judges a campaign whose source is unset — the default is AliExpress', () => {
+      expect(seasonalGaps([row({ source: '' })], IN_US_SEASON)).toHaveLength(1);
     });
 
     it('survives an empty or missing result set', () => {

@@ -460,6 +460,7 @@ export class WatchdogService implements OnModuleInit {
     const rows: any[] = await this.campaigns.query(
       `SELECT c.id                                                   AS "campaignId",
               c.name                                                 AS "campaignName",
+              coalesce(c.source, 'aliexpress')                       AS "source",
               coalesce(c.language, 'he')                             AS "language",
               count(*)::int                                          AS "recentPosts",
               coalesce(
@@ -472,12 +473,13 @@ export class WatchdogService implements OnModuleInit {
        WHERE c.status = 'active'
          AND c.seasonal_keywords = true
          AND p.sent_at > now() - ($1 || ' days')::interval
-       GROUP BY c.id, c.name, c.language`,
+       GROUP BY c.id, c.name, c.source, c.language`,
       [String(SEASONAL_GAP_DAYS)],
     );
     return rows.map((r) => ({
       campaignId: String(r.campaignId),
       campaignName: String(r.campaignName || ''),
+      source: String(r.source || 'aliexpress'),
       language: String(r.language || 'he'),
       recentPosts: Number(r.recentPosts) || 0,
       keywords: Array.isArray(r.keywords) ? r.keywords.map((k: any) => String(k || '')) : [],
