@@ -13,6 +13,7 @@ import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-p
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, weightedRotation } from './keyword-rotation';
+import { cursorGiveBack } from './keyword-cursor';
 import { isTelegramConnectionError, telegramErrorText } from './telegram-retry';
 import { tagShortLinks } from '../links/click-source';
 import { stripInlineLink } from './strip-inline-link';
@@ -2956,10 +2957,12 @@ export class PostsService {
       }
       if (product) toPost.push({ product, kw: source });
     }
-    // Counted from the DONOR keyword, not the slot's: a seasonal slot that came up empty
-    // borrows from another keyword, and counting the slot would report a Halloween post
-    // that never happened — which is the exact failure the note exists to expose.
-    const fromSeasonal = toPost.filter((t) => seasonalKeywordSet.has(t.kw.trim().toLowerCase())).length;
+    // Seasonal posts this run actually QUEUED — counted in the loop below, from the DONOR
+    // keyword rather than the slot's (a seasonal slot that came up empty borrows from another
+    // keyword), and only once the post is saved. Counting candidates here instead would
+    // report a Halloween post that pacing then skipped, which is the exact failure the note
+    // exists to expose.
+    let fromSeasonal = 0;
 
     // A dedicated-Pinterest campaign writes pin-optimized copy (keyword-rich description,
     // no Telegram group voice) and must skip the account's default body template — that
@@ -3157,6 +3160,7 @@ export class PostsService {
 
         await this.repo.save(post);
         result.queued++;
+        if (seasonalKeywordSet.has(String(slotKeyword || '').trim().toLowerCase())) fromSeasonal++;
         // Durable de-dup memory (survives post deletion). On a re-post after the cooldown,
         // REFRESH created_at so the cooldown restarts from now — otherwise a recycled product
         // would keep its old timestamp and become postable again on the very next run.
@@ -3177,6 +3181,14 @@ export class PostsService {
         result.errors.push(`${product.title?.slice(0, 40) || product.product_id}: ${err.message}`);
         this.logger.warn(`Campaign ${campaign.id} product ${product.product_id} failed: ${err.message}`);
       }
+    }
+
+    // Hand back the rotation slots pacing skipped, so their keywords lead the next run instead
+    // of being stepped over for good — see keyword-cursor.ts. Relative update, so it composes
+    // with the pre-run advance in either order.
+    const giveBack = cursorGiveBack(perPost, skipped);
+    if (giveBack) {
+      await this.campaignRepo.decrement({ id: campaign.id }, 'keyword_cursor', giveBack).catch(() => {});
     }
 
     // Record what this run DID, so a later "publishing slower than configured" alert can
