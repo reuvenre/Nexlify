@@ -3025,7 +3025,19 @@ export class PostsService {
             }]);
             if (v.fits) { kept.push({ product: next, kw: donor }); replaced = true; }
           }
-          if (replaced) break;
+          if (replaced) {
+            // A seasonal slot that ends up filled from an ordinary keyword is the one
+            // replacement the owner must be able to see: it was silent (a logger line), and
+            // it reads from outside exactly like a season that never ran — every switch on,
+            // nothing seasonal published, nothing in the run note to say why.
+            const wasSeasonal = seasonalKeywordSet.has(toPost[i].kw.trim().toLowerCase());
+            if (wasSeasonal && !seasonalKeywordSet.has(donor.trim().toLowerCase())) {
+              result.errors.push(
+                `שומר הרלוונטיות פסל מוצר עונתי "${rejectedTitle}" (${verdicts[i].reason || 'לא מתאים לקהל'}) — הוחלף במוצר של "${donor}"`,
+              );
+            }
+            break;
+          }
         }
         if (!replaced) {
           result.errors.push(

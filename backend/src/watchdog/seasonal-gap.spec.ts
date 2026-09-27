@@ -1,8 +1,7 @@
 import {
-  MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow, searchConstraints,
+  MIN_POSTS_TO_JUDGE, SEASONAL_ALERT_KEY_PREFIX, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow, searchConstraints,
   seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
 } from './seasonal-gap';
-import { throttled } from './throttle-memory';
 
 /** Inside the Halloween (15/09–31/10) and Christmas (20/09–18/12) windows. */
 const IN_US_SEASON = new Date('2026-09-23T09:00:00Z');
@@ -177,21 +176,33 @@ describe('reporting a campaign once per window, whatever else is on the list', (
     // #92 listed A and B; B was switched off; #93 re-raised A alone the next day.
     const reported = new Map<string, number>([[seasonalGapKey('A'), IN_US_SEASON.getTime() - 24 * 3600e3]]);
     const now = IN_US_SEASON.getTime();
-    const left = unreportedGaps([gap('A')], (k) => throttled(reported, k, now, SEASONAL_GAP_REPEAT_MS));
+    const left = unreportedGaps([gap('A')], reported, now);
     expect(left).toEqual([]);
   });
 
   it('still reports a campaign that joins the list later', () => {
     const reported = new Map<string, number>([[seasonalGapKey('A'), IN_US_SEASON.getTime()]]);
     const now = IN_US_SEASON.getTime();
-    const left = unreportedGaps([gap('A'), gap('C')], (k) => throttled(reported, k, now, SEASONAL_GAP_REPEAT_MS));
+    const left = unreportedGaps([gap('A'), gap('C')], reported, now);
     expect(left.map((g) => g.campaignId)).toEqual(['C']);
   });
 
   it('reports the campaign again once the window has passed', () => {
     const reported = new Map<string, number>([[seasonalGapKey('A'), IN_US_SEASON.getTime()]]);
     const now = IN_US_SEASON.getTime() + SEASONAL_GAP_REPEAT_MS + 1;
-    const left = unreportedGaps([gap('A')], (k) => throttled(reported, k, now, SEASONAL_GAP_REPEAT_MS));
+    const left = unreportedGaps([gap('A')], reported, now);
     expect(left.map((g) => g.campaignId)).toEqual(['A']);
+  });
+
+  it('counts a campaign listed in an earlier combined alert as reported', () => {
+    // #93 was remembered only as "seasonal_gap:A" (before per-campaign keys); #94 re-raised A.
+    const reported = new Map<string, number>([[`${SEASONAL_ALERT_KEY_PREFIX}A,B`, IN_US_SEASON.getTime() - 12 * 3600e3]]);
+    const left = unreportedGaps([gap('A'), gap('C')], reported, IN_US_SEASON.getTime());
+    expect(left.map((g) => g.campaignId)).toEqual(['C']);
+  });
+
+  it('does not mistake a campaign id that is only a prefix of a listed one', () => {
+    const reported = new Map<string, number>([[`${SEASONAL_ALERT_KEY_PREFIX}AB`, IN_US_SEASON.getTime()]]);
+    expect(unreportedGaps([gap('A')], reported, IN_US_SEASON.getTime()).map((g) => g.campaignId)).toEqual(['A']);
   });
 });

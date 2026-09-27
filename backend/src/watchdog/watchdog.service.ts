@@ -40,7 +40,7 @@ import {
 } from './throttle-memory';
 import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
 import {
-  MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
+  MIN_POSTS_TO_JUDGE, SEASONAL_ALERT_KEY_PREFIX, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
   searchConstraints, seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
 } from './seasonal-gap';
 
@@ -1109,14 +1109,14 @@ export class WatchdogService implements OnModuleInit {
         this.logger.warn(`watchdog seasonal scan failed: ${err?.message}`);
         return [];
       }), new Date(now)),
-      (key) => throttled(this.reported, key, now, SEASONAL_GAP_REPEAT_MS),
+      this.reported, now,
     );
     if (gaps.length) {
       out.push({
         // Keyed by the campaigns it lists, so a campaign newly missing its season is its own
         // alert. Each listed campaign is also remembered on its own (alsoThrottle), so one
         // already reported does not ride back in when the list around it changes.
-        key: `seasonal_gap:${gaps.map((g) => g.campaignId).sort().join(',').slice(0, 80)}`,
+        key: `${SEASONAL_ALERT_KEY_PREFIX}${gaps.map((g) => g.campaignId).sort().join(',').slice(0, 80)}`,
         title: `${gaps.length} קמפיינים עם מתג עונתי דלוק שלא מפרסמים כלום עונתי`,
         body: [
           `**בדיקה:** קמפיין פעיל עם \`seasonal_keywords\` דלוק, שפרסם ${MIN_POSTS_TO_JUDGE}+ פוסטים`,

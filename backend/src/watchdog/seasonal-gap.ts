@@ -37,6 +37,7 @@
  */
 
 import { activeSeasonalEvents, seasonalKeywords, sourceSupportsSeasonal } from '../common/seasonal';
+import { throttled } from './throttle-memory';
 
 /** How far back the check looks. Long enough to cover a slow campaign's full rotation,
  *  short enough that a window is not half over before the alert lands. */
@@ -175,9 +176,21 @@ export function seasonalGapKey(campaignId: string): string {
   return `seasonal_gap_campaign:${campaignId}`;
 }
 
-/** The gaps worth reporting now: those whose campaign has not been reported inside the window. */
+/**
+ * The gaps worth reporting now: those whose campaign has not been reported inside the window —
+ * under its own key, or as one of the campaigns listed in an earlier alert's key. The second
+ * form is how every alert before seasonalGapKey existed was remembered, and ignoring it
+ * re-raised a campaign reported hours earlier the moment the per-campaign keys shipped (#94).
+ */
 export function unreportedGaps(
-  gaps: SeasonalGap[], isThrottled: (key: string) => boolean,
+  gaps: SeasonalGap[], reported: Map<string, number>, now: number,
 ): SeasonalGap[] {
-  return gaps.filter((g) => !isThrottled(seasonalGapKey(g.campaignId)));
+  const listedIn = (id: string) => Array.from(reported.keys()).filter(
+    (k) => k.startsWith(SEASONAL_ALERT_KEY_PREFIX) && k.slice(SEASONAL_ALERT_KEY_PREFIX.length).split(',').includes(id),
+  );
+  const quiet = (key: string) => throttled(reported, key, now, SEASONAL_GAP_REPEAT_MS);
+  return gaps.filter((g) => !quiet(seasonalGapKey(g.campaignId)) && !listedIn(g.campaignId).some(quiet));
 }
+
+/** Prefix of the combined alert's key; the campaign ids it lists follow, comma-separated. */
+export const SEASONAL_ALERT_KEY_PREFIX = 'seasonal_gap:';
