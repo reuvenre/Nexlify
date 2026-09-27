@@ -41,7 +41,7 @@ import {
 import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
 import {
   MIN_POSTS_TO_JUDGE, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
-  searchConstraints, seasonalGapLine, seasonalGaps,
+  searchConstraints, seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
 } from './seasonal-gap';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
@@ -91,6 +91,10 @@ export interface WatchdogAlert {
    *  suits a fault someone fixes today; a finding resolved by a business DECISION asks for
    *  longer, or it files an issue every six hours until the decision is made. */
   throttleMs?: number;
+  /** Further throttle keys to remember when this alert goes out, under the same window —
+   *  for an alert that lists several items and must not re-raise one of them just because
+   *  the list around it changed (see seasonalGapKey). */
+  alsoThrottle?: string[];
 }
 
 @Injectable()
@@ -151,6 +155,7 @@ export class WatchdogService implements OnModuleInit {
       for (const a of anomalies) {
         if (throttled(this.reported, a.key, Date.now(), a.throttleMs)) continue;
         this.reported.set(a.key, Date.now());
+        for (const k of a.alsoThrottle || []) this.reported.set(k, Date.now());
         remembered = true;
         // Remembered HERE, not when the alert was composed: one dropped by the throttle
         // above must stay reportable on a later tick.
@@ -1098,14 +1103,19 @@ export class WatchdogService implements OnModuleInit {
     //     campaign is active, on cadence and failing at nothing. It is simply not selling
     //     what the season is buying, and the windows are short enough that finding out by
     //     eye means finding out after the holiday.
-    const gaps = seasonalGaps(await this.seasonalCampaignRows().catch((err: any) => {
-      this.logger.warn(`watchdog seasonal scan failed: ${err?.message}`);
-      return [];
-    }), new Date(now));
+    // Only campaigns not already reported inside the window — see seasonalGapKey.
+    const gaps = unreportedGaps(
+      seasonalGaps(await this.seasonalCampaignRows().catch((err: any) => {
+        this.logger.warn(`watchdog seasonal scan failed: ${err?.message}`);
+        return [];
+      }), new Date(now)),
+      (key) => throttled(this.reported, key, now, SEASONAL_GAP_REPEAT_MS),
+    );
     if (gaps.length) {
       out.push({
-        // Per campaign: a second one missing its season later is its own alert rather than
-        // being swallowed by the first one's 6h throttle.
+        // Keyed by the campaigns it lists, so a campaign newly missing its season is its own
+        // alert. Each listed campaign is also remembered on its own (alsoThrottle), so one
+        // already reported does not ride back in when the list around it changes.
         key: `seasonal_gap:${gaps.map((g) => g.campaignId).sort().join(',').slice(0, 80)}`,
         title: `${gaps.length} קמפיינים עם מתג עונתי דלוק שלא מפרסמים כלום עונתי`,
         body: [
@@ -1134,6 +1144,7 @@ export class WatchdogService implements OnModuleInit {
         // Days, not hours: nothing here is fixed by a deploy, and a Christmas window open
         // for three months would otherwise file an issue every six hours until it closed.
         throttleMs: SEASONAL_GAP_REPEAT_MS,
+        alsoThrottle: gaps.map((g) => seasonalGapKey(g.campaignId)),
       });
     }
 

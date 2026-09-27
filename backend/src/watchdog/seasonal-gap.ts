@@ -158,3 +158,26 @@ export function seasonalGapLine(gap: SeasonalGap): string {
     + `${gap.recentPosts} פוסטים ב-${SEASONAL_GAP_DAYS} ימים, אף אחד מהם עונתי`
     + (constraint ? ` · ${constraint}` : '');
 }
+
+/**
+ * The throttle key ONE campaign's gap is remembered under.
+ *
+ * The alert itself is one issue listing every campaign with a gap, and its key is built from
+ * that list. The list changes whenever any campaign enters or leaves it — the owner switches
+ * one off, one publishes a single seasonal post — and a changed list is a new key the
+ * throttle has never seen. So a campaign reported yesterday came straight back in a "new"
+ * issue the day after (#92 → #93, same campaign, same numbers, 24 h apart), which is exactly
+ * the repeat SEASONAL_GAP_REPEAT_MS exists to prevent. Each campaign is therefore remembered
+ * under its own key as well, and only the campaigns not reported inside the window make it
+ * into the next alert.
+ */
+export function seasonalGapKey(campaignId: string): string {
+  return `seasonal_gap_campaign:${campaignId}`;
+}
+
+/** The gaps worth reporting now: those whose campaign has not been reported inside the window. */
+export function unreportedGaps(
+  gaps: SeasonalGap[], isThrottled: (key: string) => boolean,
+): SeasonalGap[] {
+  return gaps.filter((g) => !isThrottled(seasonalGapKey(g.campaignId)));
+}
