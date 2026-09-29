@@ -79,6 +79,12 @@ export interface SeasonalCampaignRow {
   categoryId?: string | null;
   minPrice?: number | null;
   maxPrice?: number | null;
+  /** Distinct lowercased keywords of posts CREATED in the window that never went out (queued,
+   *  failed, skipped). A seasonal one here means the search worked and publishing did not. */
+  unsentKeywords?: string[];
+  /** The runner's own note on its last run — what the alert can say without anyone opening
+   *  the dashboard: a dry search, a guard-swapped seasonal slot, the switch state. */
+  lastRunNote?: string | null;
 }
 
 export interface SeasonalGap {
@@ -92,6 +98,9 @@ export interface SeasonalGap {
   categoryId: string | null;
   minPrice: number | null;
   maxPrice: number | null;
+  /** Seasonal keywords that produced posts in the window which never went out. */
+  unsentSeasonal: string[];
+  lastRunNote: string | null;
 }
 
 /**
@@ -126,6 +135,9 @@ export function seasonalGaps(rows: SeasonalCampaignRow[], now = new Date()): Sea
       categoryId: row.categoryId?.trim() || null,
       minPrice: Number(row.minPrice) > 0 ? Number(row.minPrice) : null,
       maxPrice: Number(row.maxPrice) > 0 ? Number(row.maxPrice) : null,
+      unsentSeasonal: expected.filter((kw) => (row.unsentKeywords || [])
+        .some((k) => String(k || '').trim().toLowerCase() === kw.trim().toLowerCase())),
+      lastRunNote: row.lastRunNote?.trim() || null,
     });
   }
   return out;

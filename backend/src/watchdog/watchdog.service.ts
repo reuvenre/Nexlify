@@ -477,18 +477,27 @@ export class WatchdogService implements OnModuleInit {
               c.category_id                                          AS "categoryId",
               c.min_price                                            AS "minPrice",
               c.max_price                                            AS "maxPrice",
-              count(*)::int                                          AS "recentPosts",
+              c.last_run_note                                        AS "lastRunNote",
+              count(*) FILTER (WHERE p.status = 'sent' AND p.sent_at > now() - ($1 || ' days')::interval)::int
+                                                                     AS "recentPosts",
               coalesce(
                 array_agg(DISTINCT lower(trim(p.keyword)))
-                  FILTER (WHERE p.keyword IS NOT NULL AND trim(p.keyword) <> ''),
+                  FILTER (WHERE p.status = 'sent' AND p.sent_at > now() - ($1 || ' days')::interval
+                          AND p.keyword IS NOT NULL AND trim(p.keyword) <> ''),
                 '{}'
-              )                                                      AS "keywords"
+              )                                                      AS "keywords",
+              coalesce(
+                array_agg(DISTINCT lower(trim(p.keyword)))
+                  FILTER (WHERE p.status <> 'sent' AND p.created_at > now() - ($1 || ' days')::interval
+                          AND p.keyword IS NOT NULL AND trim(p.keyword) <> ''),
+                '{}'
+              )                                                      AS "unsentKeywords"
        FROM campaigns c
-       JOIN posts p ON p.campaign_id = c.id AND p.status = 'sent'
+       JOIN posts p ON p.campaign_id = c.id
+         AND (p.sent_at > now() - ($1 || ' days')::interval OR p.created_at > now() - ($1 || ' days')::interval)
        WHERE c.status = 'active'
          AND c.seasonal_keywords = true
-         AND p.sent_at > now() - ($1 || ' days')::interval
-       GROUP BY c.id, c.name, c.source, c.language, c.category_id, c.min_price, c.max_price`,
+       GROUP BY c.id, c.name, c.source, c.language, c.category_id, c.min_price, c.max_price, c.last_run_note`,
       [String(SEASONAL_GAP_DAYS)],
     );
     return rows.map((r) => ({
@@ -501,6 +510,8 @@ export class WatchdogService implements OnModuleInit {
       maxPrice: r.maxPrice !== null && r.maxPrice !== undefined ? Number(r.maxPrice) : null,
       recentPosts: Number(r.recentPosts) || 0,
       keywords: Array.isArray(r.keywords) ? r.keywords.map((k: any) => String(k || '')) : [],
+      unsentKeywords: Array.isArray(r.unsentKeywords) ? r.unsentKeywords.map((k: any) => String(k || '')) : [],
+      lastRunNote: r.lastRunNote ? String(r.lastRunNote) : null,
     }));
   }
 
@@ -1126,7 +1137,11 @@ export class WatchdogService implements OnModuleInit {
             const constraint = searchConstraints(g);
             return `- "${g.campaignName}" \`${g.campaignId}\` · חלון פתוח: ${g.events.join(', ')}`
               + ` · ציפינו ל-${g.expected.join(', ')} · ${g.recentPosts} פוסטים, 0 עונתיים`
-              + (constraint ? `\n   └ מגבלות חיפוש: ${constraint}` : '\n   └ אין קטגוריה או טווח מחיר מוגדרים');
+              + (constraint ? `\n   └ מגבלות חיפוש: ${constraint}` : '\n   └ אין קטגוריה או טווח מחיר מוגדרים')
+              + (g.unsentSeasonal.length
+                ? `\n   └ ⚠️ נוצרו פוסטים עונתיים שלא נשלחו (${g.unsentSeasonal.join(', ')}) — התקלה בשליחה, לא בחיפוש`
+                : '')
+              + (g.lastRunNote ? `\n   └ ההרצה האחרונה: ${g.lastRunNote}` : '');
           }),
           '',
           'זו אינה תקלה טכנית — הקמפיין רץ ומפרסם כרגיל. מקום עונתי שואל ממילה אחרת רק כשהחיפוש',

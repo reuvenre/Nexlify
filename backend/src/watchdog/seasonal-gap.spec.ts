@@ -206,3 +206,21 @@ describe('reporting a campaign once per window, whatever else is on the list', (
     expect(unreportedGaps([gap('A')], reported, IN_US_SEASON.getTime()).map((g) => g.campaignId)).toEqual(['A']);
   });
 });
+
+describe('what the alert can say about WHY, without opening the dashboard', () => {
+  it('names a seasonal keyword whose posts were created but never went out', () => {
+    const [g] = seasonalGaps([row({ unsentKeywords: ['Halloween Decorations', 'camping gear'] })], IN_US_SEASON);
+    expect(g.unsentSeasonal).toEqual(['halloween decorations']);
+  });
+
+  it('reports nothing unsent when every unsent post was an ordinary keyword', () => {
+    const [g] = seasonalGaps([row({ unsentKeywords: ['camping gear'] })], IN_US_SEASON);
+    expect(g.unsentSeasonal).toEqual([]);
+  });
+
+  it('carries the last run note through, and nothing when there is none', () => {
+    expect(seasonalGaps([row({ lastRunNote: ' 1 פוסטים · שומר הרלוונטיות פסל מוצר עונתי ' })], IN_US_SEASON)[0].lastRunNote)
+      .toBe('1 פוסטים · שומר הרלוונטיות פסל מוצר עונתי');
+    expect(seasonalGaps([row()], IN_US_SEASON)[0].lastRunNote).toBeNull();
+  });
+});
