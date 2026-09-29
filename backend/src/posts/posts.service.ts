@@ -21,7 +21,7 @@ import { toWhatsAppText } from './whatsapp-format';
 import { AUTO_RETRY_MARK, NET_SAFE_TAG, isRetryableNetworkPartial } from './network-partial';
 import { soloCampaignSlot } from './solo-campaign-slot';
 import { manualQueueTurn } from './queue-fairness';
-import { publishTimeoutVerdict } from './ig-container-status';
+import { notReadyVerdict, publishTimeoutVerdict } from './ig-container-status';
 import { bonusCopyHint } from './bonus-copy';
 import { flylinkTrustBlock, hasFlylinkTrustBlock, isFlylinkPost, PostPlatform } from './flylink-trust';
 import { BRAND_PLUS_MARK, brandPlusLine } from './brand-plus';
@@ -5333,7 +5333,9 @@ export class PostsService {
     // 2) Instagram processes the container ASYNCHRONOUSLY — publishing straight away fails
     // with "Media ID is not available". Poll the container's status_code until FINISHED
     // (ERROR = the image itself was rejected; timeout → still try to publish below).
-    for (let i = 0; i < 10; i++) {
+    // 16 × 2.5 s = 40 s. Meta fetches the image through our own route, and a slow supplier
+    // CDN alone can hold a container in IN_PROGRESS past the old 25 s bound (#96).
+    for (let i = 0; i < 16; i++) {
       // A network blip DURING the poll must not kill a publish whose container already
       // exists — treat it as "still processing" and let the bounded loop try again.
       // An uncaught ETIMEDOUT here failed the whole send (partial-publish alert) even
@@ -5359,7 +5361,12 @@ export class PostsService {
     // retry the known not-ready error a few times before giving up.
     let lastErr = '';
     let lastGraphErr: any = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // Not-ready (#9007) answers get their own, longer allowance than other failures: each one
+    // is checked against the container (below), so waiting is only spent on a container that
+    // is genuinely still processing. Everything else keeps the old five-attempt budget.
+    let otherAttempts = 0;
+    let notReadyAttempts = 0;
+    while (otherAttempts < 5 && notReadyAttempts < 10) {
       let publish;
       try {
         publish = await axios.post(
@@ -5374,6 +5381,7 @@ export class PostsService {
         if (isMetaConnectionError(err)) {
           this.logger.warn('instagram publish: connection never reached Meta, retrying');
           lastErr = 'החיבור לשרתי מטא נכשל ברמת הרשת בעת הפרסום';
+          otherAttempts++;
           await new Promise((r) => setTimeout(r, 2500));
           continue;
         }
@@ -5391,6 +5399,7 @@ export class PostsService {
         if (verdict === 'retry') {
           this.logger.warn('instagram publish timed out; container not published — publishing again');
           lastErr = 'אינסטגרם לא השיבה בזמן בעת הפרסום';
+          otherAttempts++;
           await new Promise((r) => setTimeout(r, 2500));
           continue;
         }
@@ -5406,11 +5415,26 @@ export class PostsService {
       // transient #2 reached the owner as raw English with no guidance.
       lastGraphErr = publish.data?.error ?? null;
       lastErr = lastGraphErr?.message || 'Instagram publish failed';
-      // The container can report FINISHED and still need a moment.
-      if (/Media ID is not available/i.test(lastErr)) {
-        await new Promise((r) => setTimeout(r, 4000));
+      // Not publishable yet. Ask the container what that means instead of retrying blind
+      // (see notReadyVerdict): it may already be live, still processing, or dead.
+      if (lastGraphErr?.code === 9007 || /Media ID is not available/i.test(lastErr)) {
+        notReadyAttempts++;
+        const verdict = notReadyVerdict(await this.igContainerStatus(creationId, token));
+        if (verdict === 'published') {
+          this.logger.log(`instagram publish said "not available" but the container reports PUBLISHED (${creationId}) — the post is live`);
+          post.instagram_post_id = await this.igLatestMediaId(igId, token) || '';
+          return;
+        }
+        if (verdict === 'rejected') {
+          throw new Error('אינסטגרם דחה את התמונה בעת העיבוד — ודא שהיא JPEG נגיש (לא WebP) וביחס גובה-רוחב נתמך');
+        }
+        if (verdict === 'expired') {
+          throw new Error('מיכל המדיה של אינסטגרם פג תוקף לפני הפרסום — הפוסט לא פורסם. לחץ "נסה שוב".');
+        }
+        await new Promise((r) => setTimeout(r, 5000));
         continue;
       }
+      otherAttempts++;
       // Graph's #1/#2 family: Meta answered with an error, so NOTHING was published and a
       // retry cannot duplicate the post. Its own message asks for exactly this ("please
       // retry your request later") — obeying it is the difference between a post that goes

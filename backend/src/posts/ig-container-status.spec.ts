@@ -1,4 +1,4 @@
-import { publishTimeoutVerdict } from './ig-container-status';
+import { notReadyVerdict, publishTimeoutVerdict } from './ig-container-status';
 
 describe('publishTimeoutVerdict', () => {
   it('accepts a timed-out publish that actually went live', () => {
@@ -21,5 +21,23 @@ describe('publishTimeoutVerdict', () => {
     expect(publishTimeoutVerdict('')).toBe('unknown');
     expect(publishTimeoutVerdict('ERROR')).toBe('unknown');
     expect(publishTimeoutVerdict('EXPIRED')).toBe('unknown');
+  });
+});
+
+describe('after media_publish answers #9007 "Media ID is not available"', () => {
+  it('treats a container that already went live as the success it was', () => {
+    expect(notReadyVerdict('PUBLISHED')).toBe('published');
+  });
+
+  it.each(['FINISHED', 'IN_PROGRESS', undefined, null, ''])('keeps waiting on %p', (code) => {
+    expect(notReadyVerdict(code as any)).toBe('wait');
+  });
+
+  it('stops at once on a rejected image — waiting cannot fix it', () => {
+    expect(notReadyVerdict('ERROR')).toBe('rejected');
+  });
+
+  it('stops at once on an expired container — only a fresh send can publish', () => {
+    expect(notReadyVerdict('expired')).toBe('expired');
   });
 });
