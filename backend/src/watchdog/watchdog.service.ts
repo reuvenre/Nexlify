@@ -39,6 +39,7 @@ import {
   mergeThrottle, serializeThrottle, throttled,
 } from './throttle-memory';
 import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
+import { SeasonalLedgerEntry, seasonalLedgerKey, seasonalLedgerLine, sumSeasonalRuns } from '../posts/seasonal-ledger';
 import {
   MIN_POSTS_TO_JUDGE, SEASONAL_ALERT_KEY_PREFIX, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
   searchConstraints, seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
@@ -1123,6 +1124,13 @@ export class WatchdogService implements OnModuleInit {
       this.reported, now,
     );
     if (gaps.length) {
+      // The split of every seasonal slot over the window — one run's note cannot tell a
+      // rotation that never came round from slots skipped or swapped (seasonal-ledger.ts).
+      const ledgerLines = new Map<string, string | null>();
+      for (const g of gaps) {
+        const stored = await this.memory.load<SeasonalLedgerEntry[]>(seasonalLedgerKey(g.campaignId));
+        ledgerLines.set(g.campaignId, seasonalLedgerLine(sumSeasonalRuns(stored, now)));
+      }
       out.push({
         // Keyed by the campaigns it lists, so a campaign newly missing its season is its own
         // alert. Each listed campaign is also remembered on its own (alsoThrottle), so one
@@ -1141,6 +1149,7 @@ export class WatchdogService implements OnModuleInit {
               + (g.unsentSeasonal.length
                 ? `\n   └ ⚠️ נוצרו פוסטים עונתיים שלא נשלחו (${g.unsentSeasonal.join(', ')}) — התקלה בשליחה, לא בחיפוש`
                 : '')
+              + (ledgerLines.get(g.campaignId) ? `\n   └ ${SEASONAL_GAP_DAYS} ימים: ${ledgerLines.get(g.campaignId)}` : '')
               + (g.lastRunNote ? `\n   └ ההרצה האחרונה: ${g.lastRunNote}` : '');
           }),
           '',

@@ -14,6 +14,8 @@ import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimFor
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, weightedRotation } from './keyword-rotation';
 import { cursorGiveBack } from './keyword-cursor';
+import { appendSeasonalRun, seasonalLedgerKey, SEASONAL_LEDGER_WINDOW_MS, SeasonalLedgerEntry } from './seasonal-ledger';
+import { PersistentValueStore } from '../common/persistent-value.store';
 import { isTelegramConnectionError, telegramErrorText } from './telegram-retry';
 import { tagShortLinks } from '../links/click-source';
 import { stripInlineLink } from './strip-inline-link';
@@ -270,6 +272,9 @@ export class PostsService {
     // Optional so the existing unit specs — which construct this service positionally —
     // keep working, and so a post still publishes if the storefront is ever unwired.
     @Optional() private readonly storefront?: StorefrontService,
+    // Optional for the same reason: the seasonal ledger is diagnostic, and a missing store
+    // must never stop a run.
+    @Optional() private readonly memory?: PersistentValueStore,
   ) {}
 
   /**
@@ -3002,6 +3007,7 @@ export class PostsService {
     // ובריכה" and was published to a real audience. A rejected product is replaced from
     // the same pool (bounded attempts); no clean replacement → the slot is dropped and
     // the reason recorded. Fail-open: an unreachable judge changes nothing.
+    let seasonalSwapped = 0;
     if (toPost.length && this.ai.hasAnyKey(creds)) {
       const groupLabels = (await Promise.all(
         targets.map((t) => this.channels.getName(userId, t).catch(() => null)),
@@ -3038,6 +3044,7 @@ export class PostsService {
             // nothing seasonal published, nothing in the run note to say why.
             const wasSeasonal = seasonalKeywordSet.has(toPost[i].kw.trim().toLowerCase());
             if (wasSeasonal && !seasonalKeywordSet.has(donor.trim().toLowerCase())) {
+              seasonalSwapped++;
               result.errors.push(
                 `שומר הרלוונטיות פסל מוצר עונתי "${rejectedTitle}" (${verdicts[i].reason || 'לא מתאים לקהל'}) — הוחלף במוצר של "${donor}"`,
               );
@@ -3079,6 +3086,8 @@ export class PostsService {
     const variantStats = await this.variantStats(campaign.id);
 
     let skipped = 0;
+    let seasonalSkipped = 0;
+    const isSeasonalKw = (kw: string) => seasonalKeywordSet.has(String(kw || '').trim().toLowerCase());
     for (let i = 0; i < toPost.length; i++) {
       const { product, kw: slotKeyword } = toPost[i];
       try {
@@ -3096,7 +3105,7 @@ export class PostsService {
           const { slot, skip } = await this.nextGroupSlot(
             userId, targets[0], times[i], campaign.id, cycleEnd,
           );
-          if (skip && opts?.fromScheduler) { skipped++; continue; }
+          if (skip && opts?.fromScheduler) { skipped++; if (isSeasonalKw(slotKeyword)) seasonalSkipped++; continue; }
           scheduledAt = slot;
         } else {
           // No group to pace against (Pinterest-only / Instagram-only). Pace the campaign
@@ -3111,7 +3120,7 @@ export class PostsService {
             fromScheduler: !!opts?.fromScheduler,
             alignToWindow: (ms) => this.alignToWindow(ms, creds, window || undefined).getTime(),
           });
-          if (skip) { skipped++; continue; }
+          if (skip) { skipped++; if (isSeasonalKw(slotKeyword)) seasonalSkipped++; continue; }
           scheduledAt = new Date(slotMs);
         }
         // Always resolve a SHORT affiliate link via link.generate (~42 chars, per-product,
@@ -3204,6 +3213,20 @@ export class PostsService {
     // Hand back the rotation slots pacing skipped, so their keywords lead the next run instead
     // of being stepped over for good — see keyword-cursor.ts. Relative update, so it composes
     // with the pre-run advance in either order.
+    // What this run did with its seasonal slots, kept over the alert's window (seasonal-ledger.ts).
+    if (this.memory && seasonalStatus.state === 'active' && seasonalStatus.keywords.length && seasonalStatus.events.length) {
+      const entry: SeasonalLedgerEntry = {
+        t: Date.now(),
+        s: seasonalStatus.slots ?? 0,
+        q: fromSeasonal,
+        k: seasonalSkipped,
+        d: slotKeywords.filter((k) => isSeasonalKw(k) && !poolBy.has(k)).length,
+        w: seasonalSwapped,
+      };
+      const key = seasonalLedgerKey(campaign.id);
+      const stored = await this.memory.load<SeasonalLedgerEntry[]>(key);
+      await this.memory.save(key, appendSeasonalRun(stored, entry), SEASONAL_LEDGER_WINDOW_MS + 24 * 3600_000);
+    }
     const giveBack = cursorGiveBack(perPost, skipped);
     if (giveBack) {
       await this.campaignRepo.decrement({ id: campaign.id }, 'keyword_cursor', giveBack).catch(() => {});
