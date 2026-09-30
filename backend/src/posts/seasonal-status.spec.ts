@@ -88,3 +88,20 @@ describe('the seasonal line in the run note', () => {
     );
   });
 });
+
+describe('what the note says about the seasonal slots themselves', () => {
+  const on = { state: 'active' as const, events: ['חגי תשרי'], keywords: ['מגשי הגשה ופלטות', 'מפות שולחן לאירוח'] };
+
+  it('counts the seasonal slots this run had', () => {
+    expect(seasonalRunNote({ ...on, slots: 1 }, 0)).toContain('1 מקומות עונתיים בהרצה');
+  });
+
+  it('names seasonal keywords the manager paused out of the rotation', () => {
+    expect(seasonalRunNote({ ...on, slots: 0, paused: ['מפות שולחן לאירוח'] }, 0))
+      .toContain('⏸️ מושהות ע"י המנהל: מפות שולחן לאירוח');
+  });
+
+  it('adds nothing when neither was measured', () => {
+    expect(seasonalRunNote(on, 2)).toBe('🗓️ חלון פתוח: חגי תשרי · מגשי הגשה ופלטות, מפות שולחן לאירוח · 2 פוסטים מהן');
+  });
+});

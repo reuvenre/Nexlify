@@ -64,10 +64,25 @@ export interface KeywordPulse {
   clicksBefore: number;
   /** Clicks in the last 48h. */
   clicksRecent: number;
+  /** Posts SENT from this keyword in the last 48h. Undefined = not measured. */
+  postsRecent?: number;
 }
 
 /** A keyword must have earned this much before its silence is a collapse, not noise. */
 export const MIN_PRIOR_CLICKS_FOR_COLLAPSE = 8;
+
+/**
+ * Posts a keyword must have had in the last 48h before its zero clicks mean anything.
+ *
+ * Zero clicks from zero posts is not a collapse — it is a keyword that was not published. And
+ * the pause is exactly what stops it being published, so without this the rule fed itself: a
+ * keyword starved of airtime for two days (a pacing skip, a rotation that had not come round,
+ * a pause from yesterday) read as collapsed, was paused for 24h, came out of the pause still
+ * with no recent posts, and was paused again. The seasonal keywords fit that description
+ * precisely — they earned around the holidays, then went quiet between runs — and a campaign
+ * with its season switched on stopped publishing the season altogether.
+ */
+export const MIN_RECENT_POSTS_FOR_COLLAPSE = 2;
 
 /**
  * Keywords that COLLAPSED: real clicks before, zero in the last 48h — while the campaign
@@ -78,7 +93,8 @@ export const MIN_PRIOR_CLICKS_FOR_COLLAPSE = 8;
 export function collapsedKeywords(pulses: KeywordPulse[], campaignRecentClicks: number): KeywordPulse[] {
   if (campaignRecentClicks <= 0) return []; // the whole campaign is quiet → not a keyword problem
   return (pulses || []).filter(
-    (p) => p.clicksBefore >= MIN_PRIOR_CLICKS_FOR_COLLAPSE && p.clicksRecent === 0,
+    (p) => p.clicksBefore >= MIN_PRIOR_CLICKS_FOR_COLLAPSE && p.clicksRecent === 0
+      && (p.postsRecent === undefined || p.postsRecent >= MIN_RECENT_POSTS_FOR_COLLAPSE),
   );
 }
 

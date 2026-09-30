@@ -33,6 +33,12 @@ export interface SeasonalStatus {
   events: string[];
   /** Seasonal search keywords actually added to the rotation. */
   keywords: string[];
+  /** Seasonal keywords the manager's 24h collapse pause took OUT of this run's rotation.
+   *  In the rotation on paper, absent in fact — and the note said nothing about it. */
+  paused?: string[];
+  /** Post slots in THIS run that went to a seasonal keyword. Zero posts from one slot
+   *  is a skip; zero posts from zero slots is the rotation not having come round. */
+  slots?: number;
 }
 
 /** Keeps the note inside the run-note budget when several events overlap. */
@@ -69,5 +75,8 @@ export function seasonalRunNote(status: SeasonalStatus, postsFromSeasonal: numbe
   // The line that answers the question. `0 פוסטים` here means the keywords were searched and
   // came back EMPTY — a category or price range the holiday stock does not fit, not a switch
   // and not the rating/discount bar (the fallback tiers relax those on their own).
-  return `🗓️ ${open} · ${list(keywords)} · ${postsFromSeasonal} פוסטים מהן`;
+  const parts = [`🗓️ ${open} · ${list(keywords)} · ${postsFromSeasonal} פוסטים מהן`];
+  if (status.slots !== undefined) parts.push(`${status.slots} מקומות עונתיים בהרצה`);
+  if (status.paused?.length) parts.push(`⏸️ מושהות ע"י המנהל: ${list(status.paused)}`);
+  return parts.join(' · ');
 }

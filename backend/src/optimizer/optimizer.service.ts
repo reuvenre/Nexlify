@@ -1102,8 +1102,9 @@ export class OptimizerService {
     // 3) 24h pause for a COLLAPSED keyword — earned before, dead in the last 48h while the
     //    campaign as a whole still earns. One keyword per campaign per day, auto-expires.
     for (const c of campaigns) {
-      const pulses: Array<{ keyword: string; before_clicks: number; recent_clicks: number }> = await q(
+      const pulses: Array<{ keyword: string; before_clicks: number; recent_clicks: number; recent_posts: number }> = await q(
         `SELECT keyword,
+                count(*) FILTER (WHERE sent_at > now() - interval '2 days')::int AS recent_posts,
                 sum(CASE WHEN sent_at <= now() - interval '2 days' THEN clicks_count + pinterest_clicks ELSE 0 END)::int AS before_clicks,
                 sum(CASE WHEN sent_at >  now() - interval '2 days' THEN clicks_count + pinterest_clicks ELSE 0 END)::int AS recent_clicks
          FROM posts
@@ -1114,7 +1115,10 @@ export class OptimizerService {
       if (!pulses.length) continue;
       const campaignRecent = pulses.reduce((s, p) => s + (Number(p.recent_clicks) || 0), 0);
       const collapsed = collapsedKeywords(
-        pulses.map((p) => ({ keyword: String(p.keyword), clicksBefore: Number(p.before_clicks) || 0, clicksRecent: Number(p.recent_clicks) || 0 })),
+        pulses.map((p) => ({
+          keyword: String(p.keyword), clicksBefore: Number(p.before_clicks) || 0,
+          clicksRecent: Number(p.recent_clicks) || 0, postsRecent: Number(p.recent_posts) || 0,
+        })),
         campaignRecent,
       );
       for (const k of collapsed.slice(0, 1)) {

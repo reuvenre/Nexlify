@@ -63,3 +63,15 @@ describe('hoursChanged', () => {
     expect(hoursChanged(null, null)).toBe(false);
   });
 });
+
+describe('collapsedKeywords — no airtime is not a collapse', () => {
+  it('does not pause a keyword that earned before but was not published in the last 48h', () => {
+    expect(collapsedKeywords([{ keyword: 'מגשי הגשה ופלטות', clicksBefore: 15, clicksRecent: 0, postsRecent: 0 }], 10)).toEqual([]);
+    expect(collapsedKeywords([{ keyword: 'x', clicksBefore: 15, clicksRecent: 0, postsRecent: 1 }], 10)).toEqual([]);
+  });
+
+  it('still pauses one that was published and drew nothing', () => {
+    expect(collapsedKeywords([{ keyword: 'x', clicksBefore: 15, clicksRecent: 0, postsRecent: 3 }], 10).map((k) => k.keyword))
+      .toEqual(['x']);
+  });
+});

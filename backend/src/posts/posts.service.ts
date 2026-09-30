@@ -2706,7 +2706,13 @@ export class PostsService {
       occasionHint, saleSeasonHint,
       seasonalKeywordSet: new Set(seasonalInRotation.map((k) => k.trim().toLowerCase())),
       bonusKeywordSet,
-      seasonalStatus: { state: seasonalState, events: openEvents, keywords: seasonalInRotation },
+      seasonalStatus: {
+        state: seasonalState, events: openEvents, keywords: seasonalInRotation,
+        // Only when the pause actually took effect — with every keyword paused the full list
+        // stands (kwEffective above), and nothing was taken out.
+        paused: kwActive.length ? seasonalInRotation.filter((k) => pausedKw.has(k.toLowerCase())) : [],
+        slots: slotKeywords.filter((k) => seasonalInRotation.some((sk) => sk.toLowerCase() === k.toLowerCase())).length,
+      },
     };
   }
 
