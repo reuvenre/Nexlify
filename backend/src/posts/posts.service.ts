@@ -14,7 +14,7 @@ import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimFor
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, weightedRotation } from './keyword-rotation';
 import { cursorGiveBack } from './keyword-cursor';
-import { appendSeasonalRun, seasonalLedgerKey, SEASONAL_LEDGER_WINDOW_MS, SeasonalLedgerEntry } from './seasonal-ledger';
+import { appendSeasonalRun, seasonalLedgerKey, seasonalLedgerLine, sumSeasonalRuns, SEASONAL_LEDGER_WINDOW_MS, SeasonalLedgerEntry } from './seasonal-ledger';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import { isTelegramConnectionError, telegramErrorText } from './telegram-retry';
 import { tagShortLinks } from '../links/click-source';
@@ -3210,10 +3210,11 @@ export class PostsService {
       }
     }
 
-    // Hand back the rotation slots pacing skipped, so their keywords lead the next run instead
-    // of being stepped over for good — see keyword-cursor.ts. Relative update, so it composes
-    // with the pre-run advance in either order.
     // What this run did with its seasonal slots, kept over the alert's window (seasonal-ledger.ts).
+    // The running total also goes into the run note: one run's "0 seasonal slots" is normal and
+    // says nothing, and the owner reading the campaign screen should not need the alert to see
+    // the three-day picture.
+    let ledgerLine: string | null = null;
     if (this.memory && seasonalStatus.state === 'active' && seasonalStatus.keywords.length && seasonalStatus.events.length) {
       const entry: SeasonalLedgerEntry = {
         t: Date.now(),
@@ -3224,9 +3225,13 @@ export class PostsService {
         w: seasonalSwapped,
       };
       const key = seasonalLedgerKey(campaign.id);
-      const stored = await this.memory.load<SeasonalLedgerEntry[]>(key);
-      await this.memory.save(key, appendSeasonalRun(stored, entry), SEASONAL_LEDGER_WINDOW_MS + 24 * 3600_000);
+      const updated = appendSeasonalRun(await this.memory.load<SeasonalLedgerEntry[]>(key), entry);
+      await this.memory.save(key, updated, SEASONAL_LEDGER_WINDOW_MS + 24 * 3600_000);
+      ledgerLine = seasonalLedgerLine(sumSeasonalRuns(updated, entry.t));
     }
+    // Hand back the rotation slots pacing skipped, so their keywords lead the next run instead
+    // of being stepped over for good — see keyword-cursor.ts. Relative update, so it composes
+    // with the pre-run advance in either order.
     const giveBack = cursorGiveBack(perPost, skipped);
     if (giveBack) {
       await this.campaignRepo.decrement({ id: campaign.id }, 'keyword_cursor', giveBack).catch(() => {});
@@ -3239,10 +3244,11 @@ export class PostsService {
       `${result.queued} פוסטים`,
       skipped ? `${skipped} דולגו (הקבוצה תפוסה)` : null,
       result.failed ? `${result.failed} נכשלו` : null,
-      // Before the errors, so a long error list cannot push it past the 400-char cut.
+      // Before the errors, so a long error list cannot push it past the 600-char cut.
       seasonalRunNote(seasonalStatus, fromSeasonal),
+      ledgerLine ? `📊 עונתי ב-3 ימים: ${ledgerLine}` : null,
       ...result.errors.slice(0, 3),
-    ].filter(Boolean).join(' · ').slice(0, 400);
+    ].filter(Boolean).join(' · ').slice(0, 600);
     // A run that produced NOTHING because of failures leaves no post row (fail-loudly
     // path) — log it as data, or the drift check reads the hole it leaves as a pacing
     // fault (issue #60). Healthy runs just prune the log so old entries age out.
