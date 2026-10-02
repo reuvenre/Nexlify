@@ -1,4 +1,4 @@
-import { KeywordPerformance, keywordWeight, weightedRotation } from './keyword-rotation';
+import { KeywordPerformance, SEASONAL_EVERY, interleaveSeasonal, keywordWeight, weightedRotation } from './keyword-rotation';
 
 const perf = (posts: number, clicks: number, revenue = 0): KeywordPerformance =>
   ({ posts, clicks, revenue });
@@ -179,5 +179,54 @@ describe('weightedRotation — bonus-pool boost', () => {
       const gaps = positions.slice(1).map((p, i) => p - positions[i]);
       expect(Math.min(...gaps)).toBeGreaterThan(1);
     });
+  });
+});
+
+describe('the season as a fixed share of the rotation', () => {
+  const own = Array.from({ length: 200 }, (_, i) => `kw${i}`);
+  const season = ['מגשי הגשה ופלטות', 'מפות שולחן לאירוח', 'שרשראות תאורה לסוכה'];
+
+  it('gives the season one position in every SEASONAL_EVERY, however long the list', () => {
+    const out = interleaveSeasonal(own, season);
+    const seasonal = out.filter((k) => season.includes(k)).length;
+    expect(seasonal / out.length).toBeCloseTo(1 / SEASONAL_EVERY, 2);
+  });
+
+  it('spreads it: never more than SEASONAL_EVERY - 1 own keywords in a row', () => {
+    const out = interleaveSeasonal(own, season);
+    let run = 0;
+    for (const k of out) {
+      run = season.includes(k) ? 0 : run + 1;
+      expect(run).toBeLessThanOrEqual(SEASONAL_EVERY - 1);
+    }
+  });
+
+  it('takes every seasonal keyword in turn', () => {
+    const out = interleaveSeasonal(own.slice(0, 12), season);
+    expect(out.filter((k) => season.includes(k))).toEqual(season);
+  });
+
+  it('reaches a seasonal slot within a handful of one-step runs from anywhere — the #99 failure', () => {
+    // 3 slots a run, the cursor stepping one position per run (two slots given back).
+    const rot = interleaveSeasonal(own, season);
+    for (let start = 0; start < rot.length; start += 7) {
+      let hit = false;
+      for (let run = 0; run < SEASONAL_EVERY && !hit; run++) {
+        hit = [0, 1, 2].some((i) => season.includes(rot[(start + run + i) % rot.length]));
+      }
+      expect(hit).toBe(true);
+    }
+  });
+
+  it('still gives a tiny campaign its season', () => {
+    expect(interleaveSeasonal(['a', 'b'], season)).toEqual(['a', 'b', season[0]]);
+  });
+
+  it('leaves the rotation alone with no season open', () => {
+    expect(interleaveSeasonal(own.slice(0, 5), [])).toEqual(own.slice(0, 5));
+  });
+
+  it('is the season alone when the campaign has nothing else', () => {
+    expect(interleaveSeasonal([], season)).toEqual(season);
   });
 });

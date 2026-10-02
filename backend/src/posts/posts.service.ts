@@ -12,7 +12,7 @@ import { copyDefect } from './copy-guard';
 import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-policy';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
-import { KeywordPerformance, weightedRotation } from './keyword-rotation';
+import { KeywordPerformance, interleaveSeasonal, weightedRotation } from './keyword-rotation';
 import { cursorGiveBack } from './keyword-cursor';
 import { appendSeasonalRun, seasonalLedgerKey, seasonalLedgerLine, sumSeasonalRuns, SEASONAL_LEDGER_WINDOW_MS, SeasonalLedgerEntry } from './seasonal-ledger';
 import { PersistentValueStore } from '../common/persistent-value.store';
@@ -2695,10 +2695,15 @@ export class PostsService {
     // a seasonal term inside its window. Both are unproven by history and would otherwise
     // sit one slot deep in a long cycle — which, for a three-week holiday, means the group
     // sees the holiday twice and then it is over.
-    const rotation = weightedRotation(
-      kwEffective, perf, new Set([...bonus.keywords, ...seasonalInRotation]), new Set(bonus.proven),
-    );
-    const rotationList = rotation.length ? rotation : kwEffective;
+    // The season gets a fixed share of the cycle, not a weight inside it (see SEASONAL_EVERY):
+    // the campaign's own and bonus keywords rotate by performance, and the seasonal ones are
+    // woven in after. A seasonal keyword the manager paused is already out of kwEffective.
+    const seasonalLower = new Set(seasonalInRotation.map((k) => k.trim().toLowerCase()));
+    const ownKw = kwEffective.filter((k) => !seasonalLower.has(k.trim().toLowerCase()));
+    const seasonKw = kwEffective.filter((k) => seasonalLower.has(k.trim().toLowerCase()));
+    const rotation = weightedRotation(ownKw, perf, new Set(bonus.keywords), new Set(bonus.proven));
+    const woven = interleaveSeasonal(rotation.length ? rotation : ownKw, seasonKw);
+    const rotationList = woven.length ? woven : kwEffective;
 
     // One keyword per post SLOT (repeats when there are fewer keywords than posts).
     const slotKeywords: string[] = [];

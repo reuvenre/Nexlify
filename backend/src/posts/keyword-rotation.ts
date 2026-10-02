@@ -116,3 +116,42 @@ export function weightedRotation(
   }
   return out;
 }
+
+/**
+ * One seasonal slot in every this-many rotation positions while a window is open.
+ *
+ * Seasonal keywords used to ride weightedRotation as ordinary "boosted" keywords, weight 2 —
+ * the same emphasis as a keyword that once drew a click. That is a fixed number of copies per
+ * cycle, so their SHARE shrank as the campaign's keyword list grew: on a long list the three
+ * holiday terms occupied 6 positions of ~200, and, carrying identical weights next to each
+ * other, they landed together in two bursts per cycle. The cursor steps one position per run
+ * on a campaign whose runs publish one post, so a burst came round every hundred-odd runs —
+ * the seasonal ledger then read "52 runs, not one seasonal slot" on a campaign with the season
+ * switched on (#99), and the US Pinterest board missed Halloween the same way.
+ *
+ * A fixed share does not depend on the list: one in five positions is the season, spread
+ * evenly, whatever else the campaign sells. A boost, never a takeover — four in five stay the
+ * campaign's own.
+ */
+export const SEASONAL_EVERY = 5;
+
+/**
+ * The rotation with the seasonal keywords woven in at a fixed share: after every
+ * `every - 1` positions of the campaign's own rotation, the next seasonal keyword in turn.
+ * A rotation shorter than that still gets one seasonal position, so a small campaign is not
+ * left out of its season.
+ */
+export function interleaveSeasonal(rotation: string[], seasonal: string[], every = SEASONAL_EVERY): string[] {
+  const season = Array.from(new Set((seasonal || []).map((k) => k?.trim()).filter(Boolean))) as string[];
+  if (!season.length) return [...(rotation || [])];
+  if (!rotation?.length) return season;
+  const gap = Math.max(1, Math.floor(every) - 1);
+  const out: string[] = [];
+  let next = 0;
+  rotation.forEach((kw, i) => {
+    out.push(kw);
+    if ((i + 1) % gap === 0) out.push(season[next++ % season.length]);
+  });
+  if (!next) out.push(season[0]);
+  return out;
+}

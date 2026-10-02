@@ -122,6 +122,11 @@ An alert resolved by a business *decision* rather than a code fix sets its own `
 ### Why a campaign keyword comes back empty
 `runCampaign` builds each keyword's pool in **tiers**, and tiers 3–4 relax `min_rating` and `min_discount` automatically once on-spec stock runs out. So **rating and discount can never silence a keyword** — if the search returned anything, the slot is filled. A slot borrows from another keyword only when the *search itself* is empty, and the filters that can do that are the ones sent **to the API**, which no tier relaxes: `category_id` and `min_price`/`max_price`. Diagnose an empty keyword there, and read the run note's `"<kw>": החיפוש לא החזיר מוצרים כלל` line. Telling the owner to lower rating/discount lowers his quality bar for every keyword and fixes nothing — it has happened once already.
 
+### How the season reaches the rotation
+Seasonal keywords are **not** weights inside `weightedRotation`. They get a fixed share: `interleaveSeasonal` weaves one in after every `SEASONAL_EVERY - 1` (= 4) positions of the campaign's own rotation. As a weight they were a fixed number of copies per cycle, so their share shrank as the keyword list grew and they clustered into two bursts per cycle. With the cursor stepping one position per run, a long list went 52 runs without a single seasonal slot (#99).
+
+To see what the season actually did, don't read one run. The run note carries `📊 עונתי ב-3 ימים` from the seasonal ledger (`seasonal-ledger.ts`, `persistent_values` key `seasonal_ledger:<id>`): how many seasonal slots came up, how many were published, skipped by pacing, came back from an empty search, or were swapped by the relevance guard. The seasonal-gap alert carries the same line.
+
 ### Publishing pipeline
 `PostsService.buildPostBody` is the single choke point every platform (Telegram, Facebook, Instagram, WhatsApp, Pinterest) builds its message from. Anything that must apply to *published text* belongs there, at the end — after the footer, coupon, store and trust lines have been appended, so nothing added later can slip past it.
 
