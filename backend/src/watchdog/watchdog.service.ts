@@ -39,6 +39,7 @@ import {
   mergeThrottle, serializeThrottle, throttled,
 } from './throttle-memory';
 import { CampaignTrend, TREND_WINDOW_DAYS, campaignTrends, trendLine } from './campaign-trend';
+import { SEASONAL_SPLIT_DAYS, SeasonalSplit, seasonalSplitLine, seasonalSplits } from './seasonal-split';
 import { SeasonalLedgerEntry, seasonalLedgerKey, seasonalLedgerLine, sumSeasonalRuns } from '../posts/seasonal-ledger';
 import {
   MIN_POSTS_TO_JUDGE, SEASONAL_ALERT_KEY_PREFIX, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
@@ -290,6 +291,31 @@ export class WatchdogService implements OnModuleInit {
     })));
   }
 
+  /** Seasonal against ordinary clicks per post, per seasonal-enabled campaign (seasonal-split.ts). */
+  private async seasonalSplits(): Promise<SeasonalSplit[]> {
+    const rows: any[] = await this.campaigns.query(
+      `SELECT c.id                                AS "campaignId",
+              c.name                              AS "campaignName",
+              coalesce(c.language, 'he')          AS "language",
+              lower(trim(p.keyword))              AS "keyword",
+              count(*)::int                       AS "posts",
+              coalesce(sum(p.clicks_count), 0)::int AS "clicks"
+       FROM campaigns c
+       JOIN posts p ON p.campaign_id = c.id AND p.status = 'sent'
+       WHERE c.status = 'active'
+         AND c.seasonal_keywords = true
+         AND p.keyword IS NOT NULL
+         AND p.sent_at > now() - ($1 || ' days')::interval
+       GROUP BY c.id, c.name, c.language, lower(trim(p.keyword))`,
+      [String(SEASONAL_SPLIT_DAYS)],
+    );
+    return seasonalSplits(rows.map((r) => ({
+      campaignId: String(r.campaignId), campaignName: String(r.campaignName || ''),
+      language: String(r.language || 'he'), keyword: String(r.keyword || ''),
+      posts: Number(r.posts) || 0, clicks: Number(r.clicks) || 0,
+    })));
+  }
+
   private async buildDailyDigest(): Promise<string> {
     const since = new Date(Date.now() - 24 * 3600_000);
     const [sent, failed, scheduled, anomalies, sec, trends] = await Promise.all([
@@ -303,6 +329,10 @@ export class WatchdogService implements OnModuleInit {
         return [] as CampaignTrend[];
       }),
     ]);
+    const splits = await this.seasonalSplits().catch((err: any) => {
+      this.logger.warn(`digest seasonal split failed: ${err?.message}`);
+      return [] as SeasonalSplit[];
+    });
 
     const date = new Date().toLocaleDateString('he-IL', {
       weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Jerusalem',
@@ -325,6 +355,12 @@ export class WatchdogService implements OnModuleInit {
     if (trends.length) {
       lines.push('', `📈 קליקים ליום (${TREND_WINDOW_DAYS} ימים מול ה-${TREND_WINDOW_DAYS} שלפניהם):`);
       for (const t of trends.slice(0, 6)) lines.push(trendLine(t));
+    }
+
+    // The number the owner's decision on the season's share waits on (seasonal-split.ts).
+    if (splits.length) {
+      lines.push('', `🗓️ עונתי מול רגיל (${SEASONAL_SPLIT_DAYS} ימים, קליקים לפוסט):`);
+      for (const s of splits.slice(0, 6)) lines.push(seasonalSplitLine(s));
     }
 
     if (sec) {
