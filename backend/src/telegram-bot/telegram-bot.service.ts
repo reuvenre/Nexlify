@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
@@ -13,6 +13,7 @@ import {
   BotProduct, encodeCallback, matchByPrefix, parseCallback, productCaption, truncate,
 } from './product-card';
 import { splitMessage } from './split-message';
+import { groupReadiness, readinessLine } from './group-readiness';
 import { LinksService } from '../links/links.service';
 import { ManagerAgentService } from '../manager/manager-agent.service';
 import { managerQuestion } from '../manager/manager-intent';
@@ -44,6 +45,7 @@ const HELP = [
   '(או /ask ואחריו השאלה). שינויים המנהל רק מציע — אתה מאשר בכפתור.',
   '',
   '/status — מצב המערכת והתקלות הפתוחות',
+  '/groups — האם חברי כל קבוצה יכולים לחפש עם /find',
 ].join('\n');
 
 /**
@@ -61,7 +63,7 @@ const HELP = [
  * wrong or empty product). A cache miss is reported, never guessed around.
  */
 @Injectable()
-export class TelegramBotService {
+export class TelegramBotService implements OnModuleInit {
   private readonly logger = new Logger(TelegramBotService.name);
 
   private static readonly CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -117,6 +119,10 @@ export class TelegramBotService {
     const question = managerQuestion(text);
     if (question) {
       await this.askManager(chatId, question);
+      return;
+    }
+    if (/^\/groups(@\S+)?$/i.test(text)) {
+      await this.reportGroups(chatId);
       return;
     }
     const keyword = this.keywordFrom(text);
@@ -370,6 +376,56 @@ export class TelegramBotService {
     return groups.some((g) => ids.has(String(g.channel_id).trim().toLowerCase()) || ids.has(String(g.channel_id).trim()));
   }
 
+  // ── Setup and diagnostics ──────────────────────────────────────────────────
+
+  /** Register the command menus once at boot. Best-effort, like the webhook setup. */
+  onModuleInit(): void {
+    if (!process.env.WATCHDOG_TELEGRAM_CHAT_ID) return;
+    this.registerCommands().catch((err) => this.logger.warn(`bot commands skipped: ${err?.message}`));
+  }
+
+  /**
+   * The "/" menu Telegram shows. Members see only /find; the owner's chat gets his own
+   * commands. Without a registered command members have no way to discover the search.
+   */
+  private async registerCommands(): Promise<void> {
+    const find = { command: 'find', description: 'חיפוש מוצר באלי אקספרס, למשל: /find אוזניות עד 100' };
+    await this.call('setMyCommands', { commands: [find], scope: { type: 'default' } });
+    await this.call('setMyCommands', { commands: [find], scope: { type: 'all_group_chats' } });
+    await this.call('setMyCommands', {
+      commands: [
+        { command: 'ask', description: 'שאלה למנהל של Nexlify' },
+        { command: 'search', description: 'חיפוש מוצר ופרסום לקבוצה' },
+        { command: 'groups', description: 'בדיקת /find בכל קבוצה' },
+        { command: 'status', description: 'מצב המערכת' },
+      ],
+      scope: { type: 'chat', chat_id: process.env.WATCHDOG_TELEGRAM_CHAT_ID },
+    });
+  }
+
+  /** /groups — for every active Telegram group: can its members use /find? */
+  private async reportGroups(chatId: string): Promise<void> {
+    const userId = await this.ownerUserId();
+    const groups = userId ? await this.telegramChannels(userId) : [];
+    if (!groups.length) {
+      await this.send(chatId, 'אין קבוצות טלגרם פעילות.');
+      return;
+    }
+    const me = await this.get('getMe', {});
+    const botId = me?.id;
+    const username: string | null = me?.username || null;
+    const lines: string[] = [`🤖 הבוט: ${username ? `@${username}` : 'לא ידוע'}`, ''];
+    for (const g of groups) {
+      const chat = await this.get('getChat', { chat_id: g.channel_id });
+      const member = botId ? await this.get('getChatMember', { chat_id: g.channel_id, user_id: botId }) : null;
+      lines.push(readinessLine(g.name, groupReadiness(chat?.type, member?.status), username));
+    }
+    if (username) {
+      lines.push('', `קישור לחיפוש בפרטי, לשתף עם החברים: t.me/${username}`);
+    }
+    await this.sendLong(chatId, lines.join('\n'));
+  }
+
   // ── The morning report's buttons ───────────────────────────────────────────
 
   /** "📋 פירוט מלא" — the evidence behind the brief, on request instead of unasked. */
@@ -562,6 +618,18 @@ export class TelegramBotService {
     } catch (err: any) {
       this.logger.warn(`telegram ${method} failed: ${err?.response?.data?.description || err?.message}`);
       return false;
+    }
+  }
+
+  /** A Telegram call whose RESULT is needed (getMe, getChat…). Null on any failure. */
+  private async get(method: string, payload: Record<string, any>): Promise<any | null> {
+    const token = await this.telegramToken();
+    if (!token) return null;
+    try {
+      const res = await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload, { timeout: 15000 });
+      return res.data?.result ?? null;
+    } catch {
+      return null;
     }
   }
 
