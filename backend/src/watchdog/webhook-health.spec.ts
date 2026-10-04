@@ -1,4 +1,4 @@
-import { hostOf, webhookVerdict } from './webhook-health';
+import { SEARCH_BOT_UPDATES, hostOf, webhookVerdict } from './webhook-health';
 
 const OURS = 'https://nexus-backend.onrender.com/telegram/webhook';
 const NOW = Date.UTC(2026, 9, 4, 16);
@@ -31,6 +31,11 @@ describe('webhookVerdict', () => {
   it('reports a delivery backlog and missing update types', () => {
     expect(webhookVerdict({ url: OURS, pending_update_count: 40 }, OURS, NOW)?.kind).toBe('backlog');
     expect(webhookVerdict({ url: OURS, allowed_updates: ['message'] }, OURS, NOW)?.kind).toBe('updates');
+  });
+
+  it('holds the search bot only to what it receives — messages, no button taps (#100)', () => {
+    expect(webhookVerdict({ url: OURS, allowed_updates: ['message'] }, OURS, NOW, SEARCH_BOT_UPDATES)).toBeNull();
+    expect(webhookVerdict({ url: OURS, allowed_updates: ['callback_query'] }, OURS, NOW, SEARCH_BOT_UPDATES)?.kind).toBe('updates');
   });
 });
 

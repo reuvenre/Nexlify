@@ -18,7 +18,7 @@ import { groupReadiness, readinessLine } from './group-readiness';
 import {
   SEARCH_BOT_DESCRIPTION, SEARCH_BOT_SHORT_DESCRIPTION, searchBotToken, searchWebhookSecret, searchWebhookUrl,
 } from './search-bot';
-import { WebhookVerdict, webhookVerdict } from '../watchdog/webhook-health';
+import { SEARCH_BOT_UPDATES, WebhookVerdict, webhookVerdict } from '../watchdog/webhook-health';
 import { LinksService } from '../links/links.service';
 import { ManagerAgentService } from '../manager/manager-agent.service';
 import { managerQuestion } from '../manager/manager-intent';
@@ -479,7 +479,7 @@ export class TelegramBotService implements OnModuleInit {
     const url = searchWebhookUrl();
     if (!token || !url) return null;
     const read = () => this.replyVia.run({ token }, () => this.get('getWebhookInfo', {}))
-      .then((info) => webhookVerdict(info, url, Date.now()));
+      .then((info) => webhookVerdict(info, url, Date.now(), SEARCH_BOT_UPDATES));
     const first = await read();
     if (first && (first.kind === 'unset' || first.kind === 'updates')) {
       await this.setupSearchBot().catch(() => {});

@@ -12,7 +12,7 @@ import { copyDefect } from './copy-guard';
 import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-policy';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 import { withShopperInvite } from './shopper-invite';
-import { webhookVerdict } from '../watchdog/webhook-health';
+import { SEARCH_BOT_UPDATES, webhookVerdict } from '../watchdog/webhook-health';
 import { searchBotToken, searchWebhookUrl } from '../telegram-bot/search-bot';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
@@ -4784,7 +4784,8 @@ export class PostsService {
         const base = (process.env.BACKEND_URL || '').replace(/\/$/, '');
         const info = await axios.get(`https://api.telegram.org/bot${token}/getWebhookInfo`, { timeout: 8000 });
         const expected = searchToken ? (searchWebhookUrl() || '') : `${base}/telegram/webhook`;
-        if (!webhookVerdict(info.data?.result ?? null, expected, Date.now())
+        // The search bot receives messages only; the owner's bot also needs button taps.
+        if (!webhookVerdict(info.data?.result ?? null, expected, Date.now(), searchToken ? SEARCH_BOT_UPDATES : undefined)
           && info.data?.result?.url) {
           const res = await axios.get(`https://api.telegram.org/bot${token}/getMe`, { timeout: 8000 });
           username = res.data?.result?.username || null;

@@ -34,7 +34,14 @@ export function hostOf(url: string): string {
   try { return new URL(url).host; } catch { return '(כתובת לא תקינה)'; }
 }
 
-export function webhookVerdict(info: WebhookInfo | null, expectedUrl: string, nowMs: number): WebhookVerdict | null {
+/** What the owner's bot needs: messages, and the taps on its inline buttons. */
+export const OWNER_BOT_UPDATES = ['message', 'callback_query'];
+/** The readers' search bot sends no buttons — messages are all it receives. */
+export const SEARCH_BOT_UPDATES = ['message'];
+
+export function webhookVerdict(
+  info: WebhookInfo | null, expectedUrl: string, nowMs: number, required: string[] = OWNER_BOT_UPDATES,
+): WebhookVerdict | null {
   if (!info) return null; // Telegram unreachable or no token — nothing to judge
   const url = String(info.url || '');
   if (!url) {
@@ -70,11 +77,11 @@ export function webhookVerdict(info: WebhookInfo | null, expectedUrl: string, no
     };
   }
   const allowed = info.allowed_updates || [];
-  if (allowed.length && !['message', 'callback_query'].every((u) => allowed.includes(u))) {
+  if (allowed.length && !required.every((u) => allowed.includes(u))) {
     return {
       kind: 'updates',
       title: 'הבוט מקבל רק חלק מסוגי העדכונים',
-      detail: `allowed_updates = ${allowed.join(', ')} — חסר message או callback_query.`,
+      detail: `allowed_updates = ${allowed.join(', ')} — חסר ${required.filter((u) => !allowed.includes(u)).join(' / ')}.`,
     };
   }
   return null;
