@@ -22,7 +22,7 @@ import {
 } from './search-bot';
 import { SEARCH_BOT_UPDATES, WebhookVerdict, webhookVerdict } from '../watchdog/webhook-health';
 import { LinksService } from '../links/links.service';
-import { ManagerAgentService } from '../manager/manager-agent.service';
+import { ManagerAgentService, isAuthError } from '../manager/manager-agent.service';
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
@@ -309,7 +309,12 @@ export class TelegramBotService implements OnModuleInit {
       answer = await this.manager.ask(userId, question, chatId);
     } catch (err: any) {
       this.logger.warn(`manager ask failed: ${err?.message}`);
-      await this.send(chatId, `❌ המנהל לא הצליח לענות: ${err?.response?.data?.error?.message || err?.message || err}`);
+      await this.send(chatId, isAuthError(err)
+        // Said in the owner's terms, with where to fix it — not the raw API JSON.
+        ? '🔑 מפתח ה-Anthropic נדחה (לא תקין או פג תוקף), ולכן המנהל לא יכול לענות.\n'
+          + 'צור מפתח חדש ב-console.anthropic.com ← API Keys, והדבק אותו בלוח הבקרה: הגדרות ← Anthropic API Key '
+          + '(או עדכן את ANTHROPIC_API_KEY ב-Render).'
+        : `❌ המנהל לא הצליח לענות: ${err?.message || err}`);
       return;
     }
     await this.sendLong(chatId, answer.text);

@@ -1,4 +1,4 @@
-import { ManagerAgentService } from './manager-agent.service';
+import { ManagerAgentService, isAuthError } from './manager-agent.service';
 import { proposalKey, StoredProposal } from './manager-proposal';
 
 const CAMPAIGN_ID = '11111111-2222-3333-4444-555555555555';
@@ -76,5 +76,36 @@ describe('ManagerAgentService.approve', () => {
     await svc.reject('u1', 'p1');
     expect((await svc.approve('u1', 'p1')).ok).toBe(false);
     expect(queries).toHaveLength(0);
+  });
+});
+
+describe('ManagerAgentService.ask — a refused Anthropic key', () => {
+  const answer = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'תשובה' }], usage: { input_tokens: 1, output_tokens: 1 } };
+  const authError = Object.assign(new Error('401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}'), { status: 401 });
+
+  function build(fallback: any) {
+    const own = { apiKey: 'user-key', messages: { create: jest.fn(async () => { throw authError; }) } };
+    const agentClient: any = {
+      for: jest.fn(async () => ({ client: own, model: 'm' })),
+      fallback: jest.fn(() => fallback),
+      record: jest.fn(),
+    };
+    const svc = new ManagerAgentService({} as any, agentClient, {} as any);
+    return { svc, own };
+  }
+
+  it('retries once with the platform key and answers', async () => {
+    const platform = { apiKey: 'platform-key', messages: { create: jest.fn(async () => answer) } };
+    const { svc } = build(platform);
+    const res = await svc.ask('u1', 'כמה קליקים?');
+    expect(res.text).toBe('תשובה');
+    expect(platform.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the auth error when there is no other key to try', async () => {
+    const { svc } = build(null);
+    await expect(svc.ask('u1', 'כמה קליקים?')).rejects.toMatchObject({ status: 401 });
+    expect(isAuthError(authError)).toBe(true);
+    expect(isAuthError(new Error('timeout'))).toBe(false);
   });
 });

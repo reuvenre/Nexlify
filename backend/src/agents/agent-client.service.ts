@@ -45,6 +45,22 @@ export class AgentClient {
     return { client, model: creds?.anthropic_model || DEFAULT_MODEL };
   }
 
+  /**
+   * The platform's own client, when the account's key is a different one — the second try
+   * after the account's key is refused (expired, revoked, mistyped in settings). Null when
+   * there is no platform key or it is the same key that just failed.
+   */
+  fallback(failed: Anthropic): Anthropic | null {
+    const platform = (process.env.ANTHROPIC_API_KEY || '').trim();
+    if (!platform || failed.apiKey === platform) return null;
+    let client = this.cache.get(platform);
+    if (!client) {
+      client = new Anthropic({ apiKey: platform });
+      this.cache.set(platform, client);
+    }
+    return client;
+  }
+
   /** Meter one agent turn. Best-effort — metering must never break a run. */
   record(userId: string, usage: Parameters<typeof anthropicInputTokens>[0] & { output_tokens: number }): void {
     const input = anthropicInputTokens(usage);

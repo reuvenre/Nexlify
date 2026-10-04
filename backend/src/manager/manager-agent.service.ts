@@ -129,6 +129,13 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+/** Anthropic refused the key itself (401 / authentication_error). */
+export function isAuthError(err: any): boolean {
+  return err?.status === 401
+    || err?.error?.error?.type === 'authentication_error'
+    || /invalid x-api-key|authentication_error/i.test(String(err?.message || ''));
+}
+
 const clampInt = (v: unknown, min: number, max: number, dflt: number) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt;
@@ -185,7 +192,7 @@ export class ManagerAgentService {
     let answer = '';
     for (let turn = 1; turn <= MAX_TURNS; turn++) {
       const last = turn === MAX_TURNS;
-      const response = await client.messages.create({
+      const request = {
         model,
         max_tokens: 1500,
         system: SYSTEM_PROMPT,
@@ -194,7 +201,19 @@ export class ManagerAgentService {
         ...(last ? { tool_choice: { type: 'none' as const } } : {}),
         messages,
         cache_control: EPHEMERAL,
-      });
+      };
+      let response: Anthropic.Message;
+      try {
+        response = await client.messages.create(request);
+      } catch (err: any) {
+        // A refused key (expired / revoked / mistyped) — try the platform's key once before
+        // giving up, so a stale key in settings does not silence the manager.
+        const other = isAuthError(err) ? this.agentClient.fallback(client) : null;
+        if (!other) throw err;
+        this.logger.warn('manager: account Anthropic key refused — retrying with the platform key');
+        client = other;
+        response = await client.messages.create(request);
+      }
       tokens += anthropicInputTokens(response.usage) + response.usage.output_tokens;
       this.agentClient.record(userId, response.usage);
 
