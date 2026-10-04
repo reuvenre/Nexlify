@@ -1,5 +1,6 @@
 import { productScore } from '../agents/product-grounding';
 import { BotProduct, formatMoney, truncate } from './product-card';
+import { applyWordPolicy } from '../posts/word-policy';
 
 /**
  * The members' product search — pure parts.
@@ -113,7 +114,8 @@ export const SHOPPER_BUY_TEXT = '🛒 לרכישה — לחצו כאן 🛒';
  * channel post: the URL is never shown, only the buy button that carries it.
  */
 export function shopperCaption(p: BotProduct, index: number, link: string): string {
-  const lines = [`${index}. ${escapeHtml(truncate(p.title, 110))}`];
+  // A translated title can now say "ציד" — the owner's vocabulary holds in the bot too.
+  const lines = [`${index}. ${escapeHtml(truncate(applyWordPolicy(p.title), 110))}`];
   const sale = formatMoney(p.sale_price, p.currency);
   lines.push(p.discount_percent > 0 && p.original_price > p.sale_price
     // No "-50%": a leading minus inside right-to-left text is drawn at the wrong end ("50%-").

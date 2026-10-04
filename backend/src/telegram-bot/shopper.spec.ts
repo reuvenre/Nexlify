@@ -113,3 +113,11 @@ describe('no product twice — «עוד מוצרים» across pages', () => {
     expect(page2.map((p) => p.product_id)).toEqual(['11']);
   });
 });
+
+describe('shopperCaption — Hebrew titles', () => {
+  it('applies the owner\'s vocabulary to a translated title', () => {
+    const c = shopperCaption(prod('1', { title: 'סכין ציד מתקפלת' }), 1, 'https://x/r/A');
+    expect(c).toContain('סכין טקטי מתקפלת');
+    expect(c).not.toContain('ציד');
+  });
+});

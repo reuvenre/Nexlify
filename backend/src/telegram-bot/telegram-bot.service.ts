@@ -441,6 +441,8 @@ export class TelegramBotService implements OnModuleInit {
       limit: 20,
       // Never mock data in front of a stranger: a failed search says so instead.
       strict: true,
+      // Readers write Hebrew; the titles they get back should be Hebrew too.
+      title_language: 'HE',
     });
     const items = ((res?.data || []) as BotProduct[]).filter((p) => !!p.affiliate_url);
     return rankShopperResults(items, items.length);

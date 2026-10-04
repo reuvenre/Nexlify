@@ -136,6 +136,10 @@ export class ProductsService {
     // strict = never fall back to mock data; throw instead. Used by the discovery
     // hunter so a transient API failure can NEVER persist fake products to the catalog.
     strict?: boolean;
+    /** AliExpress's own title translation (target_language, e.g. 'HE'). Only the readers'
+     *  search bot asks for it — campaign copy and the English Pinterest campaign keep the
+     *  English titles they were built on. A request the API refuses is retried without. */
+    title_language?: string;
   }) {
     const creds = await this.credentials.getRaw(userId);
     const page = params.page || 1;
@@ -167,12 +171,17 @@ export class ProductsService {
         // for "smart watch" led with a bird bath...). Best-sellers first by default.
         sort: params.sort || 'LAST_VOLUME_DESC',
         target_currency: currency,
+        target_language: params.title_language,
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
       const res = await this.aliGet(signed);
       const respResult = res.data?.aliexpress_affiliate_product_query_response?.resp_result;
       if (respResult?.resp_code !== 200) {
+        if (params.title_language) {
+          this.logger.warn(`AliExpress refused target_language=${params.title_language} (${respResult?.resp_msg}) — retrying in English`);
+          return this.search(userId, { ...params, title_language: undefined });
+        }
         this.logger.error(`AliExpress search API error: code=${respResult?.resp_code} msg=${respResult?.resp_msg}`);
       }
       const result = respResult?.result;
@@ -189,7 +198,7 @@ export class ProductsService {
           keyword: params.keyword, category_id: params.category_id,
           min_price: params.min_price, max_price: params.max_price,
           min_discount: params.min_discount,
-          page, limit, strict: params.strict,
+          page, limit, strict: params.strict, title_language: params.title_language,
         });
       }
 
@@ -286,6 +295,8 @@ export class ProductsService {
     page?: number;
     limit?: number;
     strict?: boolean;
+    /** See search(). */
+    title_language?: string;
   }) {
     const creds = await this.credentials.getRaw(userId);
     const page = params.page || 1;
@@ -313,11 +324,16 @@ export class ProductsService {
         page_size: limit,
         sort: 'LAST_VOLUME_DESC',
         target_currency: currency,
+        target_language: params.title_language,
         tracking_id: creds.aliexpress_tracking_id,
       }, creds.aliexpress_app_secret);
 
       const res = await this.aliGet(signed);
       const respResult = res.data?.aliexpress_affiliate_hotproduct_query_response?.resp_result;
+      if (respResult?.resp_code !== 200 && params.title_language) {
+        this.logger.warn(`AliExpress refused target_language=${params.title_language} on hotproducts — retrying in English`);
+        return this.getPromotional(userId, { ...params, title_language: undefined });
+      }
       if (respResult?.resp_code !== 200) {
         this.logger.error(`AliExpress promotional API error: code=${respResult?.resp_code} msg=${respResult?.resp_msg}`);
       }
