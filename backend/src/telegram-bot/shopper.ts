@@ -100,11 +100,39 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   return lines.join('\n');
 }
 
-/** What a reader sees after tapping the link in a post — two lines, nothing to read through. */
+/** The first message a reader gets (the link in a post opens the chat with /start). */
+export const SHOPPER_WELCOME = [
+  '👋 ברוכים הבאים ל-Nexlify Deals Bot!',
+  'המקום למציאת הדילים הכי שווים באלי אקספרס 🛍️',
+  '',
+  'כתבו מה אתם מחפשים ואמצא לכם 3 מוצרים מומלצים.',
+  'למשל: אוזניות בלוטות\' עד 100 ש"ח',
+  '',
+  'לא מצאתם? כתבו «עוד מוצרים» ואביא עוד אפשרויות 🔄',
+].join('\n');
+
+/** A message that could not be read as a search — short, it is not the first contact. */
 export const SHOPPER_HELP = [
   '🔎 כתבו מה אתם מחפשים ואמצא 3 מוצרים מומלצים באלי אקספרס.',
   'למשל: אוזניות בלוטות\' עד 100 ש"ח',
 ].join('\n');
+
+/** The label of the reply-keyboard button; tapping it sends exactly this text. */
+export const MORE_BUTTON = '🔄 עוד מוצרים';
+
+/**
+ * "Give me more" in the reader's words: «עוד», «עוד מוצרים», «תן לי עוד מוצרים», «יש עוד?»,
+ * the keyboard button. A request for more of the SAME search — anything with a product in
+ * it ("עוד אוזניות") is a new search and stays one.
+ */
+export function isMoreRequest(text: string): boolean {
+  const t = String(text || '')
+    .replace(/[\p{Extended_Pictographic}\uFE0F?!.,״"']/gu, ' ')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!t) return false;
+  return /^(?:(?:תן|תני|תנו|הבא|תביא|תביאי|תביאו|הביאו|תראה|תראי|תראו|יש)\s+)?(?:(?:לי|לנו)\s+)?עוד(?:\s+(?:מוצרים|מוצר|תוצאות|אפשרויות|דילים|כמה|משהו))?(?:\s+בבקשה)?$/u.test(t)
+    || /^(?:more|next|show more)$/.test(t);
+}
 
 /**
  * Per-member and overall budgets for the public search. Every search costs an API call

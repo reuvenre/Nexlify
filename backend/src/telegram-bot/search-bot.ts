@@ -34,5 +34,7 @@ export function searchWebhookUrl(): string | null {
 
 /** Shown on the bot's empty chat before "Start", and on its profile. */
 export const SEARCH_BOT_DESCRIPTION =
-  '🔎 כתבו מה אתם מחפשים ואמצא לכם 3 מוצרים מומלצים באלי אקספרס — עם מחיר בשקלים, הנחה ודירוג.\nלמשל: אוזניות בלוטות\' עד 100 ש"ח';
+  '👋 ברוכים הבאים ל-Nexlify Deals Bot — המקום למציאת הדילים הכי שווים באלי אקספרס 🛍️\n'
+  + 'כתבו מה אתם מחפשים ואמצא לכם 3 מוצרים מומלצים, עם מחיר בשקלים, הנחה ודירוג.\n'
+  + 'למשל: אוזניות בלוטות\' עד 100 ש"ח';
 export const SEARCH_BOT_SHORT_DESCRIPTION = 'מוצאים לכם את הדילים הכי שווים באלי אקספרס 🔎';

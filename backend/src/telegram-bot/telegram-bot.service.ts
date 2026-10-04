@@ -26,7 +26,7 @@ import { ManagerAgentService } from '../manager/manager-agent.service';
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
-  SHOPPER_HELP, ShopperLimiter, escapeHtml, parseShopperQuery, rankShopperResults, shopperCaption,
+  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, parseShopperQuery, rankShopperResults, shopperCaption,
 } from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
@@ -68,6 +68,11 @@ export class TelegramBotService implements OnModuleInit {
   private readonly lastQuery = new Map<string, { keyword: string; page: number; at: number }>();
   /** Budgets for the members' search — anyone can reach it, so it is metered. */
   private readonly shopperLimits = new ShopperLimiter();
+  /** A reader's last search, so «עוד מוצרים» continues it. Re-derivable (they can search
+   *  again), so memory is the right store; half an hour is a conversation. */
+  private readonly shopperSessions = new Map<string, {
+    q: ShopperQuery; ranked: BotProduct[]; shown: number; page: number; done: boolean; at: number;
+  }>();
   /** Which bot answers this update. Set while handling the search bot's updates, so every
    *  reply in that flow goes out from the bot the reader wrote to (see search-bot.ts). */
   private readonly replyVia = new AsyncLocalStorage<{ token: string }>();
@@ -173,7 +178,7 @@ export class TelegramBotService implements OnModuleInit {
     // The owner tapping the link at the foot of his own post (/start post) sees what his
     // readers see — not his own command list.
     if (/^\/start(@\S+)?(\s|$)/i.test(text)) {
-      await this.send(chatId, `👀 כך זה נראה לקוראים שלוחצים על הקישור בפוסט:\n\n${SHOPPER_HELP}`
+      await this.send(chatId, `👀 כך זה נראה לקוראים שלוחצים על הקישור בפוסט:\n\n${SHOPPER_WELCOME}`
         + '\n\n(חיפוש רגיל כאן הוא החיפוש שלך, עם כפתורי פרסום. כדי לקבל בדיוק מה שקורא מקבל: /find ואחריו החיפוש)');
       return;
     }
@@ -356,7 +361,7 @@ export class TelegramBotService implements OnModuleInit {
       } else {
         // /start, /help and anything else: explain, but only in private — a group sees
         // other bots' commands all day, and answering them would be noise.
-        if (isPrivate) await this.send(chatId, SHOPPER_HELP);
+        if (isPrivate) await this.send(chatId, SHOPPER_WELCOME);
         return;
       }
     } else if (isGroup) {
@@ -368,37 +373,36 @@ export class TelegramBotService implements OnModuleInit {
     if (isGroup && !(await this.isOwnersGroup(userId, chat))) return;
 
     const replyTo = isGroup ? msg.message_id : undefined;
+    const memberKey = String(msg?.from?.id ?? chatId);
+
+    // «עוד מוצרים» — the next three of the same search, private chats only.
+    if (isPrivate && isMoreRequest(query)) {
+      await this.moreShopperResults(chatId, userId, memberKey);
+      return;
+    }
+
     const parsed = parseShopperQuery(query);
     if (!parsed) {
       await this.send(chatId, SHOPPER_HELP, undefined, replyTo);
       return;
     }
 
-    const memberKey = String(msg?.from?.id ?? chatId);
     const budget = this.shopperLimits.take(memberKey);
     if (budget !== 'ok') {
       if (budget === 'user') await this.send(chatId, '⏳ הרבה חיפושים ברצף — נסה שוב בעוד כמה דקות.', undefined, replyTo);
       return;
     }
 
-    let items: BotProduct[];
+    let ranked: BotProduct[];
     try {
-      const res = await this.products.search(userId, {
-        keyword: parsed.keyword,
-        min_price: parsed.minPrice,
-        max_price: parsed.maxPrice,
-        limit: 20,
-        // Never mock data in front of a stranger: a failed search says so instead.
-        strict: true,
-      });
-      items = ((res?.data || []) as BotProduct[]).filter((p) => !!p.affiliate_url);
+      ranked = await this.shopperPage(userId, parsed, 1);
     } catch (err: any) {
       this.logger.warn(`shopper search "${parsed.keyword}" failed: ${err?.message}`);
       await this.send(chatId, '❌ החיפוש לא זמין כרגע, נסה שוב מאוחר יותר.', undefined, replyTo);
       return;
     }
 
-    const picks = rankShopperResults(items, 3);
+    const picks = ranked.slice(0, 3);
     // What readers ask for — anonymous, and never the owner's own test searches.
     if (!memberKey.startsWith('owner:')) {
       void this.searches.insert({
@@ -411,29 +415,97 @@ export class TelegramBotService implements OnModuleInit {
         undefined, replyTo);
       return;
     }
+    if (isPrivate) {
+      this.shopperSessions.set(chatId, { q: parsed, ranked, shown: picks.length, page: 1, done: false, at: Date.now() });
+      if (this.shopperSessions.size > 2000) this.shopperSessions.delete(this.shopperSessions.keys().next().value as string);
+    }
 
-    const linkFor = async (p: BotProduct) => {
-      const code = await this.links.mintTarget(p.affiliate_url!, userId, 'shopper').catch(() => null);
-      return code ? this.links.shortUrl(code) : p.affiliate_url!;
-    };
     const budgetLabel = parsed.maxPrice || parsed.minPrice
       // No parentheses: a bracket at the end of right-to-left text is drawn mirrored.
       ? ` ${[parsed.minPrice ? `מ-${parsed.minPrice}` : '', parsed.maxPrice ? `עד ${parsed.maxPrice}` : ''].filter(Boolean).join(' ')} ש"ח`
       : '';
     const header = `🔎 ${picks.length} המומלצים ל«${escapeHtml(parsed.keyword)}»${budgetLabel}:`;
+    await this.showShopperResults(chatId, userId, header, picks, 1, isGroup, replyTo);
+  }
 
-    // Results look like the channel posts: the buy button carries the link, the URL itself
-    // is never shown — hence HTML.
+  /** One page of the API, ranked, links only. Throws on an API failure (strict search). */
+  private async shopperPage(userId: string, q: ShopperQuery, page: number): Promise<BotProduct[]> {
+    const res = await this.products.search(userId, {
+      keyword: q.keyword,
+      min_price: q.minPrice,
+      max_price: q.maxPrice,
+      page,
+      limit: 20,
+      // Never mock data in front of a stranger: a failed search says so instead.
+      strict: true,
+    });
+    const items = ((res?.data || []) as BotProduct[]).filter((p) => !!p.affiliate_url);
+    return rankShopperResults(items, items.length);
+  }
+
+  /** The next three of the reader's last search, fetching the next API page when needed. */
+  private async moreShopperResults(chatId: string, userId: string, memberKey: string): Promise<void> {
+    const session = this.shopperSessions.get(chatId);
+    if (!session || Date.now() - session.at > 30 * 60_000) {
+      await this.send(chatId, 'על מה להביא עוד? כתבו מה אתם מחפשים, למשל: אוזניות בלוטות\' עד 100 ש"ח');
+      return;
+    }
+    if (this.shopperLimits.take(memberKey) !== 'ok') {
+      await this.send(chatId, '⏳ הרבה חיפושים ברצף — נסה שוב בעוד כמה דקות.');
+      return;
+    }
+    session.at = Date.now();
+    if (session.ranked.length - session.shown < 3 && !session.done) {
+      try {
+        const seen = new Set(session.ranked.map((p) => p.product_id));
+        const next = (await this.shopperPage(userId, session.q, session.page + 1)).filter((p) => !seen.has(p.product_id));
+        session.page++;
+        if (!next.length) session.done = true;
+        session.ranked.push(...next);
+      } catch (err: any) {
+        this.logger.warn(`shopper more "${session.q.keyword}" failed: ${err?.message}`);
+      }
+    }
+    const picks = session.ranked.slice(session.shown, session.shown + 3);
+    if (!picks.length) {
+      await this.send(chatId, `זה כל מה שמצאתי ל«${session.q.keyword}» 🙂 נסו ניסוח אחר או מוצר אחר.`);
+      return;
+    }
+    const from = session.shown + 1;
+    session.shown += picks.length;
+    const header = `🔄 עוד ${picks.length} ל«${escapeHtml(session.q.keyword)}»:`;
+    await this.showShopperResults(chatId, userId, header, picks, from, false);
+  }
+
+  /**
+   * Results, laid out like the channel posts: the buy button carries the link and the URL
+   * itself is never shown — hence HTML. In a private chat the header also brings the
+   * «עוד מוצרים» button, a reply-keyboard key that simply sends that text.
+   */
+  private async showShopperResults(
+    chatId: string, userId: string, header: string, picks: BotProduct[], from: number,
+    isGroup: boolean, replyTo?: number,
+  ): Promise<void> {
+    const linkFor = async (p: BotProduct) => {
+      const code = await this.links.mintTarget(p.affiliate_url!, userId, 'shopper').catch(() => null);
+      return code ? this.links.shortUrl(code) : p.affiliate_url!;
+    };
     if (isGroup) {
       // One reply in a group — three photo cards per search would flood it.
       const blocks: string[] = [];
-      for (let i = 0; i < picks.length; i++) blocks.push(shopperCaption(picks[i], i + 1, await linkFor(picks[i])));
+      for (let i = 0; i < picks.length; i++) blocks.push(shopperCaption(picks[i], from + i, await linkFor(picks[i])));
       await this.sendHtml(chatId, [header, ...blocks].join('\n\n'), replyTo);
       return;
     }
-    await this.sendHtml(chatId, header);
+    await this.call('sendMessage', {
+      chat_id: chatId, text: header, parse_mode: 'HTML', disable_web_page_preview: true,
+      reply_markup: {
+        keyboard: [[{ text: MORE_BUTTON }]], resize_keyboard: true, is_persistent: true,
+        input_field_placeholder: 'מה אתם מחפשים?',
+      },
+    });
     for (let i = 0; i < picks.length; i++) {
-      const caption = shopperCaption(picks[i], i + 1, await linkFor(picks[i]));
+      const caption = shopperCaption(picks[i], from + i, await linkFor(picks[i]));
       const sent = await this.call('sendPhoto', {
         chat_id: chatId, photo: picks[i].image_url!, caption, parse_mode: 'HTML',
       });

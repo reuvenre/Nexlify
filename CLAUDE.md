@@ -156,6 +156,7 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
   - No model picks products. Results come from a strict search (never mock data) and are ranked by a fixed formula.
   - Links are short links minted with `kind = 'shopper'`, so their clicks are counted in `link_targets.clicks`.
   - Searches are rate-limited per member and per day.
+  - In a private chat, «עוד מוצרים» (a reply-keyboard button, or the words) shows the next three results of the reader's last search. The session is kept in memory for 30 minutes, since a reader can simply search again, and a new API page is fetched when the ranked list runs out.
   - Kill switch: set `SHOPPER_BOT_DISABLED=1`.
   - Every reader search is logged anonymously to `shopper_searches`: the normalised words and the result count, never who searched, and never the owner's own `/find`. The owner reads it through `/searches` and the manager's `top_searches` tool. Zero-result searches are unmet demand.
 - **A dedicated search bot** (`search-bot.ts`, optional): set `SEARCH_BOT_TOKEN` to a second BotFather bot and the readers move to it.

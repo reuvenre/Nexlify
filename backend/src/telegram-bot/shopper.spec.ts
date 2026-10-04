@@ -1,5 +1,5 @@
 import { BotProduct } from './product-card';
-import { ShopperLimiter, parseShopperQuery, rankShopperResults, shopperCaption } from './shopper';
+import { MORE_BUTTON, ShopperLimiter, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption } from './shopper';
 
 describe('parseShopperQuery', () => {
   it('reads a budget in Hebrew and strips it from the keyword', () => {
@@ -75,5 +75,19 @@ describe('ShopperLimiter', () => {
     expect(lim.take('b')).toBe('daily');
     t += 24 * 3600_000;
     expect(lim.take('b')).toBe('ok');
+  });
+});
+
+describe('isMoreRequest', () => {
+  it('hears "give me more" in the reader\'s words and from the button', () => {
+    for (const t of ['עוד', 'עוד מוצרים', 'תן לי עוד מוצרים', 'תנו לנו עוד אפשרויות', 'יש עוד?', 'עוד בבקשה', MORE_BUTTON, 'more']) {
+      expect(isMoreRequest(t)).toBe(true);
+    }
+  });
+
+  it('keeps a search that names a product a search', () => {
+    for (const t of ['עוד אוזניות', 'אוזניות', 'שעון חכם עוד 100', '']) {
+      expect(isMoreRequest(t)).toBe(false);
+    }
   });
 });
