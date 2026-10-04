@@ -48,11 +48,17 @@ describe('rankShopperResults', () => {
 });
 
 describe('shopperCaption', () => {
-  it('shows price, saving, social proof and the link last', () => {
+  it('shows price, saving, social proof and a buy button that hides the link', () => {
     const c = shopperCaption(prod('1'), 1, 'https://nexlify.app/r/AbC');
     expect(c).toContain('₪50');
     expect(c).toContain('-50%');
-    expect(c.split('\n').pop()).toBe('🔗 https://nexlify.app/r/AbC');
+    expect(c.split('\n').pop()).toBe('<a href="https://nexlify.app/r/AbC">🛒 לרכישה — לחצו כאן 🛒</a>');
+    expect(c).not.toMatch(/^🔗/m);
+  });
+
+  it('escapes seller titles so they cannot break or inject HTML', () => {
+    const c = shopperCaption(prod('1', { title: 'Cable <Type-C & Lightning> <a href="x">' }), 1, 'https://x/r/A');
+    expect(c).toContain('Cable &lt;Type-C &amp; Lightning&gt; &lt;a href="x"&gt;');
   });
 });
 

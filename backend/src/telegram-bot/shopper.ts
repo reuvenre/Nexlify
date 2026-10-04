@@ -73,9 +73,20 @@ export function rankShopperResults(items: BotProduct[], count = 3): BotProduct[]
     .map((x) => x.p);
 }
 
-/** One result as a photo caption — plain text, link last so Telegram makes it tappable. */
+/** Text for a Telegram HTML message: only &, < and > are special there. */
+export function escapeHtml(s: string): string {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** The same buy button the channel posts carry — the link hides behind the text. */
+export const SHOPPER_BUY_TEXT = '🛒 לרכישה — לחצו כאן 🛒';
+
+/**
+ * One result as a Telegram HTML caption (send with parse_mode HTML). Laid out like a
+ * channel post: the URL is never shown, only the buy button that carries it.
+ */
 export function shopperCaption(p: BotProduct, index: number, link: string): string {
-  const lines = [`${index}. ${truncate(p.title, 110)}`];
+  const lines = [`${index}. ${escapeHtml(truncate(p.title, 110))}`];
   const sale = formatMoney(p.sale_price, p.currency);
   lines.push(p.discount_percent > 0 && p.original_price > p.sale_price
     ? `💰 ${sale} (במקום ${formatMoney(p.original_price, p.currency)}, -${p.discount_percent}%)`
@@ -84,11 +95,9 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   if (p.rating > 0) stats.push(`⭐ ${p.rating}`);
   if (p.orders_count > 0) stats.push(`📦 ${p.orders_count.toLocaleString('en-US')} נמכרו`);
   if (stats.length) lines.push(stats.join('  ·  '));
-  lines.push(`🔗 ${link}`);
+  lines.push(`<a href="${escapeHtml(link).replace(/"/g, '&quot;')}">${SHOPPER_BUY_TEXT}</a>`);
   return lines.join('\n');
 }
-
-export const SHOPPER_FOOTER = 'ℹ️ קישורי שותפים — בלי עלות נוספת עבורכם.';
 
 /** What a reader sees after tapping the link in a post — two lines, nothing to read through. */
 export const SHOPPER_HELP = [

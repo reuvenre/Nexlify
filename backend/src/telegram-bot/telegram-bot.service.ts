@@ -19,7 +19,7 @@ import { ManagerAgentService } from '../manager/manager-agent.service';
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
-  SHOPPER_FOOTER, SHOPPER_HELP, ShopperLimiter, parseShopperQuery, rankShopperResults, shopperCaption,
+  SHOPPER_HELP, ShopperLimiter, escapeHtml, parseShopperQuery, rankShopperResults, shopperCaption,
 } from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
@@ -353,22 +353,36 @@ export class TelegramBotService implements OnModuleInit {
     const budgetLabel = parsed.maxPrice || parsed.minPrice
       ? ` (${parsed.minPrice ? `מ-${parsed.minPrice}` : ''}${parsed.minPrice && parsed.maxPrice ? ' ' : ''}${parsed.maxPrice ? `עד ${parsed.maxPrice}` : ''})`
       : '';
-    const header = `🔎 ${picks.length} המומלצים ל«${parsed.keyword}»${budgetLabel}:`;
+    const header = `🔎 ${picks.length} המומלצים ל«${escapeHtml(parsed.keyword)}»${budgetLabel}:`;
 
+    // Results look like the channel posts: the buy button carries the link, the URL itself
+    // is never shown — hence HTML.
     if (isGroup) {
       // One reply in a group — three photo cards per search would flood it.
       const blocks: string[] = [];
       for (let i = 0; i < picks.length; i++) blocks.push(shopperCaption(picks[i], i + 1, await linkFor(picks[i])));
-      await this.send(chatId, [header, ...blocks, SHOPPER_FOOTER].join('\n\n'), undefined, replyTo);
+      await this.sendHtml(chatId, [header, ...blocks].join('\n\n'), replyTo);
       return;
     }
-    await this.send(chatId, header);
+    await this.sendHtml(chatId, header);
     for (let i = 0; i < picks.length; i++) {
       const caption = shopperCaption(picks[i], i + 1, await linkFor(picks[i]));
-      const sent = await this.sendPhoto(chatId, picks[i].image_url!, caption);
-      if (!sent) await this.send(chatId, caption);
+      const sent = await this.call('sendPhoto', {
+        chat_id: chatId, photo: picks[i].image_url!, caption, parse_mode: 'HTML',
+      });
+      if (!sent) await this.sendHtml(chatId, caption);
     }
-    await this.send(chatId, SHOPPER_FOOTER);
+  }
+
+  /** An HTML message (the readers' results). Callers escape any text they did not write. */
+  private sendHtml(chatId: string, text: string, replyTo?: number): Promise<boolean> {
+    return this.call('sendMessage', {
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      ...(replyTo ? { reply_to_message_id: replyTo, allow_sending_without_reply: true } : {}),
+    });
   }
 
   /** Is this group one of the owner's own Telegram groups? Matched by id or @username. */
