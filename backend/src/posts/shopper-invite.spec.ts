@@ -1,4 +1,4 @@
-import { SHOPPER_INVITE_TEXT, withShopperInvite } from './shopper-invite';
+import { SHOPPER_INVITE_TEXT, SHOPPER_INVITE_VARIANTS, withShopperInvite } from './shopper-invite';
 
 const POST = '🔥 <b>חגורה טקטית</b>\n\n<a href="https://x.app/r/AbC?s=tg">🛒 לרכישה — לחצו כאן 🛒</a>';
 
@@ -17,9 +17,22 @@ describe('withShopperInvite', () => {
     expect(withShopperInvite(once, 'NexlifyBot', 1024)).toBe(once);
   });
 
-  it('never pushes a fitting caption over the photo limit', () => {
-    const near = `${POST}${'א'.repeat(1024 - POST.length - 10)}`;
-    expect(withShopperInvite(near, 'NexlifyBot', 1024)).toBe(near);
+  it('shortens the line for a tight caption instead of dropping it', () => {
+    const fullLen = withShopperInvite(POST, 'NexlifyBot', 1024).length;
+    // Room for the middle wording but not the full one.
+    const pad = 1024 - fullLen + 10;
+    const tight = `${POST}${'א'.repeat(pad)}`;
+    const out = withShopperInvite(tight, 'NexlifyBot', 1024);
+    expect(out.length).toBeLessThanOrEqual(1024);
+    expect(out.endsWith(`${SHOPPER_INVITE_VARIANTS[1]}</a>`)).toBe(true);
+  });
+
+  it('falls back to the shortest wording, and leaves the caption alone only when nothing fits', () => {
+    const shortest = `<a href="https://t.me/NexlifyBot?start=post">${SHOPPER_INVITE_VARIANTS[2]}</a>`;
+    const almost = `${POST}${'א'.repeat(1024 - POST.length - shortest.length - 2)}`;
+    expect(withShopperInvite(almost, 'NexlifyBot', 1024).endsWith(`${SHOPPER_INVITE_VARIANTS[2]}</a>`)).toBe(true);
+    const full = `${POST}${'א'.repeat(1024 - POST.length - 5)}`;
+    expect(withShopperInvite(full, 'NexlifyBot', 1024)).toBe(full);
   });
 
   it('still adds it to a caption that already overflows (it goes out as a text message)', () => {

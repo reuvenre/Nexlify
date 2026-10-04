@@ -7,13 +7,21 @@
  * /start, which the bot answers with its search instructions.
  *
  * Hebrew posts only — the bot answers in Hebrew. And never at the cost of the post: a
- * line that would push a photo caption past Telegram's limit is left off, because that
- * forces the post into the "photo, then a separate text message" fallback.
+ * line that would push a photo caption past Telegram's limit would force the post into the
+ * "photo, then a separate text message" fallback. So a tight caption gets a SHORTER
+ * wording of the line, and only when even the shortest does not fit is it left off.
  */
 
 const HEBREW = /[֐-׿]/;
 
 export const SHOPPER_INVITE_TEXT = '🔎 מחפשים מוצר אחר? בקשו מ-Nexlify Bot והוא ימצא לכם תוך שניות';
+
+/** Longest first; each is tried until one fits under the caption limit. */
+export const SHOPPER_INVITE_VARIANTS = [
+  SHOPPER_INVITE_TEXT,
+  '🔎 מחפשים מוצר אחר? בקשו מ-Nexlify Bot',
+  '🔎 Nexlify Bot',
+];
 
 /** A Telegram bot username: 5-32 chars, letters/digits/underscore. */
 const USERNAME = /^[A-Za-z][A-Za-z0-9_]{3,31}$/;
@@ -22,10 +30,14 @@ export function withShopperInvite(caption: string, botUsername: string | null | 
   if (!caption || !botUsername || !USERNAME.test(botUsername)) return caption;
   if (!HEBREW.test(caption)) return caption;
   if (caption.includes(`t.me/${botUsername}`)) return caption; // already there (a re-send)
-  const line = `<a href="https://t.me/${botUsername}?start=post">${SHOPPER_INVITE_TEXT}</a>`;
-  const next = `${caption.trimEnd()}\n\n${line}`;
-  // Only when it still fits: a caption that already overflows goes out as plain text
-  // anyway (4096), but one that FITS must not be pushed over by our own line.
-  if (caption.length <= limit && next.length > limit) return caption;
-  return next;
+  const withLine = (text: string) =>
+    `${caption.trimEnd()}\n\n<a href="https://t.me/${botUsername}?start=post">${text}</a>`;
+  // A caption that already overflows goes out as a plain text message (4096) anyway, so it
+  // gets the full line. One that FITS must not be pushed over by our own line.
+  if (caption.length > limit) return withLine(SHOPPER_INVITE_TEXT);
+  for (const text of SHOPPER_INVITE_VARIANTS) {
+    const next = withLine(text);
+    if (next.length <= limit) return next;
+  }
+  return caption;
 }
