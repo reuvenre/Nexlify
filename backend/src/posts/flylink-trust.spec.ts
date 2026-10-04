@@ -91,3 +91,32 @@ describe('hasFlylinkTrustBlock', () => {
     expect([...FLYLINK_LEGACY_MARKS]).toContain('📸 מהמפעל ישירות לצרכן');
   });
 });
+
+describe('flylinkTrustBlock against a post that already makes its points', () => {
+  // The owner's FLYLINK template, as it went out (שלחו הודעה לפרטי, מספר מעקב, מהמפעל…).
+  const TEMPLATE_BODY = [
+    '🔥 נעלי ספורט אייקוניות בסגנון קלאסי ויוקרתי!',
+    '‏💰 ₪203',
+    '📸 כל מוצר מהמפעל ישירות לצרכן — מה שרואים בתמונות זה מה שמגיע',
+    '📦 קבלת מספר מעקב ישירות למייל ומשלוח מהיר',
+    '💬 מתלבטים? שלחו הודעה לפרטי לפני ההזמנה ונסייע בשמחה',
+    '‏🛒 לרכישה — לחצו כאן 🛒',
+  ].join('\n');
+
+  it('adds only what the template does not say — the replica line', () => {
+    expect(flylinkTrustBlock('telegram', TEMPLATE_BODY)).toBe(FLYLINK_REPLICA_LINE);
+  });
+
+  it('adds nothing on a platform without the replica line', () => {
+    expect(flylinkTrustBlock('facebook', TEMPLATE_BODY)).toBe('');
+  });
+
+  it('never stacks a second trailer on a body that already carries one', () => {
+    const once = `טקסט\n\n${flylinkTrustBlock('telegram')}`;
+    expect(flylinkTrustBlock('telegram', once)).toBe('');
+  });
+
+  it('a bare post still gets the whole block', () => {
+    expect(flylinkTrustBlock('telegram', 'סתם פוסט')).toBe(flylinkTrustBlock('telegram'));
+  });
+});

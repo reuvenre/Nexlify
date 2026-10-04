@@ -79,14 +79,20 @@ export function showsReplicaLine(platform?: PostPlatform): boolean {
  * (the warehouse may well be the manufacturer's), not a count of photos (a post can carry
  * one), not a delivery estimate. Every line here has to survive a buyer quoting it back.
  */
-export function flylinkTrustBlock(platform?: PostPlatform): string {
-  return [
-    `${FLYLINK_TRUST_MARK} — אותו פריט, אותו צבע, אותם פרטים`,
-    '📸 אלה צילומי המחסן של הפריט הזה, לא תמונות קטלוג',
+export function flylinkTrustBlock(platform?: PostPlatform, existingBody = ''): string {
+  const lines: Array<{ text: string; covered: RegExp }> = [
+    { text: `${FLYLINK_TRUST_MARK} — אותו פריט, אותו צבע, אותם פרטים`, covered: /מה שבתמונה|מה שרואים בתמונות/ },
+    { text: '📸 אלה צילומי המחסן של הפריט הזה, לא תמונות קטלוג', covered: /צילומי המחסן|תמונות קטלוג|מהמפעל ישירות/ },
     // Right after the photo promise and before logistics: this is where a buyer decides
     // what he is actually buying.
-    ...(showsReplicaLine(platform) ? [FLYLINK_REPLICA_LINE] : []),
-    '📦 מספר מעקב ישירות למייל · משלוח מהיר',
-    '💬 שאלה לפני ההזמנה? שלחו הודעה לפרטי ונענה בשמחה',
-  ].join('\n');
+    ...(showsReplicaLine(platform) ? [{ text: FLYLINK_REPLICA_LINE, covered: /רפליקה/ }] : []),
+    { text: '📦 מספר מעקב ישירות למייל · משלוח מהיר', covered: /מספר מעקב/ },
+    { text: '💬 שאלה לפני ההזמנה? שלחו הודעה לפרטי ונענה בשמחה', covered: /הודעה לפרטי/ },
+  ];
+  // A line whose point the post already makes is left out. FLYLINK templates carry their
+  // own tracking/DM/photo lines, and stacking this block under them said everything twice
+  // (the owner: "אורך מוגזם"). Every line is checked on its own, so the replica line —
+  // the one fact a template never states — still goes out. Empty when nothing is missing.
+  const body = String(existingBody || '');
+  return lines.filter((l) => !l.covered.test(body)).map((l) => l.text).join('\n');
 }
