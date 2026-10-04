@@ -114,7 +114,14 @@ export class TelegramBotService implements OnModuleInit {
     // The owner tapping the link at the foot of his own post (/start post) sees what his
     // readers see — not his own command list.
     if (/^\/start(@\S+)?(\s|$)/i.test(text)) {
-      await this.send(chatId, `👀 כך זה נראה לקוראים שלוחצים על הקישור בפוסט:\n\n${SHOPPER_HELP}`);
+      await this.send(chatId, `👀 כך זה נראה לקוראים שלוחצים על הקישור בפוסט:\n\n${SHOPPER_HELP}`
+        + '\n\n(חיפוש רגיל כאן הוא החיפוש שלך, עם כפתורי פרסום. כדי לקבל בדיוק מה שקורא מקבל: /find ואחריו החיפוש)');
+      return;
+    }
+    // /find in the owner's chat is the READER's search — three picks with links, no publish
+    // buttons — so he can see exactly what his readers get. /search and plain text stay his.
+    if (/^\/find(@\S+)?(\s|$)/i.test(text)) {
+      await this.handleShopper({ chat: { id: chatId, type: 'private' }, from: { id: `owner:${chatId}` } }, text);
       return;
     }
     const keyword = this.keywordFrom(text);
@@ -149,7 +156,11 @@ export class TelegramBotService implements OnModuleInit {
 
     let items: BotProduct[];
     try {
-      const res = await this.products.search(userId, { keyword, page, limit: RESULTS_PER_PAGE });
+      // A budget in the owner's search works the same as in the readers' ("…עד 200 ש"ח").
+      const q = parseShopperQuery(keyword) || { keyword };
+      const res = await this.products.search(userId, {
+        keyword: q.keyword, min_price: q.minPrice, max_price: q.maxPrice, page, limit: RESULTS_PER_PAGE,
+      });
       items = (res?.data || []) as BotProduct[];
     } catch (err: any) {
       this.logger.warn(`bot search "${keyword}" failed: ${err?.message}`);
