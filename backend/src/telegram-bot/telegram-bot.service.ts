@@ -26,7 +26,7 @@ import { ManagerAgentService } from '../manager/manager-agent.service';
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
-  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, parseShopperQuery, rankShopperResults, shopperCaption,
+  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
 } from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
@@ -72,6 +72,8 @@ export class TelegramBotService implements OnModuleInit {
    *  again), so memory is the right store; half an hour is a conversation. */
   private readonly shopperSessions = new Map<string, {
     q: ShopperQuery; ranked: BotProduct[]; shown: number; page: number; done: boolean; at: number;
+    /** Every key of every product in `ranked` (shopper.ts sameProductKeys) — no repeats. */
+    seen: Set<string>;
   }>();
   /** Which bot answers this update. Set while handling the search bot's updates, so every
    *  reply in that flow goes out from the bot the reader wrote to (see search-bot.ts). */
@@ -394,8 +396,9 @@ export class TelegramBotService implements OnModuleInit {
     }
 
     let ranked: BotProduct[];
+    const seen = new Set<string>();
     try {
-      ranked = await this.shopperPage(userId, parsed, 1);
+      ranked = takeUnseen(await this.shopperPage(userId, parsed, 1), seen);
     } catch (err: any) {
       this.logger.warn(`shopper search "${parsed.keyword}" failed: ${err?.message}`);
       await this.send(chatId, '❌ החיפוש לא זמין כרגע, נסה שוב מאוחר יותר.', undefined, replyTo);
@@ -416,7 +419,7 @@ export class TelegramBotService implements OnModuleInit {
       return;
     }
     if (isPrivate) {
-      this.shopperSessions.set(chatId, { q: parsed, ranked, shown: picks.length, page: 1, done: false, at: Date.now() });
+      this.shopperSessions.set(chatId, { q: parsed, ranked, shown: picks.length, page: 1, done: false, at: Date.now(), seen });
       if (this.shopperSessions.size > 2000) this.shopperSessions.delete(this.shopperSessions.keys().next().value as string);
     }
 
@@ -457,8 +460,8 @@ export class TelegramBotService implements OnModuleInit {
     session.at = Date.now();
     if (session.ranked.length - session.shown < 3 && !session.done) {
       try {
-        const seen = new Set(session.ranked.map((p) => p.product_id));
-        const next = (await this.shopperPage(userId, session.q, session.page + 1)).filter((p) => !seen.has(p.product_id));
+        // Same product under another id, photo or title counts as seen (sameProductKeys).
+        const next = takeUnseen(await this.shopperPage(userId, session.q, session.page + 1), session.seen);
         session.page++;
         if (!next.length) session.done = true;
         session.ranked.push(...next);

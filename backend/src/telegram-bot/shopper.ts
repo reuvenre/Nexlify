@@ -61,16 +61,43 @@ export function parseShopperQuery(raw: string): ShopperQuery | null {
  * The three to show. A listing without a photo or a price is not shown to a stranger; a
  * poorly rated one (under 4.3 when rated at all) is not recommended. The rest by score.
  */
-export function rankShopperResults(items: BotProduct[], count = 3): BotProduct[] {
-  const seen = new Set<string>();
-  return (items || [])
+export function rankShopperResults(items: BotProduct[], count = 3, seen: Set<string> = new Set()): BotProduct[] {
+  const ranked = (items || [])
     .filter((p) => p && p.image_url && Number(p.sale_price) > 0 && p.product_id)
     .filter((p) => !(Number(p.rating) > 0 && Number(p.rating) < 4.3))
-    .filter((p) => (seen.has(p.product_id) ? false : (seen.add(p.product_id), true)))
     .map((p) => ({ p, s: productScore(p) }))
     .sort((a, b) => b.s - a.s)
-    .slice(0, count)
     .map((x) => x.p);
+  // Ranked first, deduplicated second: of two copies of one product, the better offer stays.
+  return takeUnseen(ranked, seen).slice(0, count);
+}
+
+/**
+ * Every way the same product comes back from AliExpress: its id, and — because several
+ * sellers list one product under different ids — its photo and its title. A reader who
+ * taps «עוד מוצרים» must never be shown something he has already seen.
+ */
+export function sameProductKeys(p: BotProduct): string[] {
+  const keys = [`id:${String(p.product_id).trim()}`];
+  const img = String(p.image_url || '').split('?')[0].toLowerCase()
+    // AliExpress serves one photo under size variants: …/abc.jpg_220x220.jpg
+    .replace(/(\.(?:jpe?g|png|webp|avif))_[^/]*$/, '$1');
+  if (img) keys.push(`img:${img}`);
+  const title = String(p.title || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '').slice(0, 60);
+  if (title.length >= 12) keys.push(`t:${title}`);
+  return keys;
+}
+
+/** The items not already in `seen` (by any key), adding theirs to it. Order kept. */
+export function takeUnseen(items: BotProduct[], seen: Set<string>): BotProduct[] {
+  const out: BotProduct[] = [];
+  for (const p of items) {
+    const keys = sameProductKeys(p);
+    if (keys.some((k) => seen.has(k))) continue;
+    keys.forEach((k) => seen.add(k));
+    out.push(p);
+  }
+  return out;
 }
 
 /** Text for a Telegram HTML message: only &, < and > are special there. */

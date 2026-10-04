@@ -1,5 +1,5 @@
 import { BotProduct } from './product-card';
-import { MORE_BUTTON, ShopperLimiter, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption } from './shopper';
+import { MORE_BUTTON, ShopperLimiter, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
 
 describe('parseShopperQuery', () => {
   it('reads a budget in Hebrew and strips it from the keyword', () => {
@@ -89,5 +89,27 @@ describe('isMoreRequest', () => {
     for (const t of ['עוד אוזניות', 'אוזניות', 'שעון חכם עוד 100', '']) {
       expect(isMoreRequest(t)).toBe(false);
     }
+  });
+});
+
+describe('no product twice — «עוד מוצרים» across pages', () => {
+  it('drops the same product listed by another seller (other id, same photo or same title)', () => {
+    const out = rankShopperResults([
+      prod('1', { title: 'TWS Bluetooth 5.3 Earbuds Noise Cancelling', image_url: 'https://ae01.alicdn.com/kf/A.jpg_220x220.jpg' }),
+      prod('2', { title: 'Other seller listing', image_url: 'https://ae01.alicdn.com/kf/A.jpg' }),
+      prod('3', { title: 'TWS Bluetooth 5.3 Earbuds — Noise Cancelling!', image_url: 'https://img/3.jpg' }),
+      prod('4', { title: 'Smart Watch Fitness Tracker', image_url: 'https://img/4.jpg' }),
+    ], 10);
+    expect(out.map((p) => p.product_id)).toEqual(['1', '4']);
+  });
+
+  it('a later page never brings back what an earlier page showed', () => {
+    const seen = new Set<string>();
+    const page1 = takeUnseen(rankShopperResults([prod('1', { title: 'Wireless Earbuds Pro Max 2024' }), prod('2'), prod('3')], 10), seen);
+    const page2 = takeUnseen(rankShopperResults([
+      prod('2'), prod('9', { image_url: 'https://img/3.jpg' }), prod('10', { title: 'Wireless Earbuds Pro Max 2024' }), prod('11'),
+    ], 10), seen);
+    expect(page1.map((p) => p.product_id)).toEqual(['1', '2', '3']);
+    expect(page2.map((p) => p.product_id)).toEqual(['11']);
   });
 });
