@@ -96,3 +96,19 @@ export function flylinkTrustBlock(platform?: PostPlatform, existingBody = ''): s
   const body = String(existingBody || '');
   return lines.filter((l) => !l.covered.test(body)).map((l) => l.text).join('\n');
 }
+
+/**
+ * The hidden-product notice, in one line.
+ *
+ * The owner's FLYLINK template spells it over three lines ("⚠️שימו לב מוצר מוסתר - בעמוד
+ * המוצר יופיע פריט אחר. / יש לבחור צבע לפי הקוד בתמונות. / ומידה לפי טבלת המידות.").
+ * The template lives in the database, and posts already queued carry the long form, so it
+ * is compacted at send time — same as the rest of this file — to his own shorter wording.
+ */
+export const HIDDEN_PRODUCT_NOTICE = '⚠️ מוצר מוסתר: בעמוד יופיע פריט אחר — בחרו צבע לפי הקוד בתמונות ומידה לפי הטבלה';
+
+const LONG_HIDDEN_NOTICE = /[‏‎]*⚠️\s*(?:שימו\s*לב[\s:,\-–—]*)?מוצר\s*מוסתר[\s\S]{0,220}?טבלת\s*המידות[.!]*/u;
+
+export function compactHiddenProductNotice(body: string): string {
+  return String(body || '').replace(LONG_HIDDEN_NOTICE, HIDDEN_PRODUCT_NOTICE);
+}

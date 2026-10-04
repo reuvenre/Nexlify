@@ -29,7 +29,7 @@ import { soloCampaignSlot } from './solo-campaign-slot';
 import { manualQueueTurn } from './queue-fairness';
 import { notReadyVerdict, publishTimeoutVerdict } from './ig-container-status';
 import { bonusCopyHint } from './bonus-copy';
-import { flylinkTrustBlock, isFlylinkPost, PostPlatform } from './flylink-trust';
+import { compactHiddenProductNotice, flylinkTrustBlock, isFlylinkPost, PostPlatform } from './flylink-trust';
 import { BRAND_PLUS_MARK, brandPlusLine } from './brand-plus';
 import { mergeDeliveredChannels } from './delivered-channels';
 import { cronTypicalIntervalMin } from '../watchdog/cron-interval';
@@ -3808,6 +3808,7 @@ export class PostsService {
     // along on the owner's own group channels only (see flylink-trust.ts).
     // Each line is added only when the post does not already say it (flylink-trust.ts).
     if (isFlylinkPost(post.affiliate_url)) {
+      body = compactHiddenProductNotice(body);
       const trailer = flylinkTrustBlock(platform, body);
       if (trailer) body = `${body}\n\n${trailer}`;
     }

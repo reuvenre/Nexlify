@@ -1,6 +1,6 @@
 import {
   FLYLINK_LEGACY_MARKS, FLYLINK_REPLICA_LINE, FLYLINK_TRUST_MARK, flylinkTrustBlock,
-  hasFlylinkTrustBlock, isFlylinkPost, showsReplicaLine,
+  hasFlylinkTrustBlock, isFlylinkPost, showsReplicaLine, compactHiddenProductNotice, HIDDEN_PRODUCT_NOTICE,
 } from './flylink-trust';
 
 describe('flylink trust trailer', () => {
@@ -118,5 +118,31 @@ describe('flylinkTrustBlock against a post that already makes its points', () =>
 
   it('a bare post still gets the whole block', () => {
     expect(flylinkTrustBlock('telegram', 'סתם פוסט')).toBe(flylinkTrustBlock('telegram'));
+  });
+});
+
+describe('compactHiddenProductNotice', () => {
+  it('turns the template\'s three-line notice into the owner\'s one line', () => {
+    const body = [
+      '✔️ שילוב חומרים איכותיים',
+      '',
+      '⚠️שימו לב מוצר מוסתר - בעמוד המוצר יופיע פריט אחר.',
+      'יש לבחור צבע לפי הקוד בתמונות.',
+      'ומידה לפי טבלת המידות.',
+      '',
+      '‏💰 ₪203',
+    ].join('\n');
+    expect(compactHiddenProductNotice(body)).toBe([
+      '✔️ שילוב חומרים איכותיים',
+      '',
+      HIDDEN_PRODUCT_NOTICE,
+      '',
+      '‏💰 ₪203',
+    ].join('\n'));
+  });
+
+  it('is idempotent and leaves posts without the notice alone', () => {
+    expect(compactHiddenProductNotice(HIDDEN_PRODUCT_NOTICE)).toBe(HIDDEN_PRODUCT_NOTICE);
+    expect(compactHiddenProductNotice('סתם פוסט')).toBe('סתם פוסט');
   });
 });
