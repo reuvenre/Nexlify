@@ -111,3 +111,16 @@ describe('undoPlan — one tap puts it back', () => {
     expect(undoPlan(row({ target_id: null, before: kw(['א']) }))).toBeNull();
   });
 });
+
+describe('seasonal_keywords — a change the owner approved from the manager', () => {
+  const row = (over: Record<string, any> = {}) => ({
+    id: 'a1', kind: 'seasonal_keywords', target_id: 'c1', target_label: 'Pinterest',
+    before: 'false', after: 'true', reason: null, until_at: null, undone_at: null, ...over,
+  });
+
+  it('is named and undone back to the previous state', () => {
+    expect(actionLabel(row())).toBe('[Pinterest] הדלקתי מילים עונתיות');
+    expect(undoPlan(row())).toEqual({ kind: 'seasonal_keywords', campaignId: 'c1', value: false });
+    expect(undoPlan(row({ undone_at: new Date() }))).toBeNull();
+  });
+});

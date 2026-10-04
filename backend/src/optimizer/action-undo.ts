@@ -32,6 +32,7 @@ export type UndoPlan =
   | { kind: 'keyword_pause'; campaignId: string; keyword: string }
   | { kind: 'campaign_status'; campaignId: string; status: string }
   | { kind: 'learn_from_orders'; campaignId: string; value: boolean }
+  | { kind: 'seasonal_keywords'; campaignId: string; value: boolean }
   // A mute has no side table: the standing, un-undone row IS the mute, which the recycler
   // reads. Stamping undone_at is therefore the whole inverse — nothing else to write.
   | { kind: 'product_mute'; productId: string };
@@ -91,6 +92,10 @@ export function actionLabel(row: ActionRow): string {
       return row.after === 'true'
         ? `${where}הדלקתי "למידה ממכירות" — הקטגוריות שמוכרות ייכנסו לרוטציה`
         : `${where}כיביתי "למידה ממכירות"`;
+    case 'seasonal_keywords':
+      return row.after === 'true'
+        ? `${where}הדלקתי מילים עונתיות`
+        : `${where}כיביתי מילים עונתיות`;
     case 'product_mute':
       return `${where}הפסקתי לפרסם מחדש את "${row.target_label}" — קליקים בלי מכירה`;
     default:
@@ -136,6 +141,10 @@ export function undoPlan(row: ActionRow): UndoPlan | null {
     case 'learn_from_orders': {
       if (!campaignId) return null;
       return { kind: 'learn_from_orders', campaignId, value: row.before === 'true' };
+    }
+    case 'seasonal_keywords': {
+      if (!campaignId) return null;
+      return { kind: 'seasonal_keywords', campaignId, value: row.before === 'true' };
     }
     case 'product_mute': {
       if (!row.target_id) return null;

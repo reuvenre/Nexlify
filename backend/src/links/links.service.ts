@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 import { Post } from '../posts/post.entity';
 import { LinkClick } from './link-click.entity';
@@ -75,18 +75,20 @@ export class LinksService {
    * code each time would fill link_targets with thousands of aliases for one product and
    * scatter its clicks across all of them.
    */
-  async mintTarget(url: string, userId?: string | null): Promise<string | null> {
+  async mintTarget(url: string, userId?: string | null, kind?: string | null): Promise<string | null> {
     const dest = (url || '').trim();
     if (!dest) return null;
+    // Idempotent per (owner, url, kind): the store and the search bot can hand out the same
+    // product, and sharing one code would mix their clicks.
     const existing = await this.targets.findOne({
-      where: { url: dest, user_id: userId ?? null },
+      where: { url: dest, user_id: userId ?? null, kind: kind ? kind : IsNull() },
     }).catch(() => null);
     if (existing) return existing.code;
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const code = this.generateCode();
       try {
-        await this.targets.insert({ code, url: dest, user_id: userId ?? null });
+        await this.targets.insert({ code, url: dest, user_id: userId ?? null, kind: kind ?? null });
         return code;
       } catch {
         // unique-index collision (astronomically rare at 8 chars) — try another code
@@ -109,6 +111,9 @@ export class LinksService {
       // link already printed into a public ad still reaches the product. No click row to
       // record here (link_clicks needs a post_id), just redirect.
       const target = await this.targets.findOne({ where: { code: clean } }).catch(() => null);
+      if (target && !isBotAgent(userAgent)) {
+        void this.targets.increment({ code: clean }, 'clicks', 1).catch(() => {});
+      }
       return target?.url || null;
     }
 

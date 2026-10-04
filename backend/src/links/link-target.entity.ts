@@ -16,6 +16,15 @@ export class LinkTarget {
   @Column({ type: 'uuid', nullable: true })
   user_id: string | null;
 
+  /** What minted the code when it has no post: null for posts and the storefront,
+   *  'shopper' for the members' search bot — so its clicks can be told apart. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  kind: string | null;
+
+  /** Human clicks that resolved through this row (a post's own clicks live on the post). */
+  @Column({ type: 'int', default: 0 })
+  clicks: number;
+
   @CreateDateColumn()
   created_at: Date;
 }

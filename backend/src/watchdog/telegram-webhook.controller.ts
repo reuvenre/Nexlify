@@ -15,8 +15,9 @@ function safeEqual(a: string, b: string): boolean {
  * secret_token header Telegram echoes back — anything else is silently ignored. Always
  * answers 200 so Telegram never retry-storms.
  *
- * One bot serves two features, split here: a status keyword goes to the watchdog, and
- * everything else (product searches and the inline buttons they carry) to the product bot.
+ * One bot serves several features, split here: a bare status request goes to the watchdog,
+ * and everything else (owner searches and questions, members' searches, inline buttons) to
+ * the product bot.
  */
 @Controller('telegram')
 export class TelegramWebhookController {
@@ -34,7 +35,12 @@ export class TelegramWebhookController {
     if (secret && safeEqual(secret, this.watchdog.telegramWebhookSecret())) {
       // A callback_query carries no message text, so button taps always reach the bot.
       const text = String(body?.message?.text || '').trim();
-      const handled = this.watchdog.isStatusRequest(text)
+      // A bare "/status" or "מה המצב?" is the status report; a longer sentence that merely
+      // contains one of those words ("מה המצב עם פינטרסט השבוע?") is a question for the
+      // manager agent, which the product bot routes.
+      const isStatus = this.watchdog.isStatusRequest(text)
+        && (text.startsWith('/') || text.split(/\s+/).length <= 3);
+      const handled = isStatus
         ? this.watchdog.handleTelegramUpdate(body)
         : this.bot.handleUpdate(body);
       await handled.catch(() => {});

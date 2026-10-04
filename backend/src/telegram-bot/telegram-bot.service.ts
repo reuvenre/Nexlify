@@ -13,6 +13,13 @@ import {
   BotProduct, encodeCallback, matchByPrefix, parseCallback, productCaption, truncate,
 } from './product-card';
 import { splitMessage } from './split-message';
+import { LinksService } from '../links/links.service';
+import { ManagerAgentService } from '../manager/manager-agent.service';
+import { managerQuestion } from '../manager/manager-intent';
+import { proposalText } from '../manager/manager-proposal';
+import {
+  SHOPPER_FOOTER, SHOPPER_HELP, ShopperLimiter, parseShopperQuery, rankShopperResults, shopperCaption,
+} from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
  *  url — the morning report's "open the dashboard" button is the latter. */
@@ -30,6 +37,11 @@ const HELP = [
   'דוגמאות:',
   '• אוזניות בלוטות\'',
   '• /search robot vacuum',
+  '',
+  '🧠 שאלות על המערכת — פשוט שואלים, למשל:',
+  '• למה פינטרסט ירד השבוע?',
+  '• תסביר לי את ההרצה האחרונה של טקטי בקליק',
+  '(או /ask ואחריו השאלה). שינויים המנהל רק מציע — אתה מאשר בכפתור.',
   '',
   '/status — מצב המערכת והתקלות הפתוחות',
 ].join('\n');
@@ -59,6 +71,8 @@ export class TelegramBotService {
   private readonly shown = new Map<string, { product: BotProduct; at: number }>();
   /** chat → last keyword, powering "עוד תוצאות" without re-typing it. */
   private readonly lastQuery = new Map<string, { keyword: string; page: number; at: number }>();
+  /** Budgets for the members' search — anyone can reach it, so it is metered. */
+  private readonly shopperLimits = new ShopperLimiter();
 
   constructor(
     @InjectRepository(Channel) private readonly channels: Repository<Channel>,
@@ -68,6 +82,8 @@ export class TelegramBotService {
     private readonly credentials: CredentialsService,
     // The morning report's buttons: show the evidence, and take a change back.
     private readonly optimizer: OptimizerService,
+    private readonly manager: ManagerAgentService,
+    private readonly links: LinksService,
   ) {}
 
   // ── Entry point ────────────────────────────────────────────────────────────
@@ -81,8 +97,14 @@ export class TelegramBotService {
     const msg = update?.message;
     const text = String(msg?.text || '').trim();
     const chatId = String(msg?.chat?.id ?? '');
-    if (!text || !chatId || !this.isOwner(chatId)) return;
-    await this.handleMessage(chatId, text);
+    if (!text || !chatId) return;
+    if (this.isOwner(chatId)) {
+      await this.handleMessage(chatId, text);
+      return;
+    }
+    // Everyone else — group members and strangers in a private chat — gets the product
+    // search and nothing more: no buttons, no publishing, no data.
+    await this.handleShopper(msg, text);
   }
 
   /** Only the configured owner chat is answered; anything else is silently ignored. */
@@ -92,6 +114,11 @@ export class TelegramBotService {
   }
 
   private async handleMessage(chatId: string, text: string): Promise<void> {
+    const question = managerQuestion(text);
+    if (question) {
+      await this.askManager(chatId, question);
+      return;
+    }
     const keyword = this.keywordFrom(text);
     if (!keyword) {
       await this.send(chatId, HELP);
@@ -181,6 +208,8 @@ export class TelegramBotService {
       case CB_DETAIL: return this.onDigestDetail(chatId, cbId, args[0]);
       case CB_UNDO_LIST: return this.onUndoList(chatId, cbId);
       case CB_UNDO: return this.onUndo(chatId, cbId, messageId, args[0]);
+      case 'pa': return this.onProposal(chatId, cbId, messageId, args[0], true);
+      case 'pr': return this.onProposal(chatId, cbId, messageId, args[0], false);
       case 'x':
         await this.answer(cbId, 'בוטל');
         await this.editText(chatId, messageId, 'בוטל.');
@@ -188,6 +217,157 @@ export class TelegramBotService {
       default:
         await this.answer(cbId);
     }
+  }
+
+  // ── The manager ────────────────────────────────────────────────────────────
+
+  /** A question for the manager agent: answer, then each proposal with its own buttons. */
+  private async askManager(chatId: string, question: string): Promise<void> {
+    const userId = await this.ownerUserId();
+    if (!userId) {
+      await this.send(chatId, '❌ לא נמצא משתמש אדמין במערכת.');
+      return;
+    }
+    await this.call('sendChatAction', { chat_id: chatId, action: 'typing' });
+    let answer;
+    try {
+      answer = await this.manager.ask(userId, question, chatId);
+    } catch (err: any) {
+      this.logger.warn(`manager ask failed: ${err?.message}`);
+      await this.send(chatId, `❌ המנהל לא הצליח לענות: ${err?.response?.data?.error?.message || err?.message || err}`);
+      return;
+    }
+    await this.sendLong(chatId, answer.text);
+    for (const p of answer.proposals) {
+      await this.send(chatId, `💡 הצעה: ${proposalText(p)}\n${p.reason}`, [[
+        { text: '✅ אשר', callback_data: encodeCallback('pa', p.id) },
+        { text: '❌ דחה', callback_data: encodeCallback('pr', p.id) },
+      ]]);
+    }
+  }
+
+  /** "אשר" / "דחה" on a proposal. Editing the message drops the buttons — one tap only. */
+  private async onProposal(
+    chatId: string, cbId: string, messageId: number | undefined, proposalId: string | undefined, approve: boolean,
+  ): Promise<void> {
+    const userId = await this.ownerUserId();
+    if (!proposalId || !userId) {
+      await this.answer(cbId, 'לא נמצא');
+      return;
+    }
+    await this.answer(cbId, approve ? 'מבצע…' : 'נדחה');
+    if (approve) {
+      const res = await this.manager.approve(userId, proposalId);
+      await this.editText(chatId, messageId, res.ok ? res.message : `❌ ${res.message}`);
+    } else {
+      await this.editText(chatId, messageId, await this.manager.reject(userId, proposalId));
+    }
+  }
+
+  // ── The members' product search ────────────────────────────────────────────
+
+  /**
+   * A non-owner message. In a private chat any text is a search; in a group only an explicit
+   * /find (or /search) is, and only in the owner's own groups — the bot added to a stranger's
+   * group must not become a free search engine on the owner's API quota.
+   */
+  private async handleShopper(msg: any, text: string): Promise<void> {
+    if (process.env.SHOPPER_BOT_DISABLED === '1') return;
+    const chat = msg?.chat || {};
+    const chatId = String(chat.id ?? '');
+    const isPrivate = chat.type === 'private';
+    const isGroup = chat.type === 'group' || chat.type === 'supergroup';
+    if (!isPrivate && !isGroup) return;
+
+    let query = text;
+    if (text.startsWith('/')) {
+      const [rawCmd, ...rest] = text.split(/\s+/);
+      const cmd = rawCmd.split('@')[0].toLowerCase();
+      if (cmd === '/find' || cmd === '/search') {
+        query = rest.join(' ').trim();
+      } else {
+        // /start, /help and anything else: explain, but only in private — a group sees
+        // other bots' commands all day, and answering them would be noise.
+        if (isPrivate) await this.send(chatId, SHOPPER_HELP);
+        return;
+      }
+    } else if (isGroup) {
+      return;
+    }
+
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    if (isGroup && !(await this.isOwnersGroup(userId, chat))) return;
+
+    const replyTo = isGroup ? msg.message_id : undefined;
+    const parsed = parseShopperQuery(query);
+    if (!parsed) {
+      await this.send(chatId, SHOPPER_HELP, undefined, replyTo);
+      return;
+    }
+
+    const memberKey = String(msg?.from?.id ?? chatId);
+    const budget = this.shopperLimits.take(memberKey);
+    if (budget !== 'ok') {
+      if (budget === 'user') await this.send(chatId, '⏳ הרבה חיפושים ברצף — נסה שוב בעוד כמה דקות.', undefined, replyTo);
+      return;
+    }
+
+    let items: BotProduct[];
+    try {
+      const res = await this.products.search(userId, {
+        keyword: parsed.keyword,
+        min_price: parsed.minPrice,
+        max_price: parsed.maxPrice,
+        limit: 20,
+        // Never mock data in front of a stranger: a failed search says so instead.
+        strict: true,
+      });
+      items = ((res?.data || []) as BotProduct[]).filter((p) => !!p.affiliate_url);
+    } catch (err: any) {
+      this.logger.warn(`shopper search "${parsed.keyword}" failed: ${err?.message}`);
+      await this.send(chatId, '❌ החיפוש לא זמין כרגע, נסה שוב מאוחר יותר.', undefined, replyTo);
+      return;
+    }
+
+    const picks = rankShopperResults(items, 3);
+    if (!picks.length) {
+      await this.send(chatId, `לא מצאתי מוצרים מתאימים ל«${parsed.keyword}»${parsed.maxPrice ? ' בתקציב הזה' : ''}. נסה ניסוח אחר.`,
+        undefined, replyTo);
+      return;
+    }
+
+    const linkFor = async (p: BotProduct) => {
+      const code = await this.links.mintTarget(p.affiliate_url!, userId, 'shopper').catch(() => null);
+      return code ? this.links.shortUrl(code) : p.affiliate_url!;
+    };
+    const budgetLabel = parsed.maxPrice || parsed.minPrice
+      ? ` (${parsed.minPrice ? `מ-${parsed.minPrice}` : ''}${parsed.minPrice && parsed.maxPrice ? ' ' : ''}${parsed.maxPrice ? `עד ${parsed.maxPrice}` : ''})`
+      : '';
+    const header = `🔎 ${picks.length} המומלצים ל«${parsed.keyword}»${budgetLabel}:`;
+
+    if (isGroup) {
+      // One reply in a group — three photo cards per search would flood it.
+      const blocks: string[] = [];
+      for (let i = 0; i < picks.length; i++) blocks.push(shopperCaption(picks[i], i + 1, await linkFor(picks[i])));
+      await this.send(chatId, [header, ...blocks, SHOPPER_FOOTER].join('\n\n'), undefined, replyTo);
+      return;
+    }
+    await this.send(chatId, header);
+    for (let i = 0; i < picks.length; i++) {
+      const caption = shopperCaption(picks[i], i + 1, await linkFor(picks[i]));
+      const sent = await this.sendPhoto(chatId, picks[i].image_url!, caption);
+      if (!sent) await this.send(chatId, caption);
+    }
+    await this.send(chatId, SHOPPER_FOOTER);
+  }
+
+  /** Is this group one of the owner's own Telegram groups? Matched by id or @username. */
+  private async isOwnersGroup(userId: string, chat: any): Promise<boolean> {
+    const ids = new Set([String(chat.id)]);
+    if (chat.username) ids.add(`@${String(chat.username).toLowerCase()}`);
+    const groups = await this.telegramChannels(userId).catch(() => [] as Channel[]);
+    return groups.some((g) => ids.has(String(g.channel_id).trim().toLowerCase()) || ids.has(String(g.channel_id).trim()));
   }
 
   // ── The morning report's buttons ───────────────────────────────────────────
@@ -385,12 +565,13 @@ export class TelegramBotService {
     }
   }
 
-  private send(chatId: string, text: string, keyboard?: Keyboard): Promise<boolean> {
+  private send(chatId: string, text: string, keyboard?: Keyboard, replyTo?: number): Promise<boolean> {
     return this.call('sendMessage', {
       chat_id: chatId,
       text,
       disable_web_page_preview: true,
       ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+      ...(replyTo ? { reply_to_message_id: replyTo, allow_sending_without_reply: true } : {}),
     });
   }
 

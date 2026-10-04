@@ -864,6 +864,10 @@ export class OptimizerService {
           await q(`UPDATE campaigns SET learn_from_orders = $1 WHERE id = $2 AND user_id = $3`,
             [plan.value, plan.campaignId, userId]);
           break;
+        case 'seasonal_keywords':
+          await q(`UPDATE campaigns SET seasonal_keywords = $1 WHERE id = $2 AND user_id = $3`,
+            [plan.value, plan.campaignId, userId]);
+          break;
         case 'product_mute':
           // Nothing to write: the standing row IS the mute (the recycler reads the log
           // directly), so the undone_at stamp below is the entire inverse.

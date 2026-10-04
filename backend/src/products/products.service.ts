@@ -8,6 +8,7 @@ import { PricingService, PricingConfig } from '../pricing/pricing.service';
 import { AiService } from '../ai/ai.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { cacheGet, cacheSet } from '../common/safe-cache';
+import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
 
@@ -83,12 +84,16 @@ export class ProductsService {
     if (!this.ai.hasAnyKey(creds)) return keyword;
     try {
       const res = await this.ai.generate(creds, {
-        system: 'You translate Hebrew product-search queries into short English AliExpress search keywords. Reply with ONLY the English keywords — no quotes, no explanation.',
-        prompt: keyword,
+        // The query can come from any member of a group (the search bot), so it is fenced
+        // like any other third-party text — it is something to translate, not to obey.
+        system: 'You translate Hebrew product-search queries into short English AliExpress search keywords. Reply with ONLY the English keywords — no quotes, no explanation.\n'
+          + UNTRUSTED_DATA_RULE,
+        prompt: fenceUntrusted(keyword, 120),
         maxTokens: 30,
         temperature: 0,
       });
-      const translated = res?.text?.trim().replace(/^["']+|["']+$/g, '');
+      const translated = stripFenceMarks(res?.text || '').trim().replace(/^["']+|["']+$/g, '')
+        .replace(/\s+/g, ' ').slice(0, 80).trim();
       if (translated) {
         this.logger.log(`keyword translated: "${keyword}" → "${translated}"`);
         await cacheSet(this.cacheManager, cacheKey, translated, 7 * 24 * 3600 * 1000);

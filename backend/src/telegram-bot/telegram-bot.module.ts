@@ -6,6 +6,8 @@ import { ProductsModule } from '../products/products.module';
 import { PostsModule } from '../posts/posts.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { OptimizerModule } from '../optimizer/optimizer.module';
+import { LinksModule } from '../links/links.module';
+import { ManagerModule } from '../manager/manager.module';
 import { TelegramBotService } from './telegram-bot.service';
 
 // Channel/User are registered as REPOSITORIES rather than pulling in ChannelsModule +
@@ -19,6 +21,9 @@ import { TelegramBotService } from './telegram-bot.service';
   imports: [
     TypeOrmModule.forFeature([Channel, User]),
     ProductsModule, PostsModule, CredentialsModule, OptimizerModule,
+    // The manager agent (owner questions) and short links for the members' search.
+    // Neither reaches UsersModule or WatchdogModule.
+    ManagerModule, LinksModule,
   ],
   providers: [TelegramBotService],
   exports: [TelegramBotService],

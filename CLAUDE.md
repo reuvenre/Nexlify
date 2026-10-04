@@ -140,6 +140,24 @@ When adding a Hebrew word rule, two things are not optional:
 - **Match whole words.** JavaScript's `\b` is ASCII and is meaningless between Hebrew letters — the boundary is written as explicit Hebrew-letter lookarounds. `ציד` is a substring of צידו/צידה/מצידי/הצידה (inflections of `צד`, "side"); a naive replace publishes gibberish. The one-letter prefixes (ה ו ב ל מ ש כ) are consumed and handed back.
 - **Step over URLs and HTML.** The affiliate link is inside the body by then, and a supplier URL can legitimately read `/1005006-hunting-knife.html`. Rewriting inside it breaks the link and loses the commission.
 
+### The Telegram bot: owner, manager, members (`telegram-bot/`, `manager/`)
+One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* status request (`/status`, or "מה המצב?" in up to 3 words) to the watchdog, and everything else to `TelegramBotService`, which splits by who is writing:
+- **Owner chat** (`WATCHDOG_TELEGRAM_CHAT_ID`):
+  - A question goes to the manager agent: `managerQuestion` matches `?`, an interrogative or imperative opener, or `/ask`.
+  - Anything else is the existing product search with publish buttons.
+- **Manager agent** (`ManagerAgentService`):
+  - A read-only tool loop over the owner's campaigns, posts, clicks, run notes, seasonal ledger and `manager_actions`.
+  - Every `campaign_id` the model passes is resolved against the owner's own campaigns.
+  - Its only write path is `propose_change`. This stores a proposal in `persistent_values` (`manager_proposal:<id>`, 24 h) and shows it with ✅/❌ buttons.
+  - On approval the proposal is re-validated against the live campaign, applied, and logged to `manager_actions`, so it shows up in the morning report's undo list.
+  - Proposals are single-use. Allowed fields are fixed in `manager-proposal.ts`, within the optimizer's bounds.
+- **Anyone else** gets the members' product search (`shopper.ts`):
+  - In a private chat any text is a search. In a group only `/find` or `/search` is, and only in the owner's own groups.
+  - No model picks products. Results come from a strict search (never mock data) and are ranked by a fixed formula.
+  - Links are short links minted with `kind = 'shopper'`, so their clicks are counted in `link_targets.clicks`.
+  - Searches are rate-limited per member and per day.
+  - Kill switch: set `SHOPPER_BOT_DISABLED=1`.
+
 ### Model input and output boundaries
 - **Third-party text is fenced** (`common/untrusted.ts`). Product titles, categories and supplier notes are a seller's words. They go into a prompt only through `fenceUntrusted()`, which flattens newlines and control characters, caps the length, and wraps the text in `⟦…⟧`. Any brief that carries fenced text also appends `UNTRUSTED_DATA_RULE`. The marks must never be published: `stripFenceMarks` runs on every draft in `generateText`, the content agent, and again in `buildPostBody`.
 - **ProductAgent picks; the server supplies the facts** (`agents/product-grounding.ts`). The model returns only product ids. An id that `search_products` never returned this run is dropped. Title, prices, image and the source keyword are read from the search result, never from the model's JSON.
