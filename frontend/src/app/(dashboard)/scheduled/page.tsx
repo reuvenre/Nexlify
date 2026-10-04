@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { CalendarClock, Loader2, Trash2, Power, Plus, Save, X, Repeat, Send, Clock, FileText } from 'lucide-react';
-import { customPostsApi, channelsApi } from '@/lib/api-client';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { CalendarClock, Loader2, Trash2, Power, Plus, Save, X, Repeat, Send, Clock, FileText, Link2, ImagePlus } from 'lucide-react';
+import { customPostsApi, channelsApi, postsApi } from '@/lib/api-client';
 import { GroupMultiSelect, type GroupOption } from '@/components/GroupMultiSelect';
 import { PromoComposer } from '@/components/PromoComposer';
 import type { CustomPost, CustomPostRepeat } from '@/types';
@@ -34,6 +34,44 @@ export default function ScheduledPostsPage() {
   const [error, setError] = useState('');
   /** Composer mode: a plain free-text scheduled post, or a product limited-time promo. */
   const [mode, setMode] = useState<'text' | 'promo'>('text');
+  /** The "link behind text" helper: the words readers see, and where they lead. */
+  const [linkText, setLinkText] = useState('לחצו כאן');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  /** Where the owner's cursor last was in the body — the link goes there, not at the end. */
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  /** Appends `[text](url)` — published as just the text, clickable (see post-link.ts). */
+  const addLink = () => {
+    const url = linkUrl.trim();
+    const text = linkText.trim() || 'לחצו כאן';
+    if (!/^https?:\/\//i.test(url)) { setError('הדבק כתובת שמתחילה ב-https://'); return; }
+    setError('');
+    const md = `[${text}](${url})`;
+    const el = bodyRef.current;
+    setForm((f) => {
+      // Insert at the cursor the body last had (it survives tapping into the URL field);
+      // with no cursor yet, at the end.
+      const at = el && el.selectionStart != null && el.value === f.body ? el.selectionStart : f.body.length;
+      const before = f.body.slice(0, at);
+      const after = f.body.slice(at);
+      const pad = before && !/\s$/.test(before) ? ' ' : '';
+      return { ...f, body: `${before}${pad}${md}${after}` };
+    });
+    setLinkUrl('');
+  };
+
+  /** Phone gallery / computer file → public URL, appended to the image list. */
+  const uploadImage = async (file?: File | null) => {
+    if (!file) return;
+    setUploading(true); setError('');
+    try {
+      const { url } = await postsApi.uploadImage(file);
+      setForm((f) => ({ ...f, imagesText: [f.imagesText.trim(), url].filter(Boolean).join('\n') }));
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'העלאת התמונה נכשלה');
+    } finally { setUploading(false); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,14 +163,31 @@ export default function ScheduledPostsPage() {
 
         <div>
           <label className="block text-xs text-white/50 mb-1.5">תוכן הפוסט *</label>
-          <textarea value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} rows={5}
+          <textarea ref={bodyRef} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} rows={5}
             placeholder="הטקסט המדויק שיפורסם..." className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white/85 outline-none focus:border-blue-500/50 resize-y" />
+          <div className="mt-2 rounded-lg border border-edge-hover bg-white/[0.03] p-2.5 space-y-2">
+            <p className="text-[11px] text-white/45 flex items-center gap-1.5"><Link2 size={12} /> קישור על טקסט — שים את הסמן בטקסט במקום הרצוי. בפוסט יופיעו רק המילים, והן יהיו לחיצות</p>
+            <div className="flex flex-wrap gap-2">
+              <input value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="הטקסט שרואים"
+                className="flex-1 min-w-[110px] bg-white/5 border border-edge-hover rounded-lg px-2.5 py-1.5 text-xs text-white/85 outline-none focus:border-blue-500/50" />
+              <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://t.me/..." dir="ltr"
+                className="flex-[2] min-w-[160px] bg-white/5 border border-edge-hover rounded-lg px-2.5 py-1.5 text-xs text-white/80 outline-none focus:border-blue-500/50 font-mono" />
+              <button type="button" onClick={addLink}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-300 hover:bg-blue-600/30">הוסף לפוסט</button>
+            </div>
+          </div>
         </div>
 
         <div>
           <label className="block text-xs text-white/50 mb-1.5">קישורי תמונות (אחד בכל שורה, אופציונלי)</label>
           <textarea value={form.imagesText} onChange={(e) => setForm((f) => ({ ...f, imagesText: e.target.value }))} rows={2} dir="ltr"
             placeholder="https://...jpg" className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-xs text-white/80 outline-none focus:border-blue-500/50 font-mono resize-y" />
+          <label className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer ${uploading ? 'bg-white/5 text-white/40' : 'bg-blue-600/20 text-blue-300 hover:bg-blue-600/30'}`}>
+            {uploading ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+            {uploading ? 'מעלה…' : 'העלה תמונה מהמכשיר'}
+            <input type="file" accept="image/*" className="hidden" disabled={uploading}
+              onChange={(e) => { uploadImage(e.target.files?.[0]); e.target.value = ''; }} />
+          </label>
         </div>
 
         <div>

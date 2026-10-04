@@ -1,4 +1,4 @@
-import { firstLink } from './post-link';
+import { firstLink, markdownLinksToHtml } from './post-link';
 
 describe('firstLink — what a hand-written post is actually selling', () => {
   it('finds the link at the end of a holiday promo', () => {
@@ -40,5 +40,18 @@ describe('firstLink — what a hand-written post is actually selling', () => {
 
   it('ignores a bare domain — a redirect needs a real destination', () => {
     expect(firstLink('כנסו ל-aliexpress.com')).toBeNull();
+  });
+});
+
+describe('markdownLinksToHtml', () => {
+  it('turns [text](url) into an anchor that shows only the text', () => {
+    const { html, links } = markdownLinksToHtml('👈 להתחלה [לחצו כאן](https://t.me/NexlifyBot?start=post)\nעוד שורה');
+    expect(html).toBe('👈 להתחלה <a href="https://t.me/NexlifyBot?start=post">לחצו כאן</a>\nעוד שורה');
+    expect(links).toEqual(['https://t.me/NexlifyBot?start=post']);
+  });
+
+  it('escapes the link text and leaves bodies without the syntax untouched', () => {
+    expect(markdownLinksToHtml('[a<b>](https://x.y/z)').html).toBe('<a href="https://x.y/z">a&lt;b&gt;</a>');
+    expect(markdownLinksToHtml('plain https://x.y and [not a link]').links).toEqual([]);
   });
 });

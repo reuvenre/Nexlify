@@ -4812,7 +4812,11 @@ export class PostsService {
       `<a href="${url}">${NON_LATIN_RE.test(caption) ? '🛒 לרכישה — לחצו כאן 🛒' : '🛒 Tap here to shop 🛒'}</a>`);
     // The owner's audiences are channels, where members cannot type /find — this last line
     // sends them to the search bot's private chat instead (shopper-invite.ts).
-    caption = withShopperInvite(caption, await this.shopperBotUsername(post.user_id, creds), TG_CAPTION_LIMIT);
+    // Not on the owner's own hand-written posts: he writes those himself, and an
+    // announcement of the bot would otherwise carry the invite twice.
+    if (!String(post.product_id || '').startsWith('custom-')) {
+      caption = withShopperInvite(caption, await this.shopperBotUsername(post.user_id, creds), TG_CAPTION_LIMIT);
+    }
 
     let token = creds?.telegram_bot_token;
     let channel = normalizeTelegramChatId(creds?.telegram_channel_id);

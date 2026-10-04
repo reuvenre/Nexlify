@@ -41,3 +41,25 @@ export function firstLink(body: string | null | undefined): string | null {
   url = url.replace(/&(?:quot|amp|lt|gt|#\d+);+$/i, '');
   return url || null;
 }
+
+/**
+ * `[text](https://…)` in a hand-written post → a Telegram anchor that shows only the text.
+ *
+ * The owner writes on a phone, where an HTML anchor is unreasonable to type, and a bare URL
+ * pasted into the prose was lifted out and re-attached as the product post's "🛒 לרכישה"
+ * button — the wrong words for an announcement. This form keeps the link exactly where he
+ * put it, behind exactly the words he chose. `links` tells the dispatcher the post placed
+ * its own links, so none is lifted out.
+ */
+const MD_LINK = /\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)]+)\)/g;
+
+export function markdownLinksToHtml(body: string | null | undefined): { html: string; links: string[] } {
+  const links: string[] = [];
+  const html = String(body || '').replace(MD_LINK, (_m, text: string, url: string) => {
+    links.push(url);
+    const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeUrl = url.replace(/"/g, '%22');
+    return `<a href="${safeUrl}">${safeText}</a>`;
+  });
+  return { html, links };
+}

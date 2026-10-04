@@ -4,7 +4,7 @@ import { LessThanOrEqual, Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CustomPost, CustomPostRepeat } from './custom-post.entity';
 import { PostsService } from '../posts/posts.service';
-import { firstLink } from './post-link';
+import { firstLink, markdownLinksToHtml } from './post-link';
 
 const REPEATS: CustomPostRepeat[] = ['none', 'daily', 'weekly'];
 
@@ -117,7 +117,11 @@ export class CustomPostsService {
           // and then counted for nothing — see post-link.ts. The publish path lifts the raw
           // URL out of the text and re-attaches it as the standard "🔗" line, so the link
           // ends up where every other post keeps it.
-          const link = firstLink(cp.body) || '';
+          // `[text](url)` links stay where the owner put them, behind his words — and then
+          // nothing is lifted out as a "🛒 לרכישה" button (see markdownLinksToHtml).
+          const md = markdownLinksToHtml(cp.body);
+          const body = md.html;
+          const link = md.links.length ? '' : (firstLink(cp.body) || '');
           for (const group of channels) {
             // Land in the group's next free slot (spaced by its interval from pending posts),
             // at or after now — so it never lands on top of an autopilot post.
@@ -133,7 +137,7 @@ export class CustomPostsService {
                 discount_percent: 0, orders_count: 0, rating: 0,
               },
               undefined,          // catalogProductId
-              cp.body,            // textOverride — exact content, no AI
+              body,               // textOverride — exact content, no AI
               group,              // channelOverride
               images,             // images (gallery)
               undefined,          // collageCells
