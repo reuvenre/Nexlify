@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // '/s/' is the customer storefronts — the page a follower lands on from a post, with no
 // account and no session. It must never be treated as an app route.
-const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/blog', '/compare', '/privacy', '/pricing', '/r/', '/s/'];
+const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/blog', '/compare', '/privacy', '/pricing', '/r/', '/s/', '/bot'];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
