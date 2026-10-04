@@ -140,6 +140,14 @@ When adding a Hebrew word rule, two things are not optional:
 - **Match whole words.** JavaScript's `\b` is ASCII and is meaningless between Hebrew letters — the boundary is written as explicit Hebrew-letter lookarounds. `ציד` is a substring of צידו/צידה/מצידי/הצידה (inflections of `צד`, "side"); a naive replace publishes gibberish. The one-letter prefixes (ה ו ב ל מ ש כ) are consumed and handed back.
 - **Step over URLs and HTML.** The affiliate link is inside the body by then, and a supplier URL can legitimately read `/1005006-hunting-knife.html`. Rewriting inside it breaks the link and loses the commission.
 
+### Model input and output boundaries
+- **Third-party text is fenced** (`common/untrusted.ts`). Product titles, categories and supplier notes are a seller's words. They go into a prompt only through `fenceUntrusted()`, which flattens newlines and control characters, caps the length, and wraps the text in `⟦…⟧`. Any brief that carries fenced text also appends `UNTRUSTED_DATA_RULE`. The marks must never be published: `stripFenceMarks` runs on every draft in `generateText`, the content agent, and again in `buildPostBody`.
+- **ProductAgent picks; the server supplies the facts** (`agents/product-grounding.ts`). The model returns only product ids. An id that `search_products` never returned this run is dropped. Title, prices, image and the source keyword are read from the search result, never from the model's JSON.
+- **Prompt caching** (`ai/anthropic-cache.ts`):
+  - `AiService` marks only the *system* block. The user prompt carries per-product facts, so caching it would be a write that is never read.
+  - The agent tool loops use a top-level `cache_control`, which moves forward with the conversation.
+  - Metering counts `cache_read` + `cache_creation` tokens as input. Keep a system prompt stable across calls (no per-product values in it), or it never gets a cache hit.
+
 ## Frontend Architecture
 
 ### Auth flow

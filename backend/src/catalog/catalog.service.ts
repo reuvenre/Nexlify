@@ -9,6 +9,7 @@ import { PostsService } from '../posts/posts.service';
 import { AiService } from '../ai/ai.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 
 @Injectable()
 export class CatalogService {
@@ -405,8 +406,8 @@ export class CatalogService {
     await this.subscription.consumeOrThrow(userId, this.subscription.costs.ai_generate, 'ai_generate_description');
 
     const facts = [
-      `שם המוצר (באנגלית): ${product.title}`,
-      product.category ? `קטגוריה: ${product.category}` : null,
+      `שם המוצר (באנגלית): ${fenceUntrusted(product.title)}`,
+      product.category ? `קטגוריה: ${fenceUntrusted(product.category)}` : null,
       product.sale_price > 0 ? `מחיר נוכחי: ₪${product.sale_price}` : null,
       product.discount_percent > 0 ? `הנחה: ${product.discount_percent}%` : null,
       product.orders_count > 0 ? `הזמנות אחרונות: ${product.orders_count}` : null,
@@ -419,13 +420,15 @@ export class CatalogService {
 • 2-4 משפטים בלבד, ענייניים ומכירתיים במידה.
 • תאר אך ורק מה שניתן להסיק בביטחון משם המוצר והקטגוריה — אל תמציא מפרט טכני, מידות או חומרים שלא מופיעים בשם.
 • אל תכלול מחיר או קישור בתיאור.
-• עברית בלבד (שם מותג/דגם מותר להשאיר באנגלית).`,
+• עברית בלבד (שם מותג/דגם מותר להשאיר באנגלית).
+
+${UNTRUSTED_DATA_RULE}`,
       prompt: `כתוב תיאור מוצר לפי הנתונים:\n${facts}`,
       maxTokens: 300,
       temperature: 0.6,
     });
 
-    const description = result?.text?.trim();
+    const description = stripFenceMarks(result?.text?.trim() || '');
     if (!description) throw new BadRequestException('יצירת התיאור נכשלה — נסה שוב');
 
     product.description = description;

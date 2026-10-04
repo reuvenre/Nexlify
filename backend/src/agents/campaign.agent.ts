@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Campaign } from '../campaigns/campaign.entity';
 import { Post } from '../posts/post.entity';
 import { AgentClient } from './agent-client.service';
+import { anthropicInputTokens, EPHEMERAL } from '../ai/anthropic-cache';
 
 export interface CampaignHealth {
   status: 'healthy' | 'degraded' | 'paused';
@@ -130,9 +131,12 @@ Check the stats and failed posts, then decide if any corrective action is needed
         system: systemPrompt,
         tools,
         messages,
+        // Each turn re-sends the whole loop so far; this breakpoint moves with it, so the
+        // next turn reads it from cache (anthropic-cache.ts).
+        cache_control: EPHEMERAL,
       });
 
-      totalTokens += response.usage.input_tokens + response.usage.output_tokens;
+      totalTokens += anthropicInputTokens(response.usage) + response.usage.output_tokens;
       this.agentClient.record(userId, response.usage);
 
       if (response.stop_reason === 'tool_use') {

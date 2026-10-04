@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { CredentialsService } from '../credentials/credentials.service';
 import { AiUsageService } from '../ai/ai-usage.service';
+import { anthropicInputTokens } from '../ai/anthropic-cache';
 
 /** Used when the account has no model preference of its own. */
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -45,10 +46,11 @@ export class AgentClient {
   }
 
   /** Meter one agent turn. Best-effort — metering must never break a run. */
-  record(userId: string, usage: { input_tokens: number; output_tokens: number }): void {
+  record(userId: string, usage: Parameters<typeof anthropicInputTokens>[0] & { output_tokens: number }): void {
+    const input = anthropicInputTokens(usage);
     void this.usage.record(
-      userId, 'anthropic', usage.input_tokens, usage.output_tokens,
-      usage.input_tokens + usage.output_tokens,
+      userId, 'anthropic', input, usage.output_tokens,
+      input + usage.output_tokens,
     ).catch((err) => this.logger.warn(`agent usage record failed: ${err?.message || err}`));
   }
 }

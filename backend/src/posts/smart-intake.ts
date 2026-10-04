@@ -13,6 +13,8 @@
  * a wrong assignment posts a product to a real group of real people.
  */
 
+import { UNTRUSTED_DATA_RULE, fenceUntrusted } from '../common/untrusted';
+
 export interface IntakeCampaignProfile {
   name: string;
   /** The live rotation — the strongest statement of what this campaign sells. */
@@ -37,7 +39,8 @@ export const SMART_INTAKE_SYSTEM =
   + '"jewelry organizer" or "camping lantern") that an AliExpress search would use to find '
   + 'more products like this one — never the product\'s marketing title. '
   + 'Answer ONLY strict JSON: {"campaign": <index or -1>, "keyword": "...", "reason": "<short Hebrew>"} '
-  + 'Use campaign -1 when no campaign\'s audience fits.';
+  + 'Use campaign -1 when no campaign\'s audience fits.\n'
+  + UNTRUSTED_DATA_RULE;
 
 export function buildSmartIntakePrompt(
   product: { title: string; category?: string },
@@ -47,8 +50,10 @@ export function buildSmartIntakePrompt(
     `${i}. "${c.name}" — keywords: ${c.keywords.slice(0, 12).join(', ') || '(none)'}`
     + (c.channels.length ? ` — groups: ${c.channels.join(', ')}` : ''));
   return [
-    `Product: ${String(product.title || '').slice(0, 200)}`,
-    product.category ? `Category: ${String(product.category).slice(0, 80)}` : '',
+    // The seller's words, fenced: a title must not be able to pick its own campaign or
+    // write the keyword that goes into the owner's rotation.
+    `Product: ${fenceUntrusted(product.title, 200)}`,
+    product.category ? `Category: ${fenceUntrusted(product.category, 80)}` : '',
     '',
     'Campaigns:',
     ...lines,

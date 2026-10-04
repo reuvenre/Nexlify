@@ -22,6 +22,7 @@ import { AiService, GenerateImage } from '../ai/ai.service';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { RatesService } from '../rates/rates.service';
+import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 
 // store_name / store_category / store_brand are here so the owner can overrule the
 // enrichment agent — it proposes, he decides, and the correction stands because
@@ -508,18 +509,20 @@ export class SupplierProductsService {
         'brand — שם המותג באנגלית אם הוא נראה בתמונה או בכותרת. אם אינך רואה מותג — החזר מחרוזת ריקה.',
         '',
         'אל תמציא. אם אינך יודע שדה — החזר עבורו מחרוזת ריקה.',
+        '',
+        UNTRUSTED_DATA_RULE,
       ].join('\n'),
       prompt: [
         'קטלג את המוצר שבתמונה.',
-        p.title ? `כותרת הספק (עשויה להכיל קוד מק"ט ומחיר סיטונאי — התעלם מהם): ${p.title}` : '',
-        p.description ? `רמז נוסף מהספק: ${p.description}` : '',
+        p.title ? `כותרת הספק (עשויה להכיל קוד מק"ט ומחיר סיטונאי — התעלם מהם): ${fenceUntrusted(p.title)}` : '',
+        p.description ? `רמז נוסף מהספק: ${fenceUntrusted(p.description, 500)}` : '',
       ].filter(Boolean).join('\n'),
       images,
       maxTokens: 220,
       temperature: 0.2,
     });
 
-    return res?.text ? parseEnrichment(res.text) : EMPTY_ENRICHMENT;
+    return res?.text ? parseEnrichment(stripFenceMarks(res.text)) : EMPTY_ENRICHMENT;
   }
 
   async update(userId: string, id: string, dto: any): Promise<SupplierProduct> {
@@ -542,15 +545,16 @@ export class SupplierProductsService {
     await this.subscription.consumeOrThrow(userId, this.subscription.costs.ai_generate, 'ai_generate_supplier');
 
     const facts = [
-      `שם/מותג: ${p.title}`,
+      `שם/מותג: ${fenceUntrusted(p.title)}`,
       p.price > 0 ? `מחיר: ${p.currency} ${p.price}` : null,
     ].filter(Boolean).join('\n');
     const result = await this.ai.generate(creds, {
-      system: 'אתה כותב תיאורי מוצר קצרים ומדויקים בעברית לקטלוג. 2-4 משפטים, ענייני, בלי מחיר ובלי קישור. עברית בלבד (מותג באנגלית מותר).',
+      system: 'אתה כותב תיאורי מוצר קצרים ומדויקים בעברית לקטלוג. 2-4 משפטים, ענייני, בלי מחיר ובלי קישור. עברית בלבד (מותג באנגלית מותר).\n\n'
+        + UNTRUSTED_DATA_RULE,
       prompt: `כתוב תיאור לפי:\n${facts}`,
       maxTokens: 300, temperature: 0.6,
     });
-    const description = result?.text?.trim();
+    const description = stripFenceMarks(result?.text?.trim() || '');
     if (!description) throw new BadRequestException('יצירת התיאור נכשלה');
     p.description = description;
     await this.repo.save(p);

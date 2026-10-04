@@ -58,6 +58,6 @@ describe('buildSmartIntakePrompt', () => {
     );
     expect(p).toContain('0. "מאמא"');
     expect(p).toContain('1. "Pinterest"');
-    expect(p).toContain('Category: Home');
+    expect(p).toContain('Category: ⟦Home⟧');
   });
 });

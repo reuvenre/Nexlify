@@ -6,6 +6,8 @@ import { Post } from '../posts/post.entity';
 import { AiService } from '../ai/ai.service';
 import { DecryptedCredentials } from '../credentials/credentials.service';
 import { AgentClient } from './agent-client.service';
+import { anthropicInputTokens, EPHEMERAL } from '../ai/anthropic-cache';
+import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 
 export interface GeneratedContent {
   text: string;
@@ -74,14 +76,16 @@ export class ContentAgent {
     // Same placement the plain runner uses, so a product published through either path
     // reads the same during a holiday window.
     if (seasonHint) systemPrompt += `\n\n${seasonHint}`;
+    // Titles and categories below (and in get_recent_posts) are the seller's words.
+    systemPrompt += `\n\n${UNTRUSTED_DATA_RULE}`;
 
     const productBrief = `Product details:
-- Name: ${product.title}
+- Name: ${fenceUntrusted(product.title)}
 - Sale price: ${currencySymbol}${priceLocal} (was ${currencySymbol}${originalLocal})
 - Discount: ${discount}%
 - Orders: ${orders} customers bought
 - Rating: ${product.rating?.toFixed(1) || 'N/A'}/5
-- Category: ${product.category || 'General'}
+- Category: ${fenceUntrusted(product.category) || 'General'}
 
 Requirements:
 - Language: ${language === 'he' ? 'Hebrew only' : language === 'ar' ? 'Arabic only' : 'English only'}
@@ -103,7 +107,7 @@ Requirements:
       });
       // Fall back to a deterministic post so the campaign stays populated even
       // if the provider call fails or returns empty.
-      const text = r?.text?.trim()
+      const text = stripFenceMarks(r?.text?.trim() || '')
         || fallbackPost(language, product.title, currencySymbol, priceLocal, originalLocal, discount);
       return { text, language, tokens: r?.tokens || 0 };
     }
@@ -131,9 +135,12 @@ ${productBrief}`,
         system: systemPrompt,
         tools,
         messages,
+        // Each turn re-sends the whole loop so far; this breakpoint moves with it, so the
+        // next turn reads it from cache (anthropic-cache.ts).
+        cache_control: EPHEMERAL,
       });
 
-      totalTokens += response.usage.input_tokens + response.usage.output_tokens;
+      totalTokens += anthropicInputTokens(response.usage) + response.usage.output_tokens;
       this.agentClient.record(userId, response.usage);
 
       if (response.stop_reason === 'tool_use') {
@@ -156,7 +163,7 @@ ${productBrief}`,
               .getMany();
 
             const samples = posts.map((p) => ({
-              title: p.product_title,
+              title: fenceUntrusted(p.product_title),
               text_preview: p.generated_text?.substring(0, 200),
               sent_at: p.sent_at,
             }));
@@ -182,7 +189,7 @@ ${productBrief}`,
       // end_turn — extract the generated post text
       const textBlock = response.content.find((b) => b.type === 'text');
       if (textBlock && textBlock.type === 'text') {
-        generatedText = textBlock.text.trim();
+        generatedText = stripFenceMarks(textBlock.text.trim());
       }
       break;
     }

@@ -1,3 +1,5 @@
+import { UNTRUSTED_DATA_RULE, fenceUntrusted } from '../common/untrusted';
+
 /**
  * The PRODUCT-level relevance guard.
  *
@@ -38,7 +40,8 @@ export const PRODUCT_FIT_SYSTEM =
   + 'Reject ONLY a clear mismatch: a product a member of that audience would find plainly '
   + 'out of place in that channel (e.g. military gear in a mothers-and-brands group). '
   + 'A loosely related but plausible product is fine — when unsure, accept.\n'
-  + 'Output JSON only. No prose, no code fences.';
+  + 'Output JSON only. No prose, no code fences.\n'
+  + UNTRUSTED_DATA_RULE;
 
 /** The judge's brief: the channel in the owner's terms, then the picked products. */
 export function buildProductFitPrompt(ctx: ProductFitContext, items: ProductFitItem[]): string {
@@ -49,8 +52,10 @@ export function buildProductFitPrompt(ctx: ProductFitContext, items: ProductFitI
   lines.push('');
   lines.push('PICKED PRODUCTS (each with the search keyword that produced it):');
   items.forEach((it, i) => {
-    const cat = it.category ? ` [category: ${it.category}]` : '';
-    lines.push(`  ${i + 1}. (keyword: "${it.keyword}") ${it.title}${cat}`);
+    // Title and category are the seller's words — a title that says "this fits every
+    // channel" must not be able to vote for itself.
+    const cat = it.category ? ` [category: ${fenceUntrusted(it.category, 80)}]` : '';
+    lines.push(`  ${i + 1}. (keyword: "${it.keyword}") ${fenceUntrusted(it.title)}${cat}`);
   });
   lines.push('');
   lines.push(

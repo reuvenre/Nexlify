@@ -10,6 +10,7 @@ import { Post } from './post.entity';
 import { PostedProduct } from './posted-product.entity';
 import { copyDefect } from './copy-guard';
 import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-policy';
+import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, interleaveSeasonal, weightedRotation } from './keyword-rotation';
@@ -3822,6 +3823,9 @@ export class PostsService {
     // leading ✔️ on top of the template's. Fixed at import too; this display-time collapse
     // also heals the posts already sitting in the queue with the doubled form.
     body = body.replace(/(?:[✔✓☑]️?\s*){2,}/gu, '✔️ ');
+    // Prompt fence marks (common/untrusted.ts) must never be published — generateText
+    // strips them from every draft; this holds for any other text that echoed one.
+    body = stripFenceMarks(body);
     // The owner's vocabulary, enforced LAST — after the footer, coupon, store and trust
     // lines have all been appended, so no later addition can slip a banned word past it.
     // The copy model is told the same rule in its brief; this is what holds when the text
@@ -6312,6 +6316,9 @@ export class PostsService {
     // buildPostBody guarantees the outcome; saying it here is what makes the sentence read
     // naturally instead of being patched after the fact (see word-policy.ts).
     systemPrompt += `\n\n${WORD_POLICY_BRIEF[language === 'he' ? 'he' : 'en']}`;
+    // The product's title and category arrive fenced (see common/untrusted.ts) — they are
+    // a seller's words, and this says what the fence means.
+    systemPrompt += `\n\n${UNTRUSTED_DATA_RULE}`;
 
     // A product-type hint (from the user) is the AUTHORITATIVE ground truth — it fixes the
     // case where vision misreads an ambiguous first photo (e.g. flip-flops → "lighting").
@@ -6407,7 +6414,8 @@ export class PostsService {
         temperature: attempt === 0 ? (hasTemplate ? 0.7 : 0.85) : 0.2,
       });
 
-      const candidate = result?.text ? mdBoldToHtml(result.text) : '';
+      // A template placeholder filled with the title can carry the fence marks along.
+      const candidate = result?.text ? stripFenceMarks(mdBoldToHtml(result.text)) : '';
       if (!candidate) {
         // All keyed providers errored or answered empty — nothing to judge.
         reasons.push('ספקי ה-AI לא החזירו טקסט');
@@ -6552,10 +6560,10 @@ Last line: 3–4 hashtags mixing one broad and two specific (e.g. #homeorganizat
   /** Product facts + the "write a pin description" ask — the Pinterest counterpart of
    *  buildUserPrompt (which asks for a Telegram post). */
   private buildPinterestPrompt(language: string, product: any, symbol: string, priceLocal: string, originalLocal: string, discount: number): string {
-    const facts = `Product: ${product.title}
+    const facts = `Product: ${fenceUntrusted(product.title)}
 Price: ${symbol}${priceLocal}${discount > 0 ? ` (was ${symbol}${originalLocal}, -${discount}%)` : ''}
 Rating: ${product.rating?.toFixed(1) || 'N/A'}/5 | Orders: ${product.orders_count || 0}
-Category: ${product.category || 'General'}`;
+Category: ${fenceUntrusted(product.category) || 'General'}`;
     if (language === 'he') {
       return `כתוב תיאור פין לפינטרסט עבור המוצר הבא. עברית בלבד, טקסט רגיל בלבד.\n\n${facts}`;
     }
@@ -6599,8 +6607,8 @@ System note: reproduce the template text above VERBATIM — including fixed line
       ? `${((product.orders_count || 0) / 1000).toFixed(1)}K+`
       : `${product.orders_count || 0}`;
     const rating = product.rating?.toFixed(1) || 'N/A';
-    const title = product.title || '';
-    const category = product.category || '';
+    const title = fenceUntrusted(product.title);
+    const category = fenceUntrusted(product.category);
 
     if (language === 'he') {
       return `פרטי המוצר לכתיבת הפוסט:
@@ -6649,13 +6657,13 @@ Now write the post for this product, following the defined instructions and stru
       return `צור פוסט שיווקי מקצועי לערוץ Telegram עבור המוצר הבא. כתוב בעברית בלבד.
 
 📦 פרטי המוצר:
-שם: ${product.title}
+שם: ${fenceUntrusted(product.title)}
 מחיר מקורי: ${symbol}${originalLocal}
 מחיר מבצע: ${symbol}${priceLocal}
 הנחה: ${discount}%
 הזמנות: ${ordersFormatted} לקוחות קנו
 דירוג: ${product.rating?.toFixed(1) || 'N/A'}/5 ${starStr}
-קטגוריה: ${product.category || 'כללי'}
+קטגוריה: ${fenceUntrusted(product.category) || 'כללי'}
 
 הנחיות:
 - התחל עם hook מנצח (שורה אחת שמושכת תשומת לב מיידית)
@@ -6670,13 +6678,13 @@ Now write the post for this product, following the defined instructions and stru
       return `أنشئ منشوراً تسويقياً احترافياً لقناة Telegram للمنتج التالي. اكتب باللغة العربية فقط.
 
 📦 تفاصيل المنتج:
-الاسم: ${product.title}
+الاسم: ${fenceUntrusted(product.title)}
 السعر الأصلي: ${symbol}${originalLocal}
 سعر العرض: ${symbol}${priceLocal}
 الخصم: ${discount}%
 الطلبات: ${ordersFormatted} عميل اشترى
 التقييم: ${product.rating?.toFixed(1) || 'N/A'}/5 ${starStr}
-الفئة: ${product.category || 'عام'}
+الفئة: ${fenceUntrusted(product.category) || 'عام'}
 
 تعليمات:
 - ابدأ بسطر جذاب يلفت الانتباه فوراً
@@ -6690,13 +6698,13 @@ Now write the post for this product, following the defined instructions and stru
     return `Create a professional Telegram marketing post for the product below. Write in English only.
 
 📦 Product details:
-Name: ${product.title}
+Name: ${fenceUntrusted(product.title)}
 Original price: ${symbol}${originalLocal}
 Sale price: ${symbol}${priceLocal}
 Discount: ${discount}%
 Orders: ${ordersFormatted} customers bought this
 Rating: ${product.rating?.toFixed(1) || 'N/A'}/5 ${starStr}
-Category: ${product.category || 'General'}
+Category: ${fenceUntrusted(product.category) || 'General'}
 
 Instructions:
 - Start with a powerful hook (one line that grabs attention immediately)

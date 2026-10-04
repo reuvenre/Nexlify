@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { DecryptedCredentials } from '../credentials/credentials.service';
 import { AiUsageService } from './ai-usage.service';
+import { anthropicInputTokens, cachedSystem } from './anthropic-cache';
 import { finishReasonTruncated } from './finish-reason';
 import { geminiOutputBudget } from './gemini-budget';
 
@@ -230,7 +231,9 @@ export class AiService {
           model: creds.anthropic_model || 'claude-sonnet-4-6',
           max_tokens: maxTokens,
           temperature,
-          system: opts.system,
+          // The system prompt is the stable part (per campaign or global) and is re-sent for
+          // every draft, retry and judge pass — see anthropic-cache.ts.
+          system: cachedSystem(opts.system),
           messages: [{
             role: 'user',
             content: opts.images?.length
@@ -260,7 +263,7 @@ export class AiService {
       .join('')
       .trim();
     const usage = res.data?.usage || {};
-    const promptTokens = usage.input_tokens || 0;
+    const promptTokens = anthropicInputTokens(usage);
     const outputTokens = usage.output_tokens || 0;
     return {
       text, provider: 'anthropic', tokens: promptTokens + outputTokens, promptTokens, outputTokens,
