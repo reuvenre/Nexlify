@@ -13,6 +13,8 @@ describe('managerQuestion', () => {
     expect(managerQuestion('בוקר אור תסביר לי את ההרצה האחרונה')).not.toBeNull();
     expect(managerQuestion('כמה קליקים היו אתמול')).not.toBeNull();
     expect(managerQuestion('פינטרסט עובד?')).toBe('פינטרסט עובד?');
+    expect(managerQuestion('תשווה בין הקמפיינים השבוע')).not.toBeNull();
+    expect(managerQuestion('דוח קליקים של אתמול')).not.toBeNull();
   });
 
   it('takes the text after /ask, and nothing for an empty /ask', () => {

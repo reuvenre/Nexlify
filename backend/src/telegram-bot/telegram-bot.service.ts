@@ -122,6 +122,18 @@ export class TelegramBotService implements OnModuleInit {
     const msg = update?.message;
     const text = String(msg?.text || '').trim();
     if (!token || !text || !msg?.chat?.id) return;
+    // The owner testing the readers' bot gets the readers' search — except a question for
+    // the manager, which lives in his own bot (it needs buttons this bot does not receive).
+    // Without this pointer his question came back as a list of products.
+    const chatId = String(msg.chat.id);
+    if (msg.chat.type === 'private' && this.isOwner(chatId) && managerQuestion(text)) {
+      const me = await this.get('getMe', {});
+      const ownBot = me?.username ? `@${me.username}` : 'הבוט של הדוחות';
+      await this.replyVia.run({ token }, () => this.send(chatId,
+        `🧠 שאלות למנהל עונים ב-${ownBot} (הבוט שבו אתה מקבל את הדוחות).\n`
+        + 'כאן זה הבוט של הקוראים — כל הודעה היא חיפוש מוצר, בדיוק כמו שהם רואים.'));
+      return;
+    }
     await this.replyVia.run({ token }, () => this.handleShopper(msg, text));
   }
 
