@@ -13,7 +13,7 @@
 
 const HEBREW = /[֐-׿]/;
 
-export const SHOPPER_INVITE_TEXT = '🔎 מחפשים מוצר אחר? כתבו לי ←';
+export const SHOPPER_INVITE_TEXT = '🔎 מחפשים מוצר אחר? בקשו מ-Nexlify Bot והוא ימצא לכם תוך שניות';
 
 /** A Telegram bot username: 5-32 chars, letters/digits/underscore. */
 const USERNAME = /^[A-Za-z][A-Za-z0-9_]{3,31}$/;
