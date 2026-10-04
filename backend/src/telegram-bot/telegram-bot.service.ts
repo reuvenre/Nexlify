@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { AsyncLocalStorage } from 'async_hooks';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
@@ -14,6 +15,10 @@ import {
 } from './product-card';
 import { splitMessage } from './split-message';
 import { groupReadiness, readinessLine } from './group-readiness';
+import {
+  SEARCH_BOT_DESCRIPTION, SEARCH_BOT_SHORT_DESCRIPTION, searchBotToken, searchWebhookSecret, searchWebhookUrl,
+} from './search-bot';
+import { WebhookVerdict, webhookVerdict } from '../watchdog/webhook-health';
 import { LinksService } from '../links/links.service';
 import { ManagerAgentService } from '../manager/manager-agent.service';
 import { managerQuestion } from '../manager/manager-intent';
@@ -61,6 +66,10 @@ export class TelegramBotService implements OnModuleInit {
   private readonly lastQuery = new Map<string, { keyword: string; page: number; at: number }>();
   /** Budgets for the members' search — anyone can reach it, so it is metered. */
   private readonly shopperLimits = new ShopperLimiter();
+  /** Which bot answers this update. Set while handling the search bot's updates, so every
+   *  reply in that flow goes out from the bot the reader wrote to (see search-bot.ts). */
+  private readonly replyVia = new AsyncLocalStorage<{ token: string }>();
+  private searchBotName: { username: string | null; at: number } | null = null;
 
   constructor(
     @InjectRepository(Channel) private readonly channels: Repository<Channel>,
@@ -91,8 +100,39 @@ export class TelegramBotService implements OnModuleInit {
       return;
     }
     // Everyone else — group members and strangers in a private chat — gets the product
-    // search and nothing more: no buttons, no publishing, no data.
+    // search and nothing more: no buttons, no publishing, no data. When the search has a
+    // bot of its own, a reader who reached the owner's bot (an older post's link) is sent
+    // on to it instead.
+    if (searchBotToken() && msg?.chat?.type === 'private') {
+      const username = await this.searchBotUsername();
+      if (username) {
+        await this.send(chatId, `🔎 החיפוש עבר לבוט החדש שלנו — לחצו כאן: https://t.me/${username}?start=post`);
+        return;
+      }
+    }
     await this.handleShopper(msg, text);
+  }
+
+  /** An update delivered to the search bot's own webhook: every sender is a reader. */
+  async handleSearchBotUpdate(update: any): Promise<void> {
+    const token = searchBotToken();
+    const msg = update?.message;
+    const text = String(msg?.text || '').trim();
+    if (!token || !text || !msg?.chat?.id) return;
+    await this.replyVia.run({ token }, () => this.handleShopper(msg, text));
+  }
+
+  /**
+   * The @username readers should be sent to: the search bot's when one is configured,
+   * otherwise null. Cached for an hour — getMe does not change.
+   */
+  async searchBotUsername(): Promise<string | null> {
+    const token = searchBotToken();
+    if (!token) return null;
+    if (this.searchBotName && Date.now() - this.searchBotName.at < 3600_000) return this.searchBotName.username;
+    const me = await this.replyVia.run({ token }, () => this.get('getMe', {}));
+    this.searchBotName = { username: me?.username || null, at: Date.now() };
+    return this.searchBotName.username;
   }
 
   /** Only the configured owner chat is answered; anything else is silently ignored. */
@@ -398,8 +438,54 @@ export class TelegramBotService implements OnModuleInit {
 
   /** Register the command menus once at boot. Best-effort, like the webhook setup. */
   onModuleInit(): void {
-    if (!process.env.WATCHDOG_TELEGRAM_CHAT_ID) return;
-    this.registerCommands().catch((err) => this.logger.warn(`bot commands skipped: ${err?.message}`));
+    if (process.env.WATCHDOG_TELEGRAM_CHAT_ID) {
+      this.registerCommands().catch((err) => this.logger.warn(`bot commands skipped: ${err?.message}`));
+    }
+    if (searchBotToken()) {
+      this.setupSearchBot().catch((err) => this.logger.warn(`search bot setup skipped: ${err?.message}`));
+    }
+  }
+
+  /**
+   * Point the search bot at its webhook and give it its menu and description. Never takes
+   * over a webhook that belongs to another integration — same rule as the owner's bot.
+   */
+  private async setupSearchBot(): Promise<void> {
+    const token = searchBotToken();
+    const url = searchWebhookUrl();
+    if (!token || !url) return;
+    await this.replyVia.run({ token }, async () => {
+      const info = await this.get('getWebhookInfo', {});
+      const current = String(info?.url || '');
+      if (current && current !== url) {
+        this.logger.warn(`search bot already has a webhook (${current}) — not overwriting`);
+      } else if (current !== url || !(info?.allowed_updates || []).includes('message')) {
+        const ok = await this.call('setWebhook', { url, secret_token: searchWebhookSecret(), allowed_updates: ['message'] });
+        if (ok) this.logger.log('Search bot webhook registered');
+      }
+      const find = { command: 'find', description: 'חיפוש מוצר באלי אקספרס' };
+      await this.call('setMyCommands', { commands: [find], scope: { type: 'default' } });
+      await this.call('setMyDescription', { description: SEARCH_BOT_DESCRIPTION });
+      await this.call('setMyShortDescription', { short_description: SEARCH_BOT_SHORT_DESCRIPTION });
+    });
+  }
+
+  /**
+   * Telegram's view of the search bot's webhook, for the watchdog — null when there is no
+   * search bot or it is healthy. An unset webhook is re-registered and looked at again.
+   */
+  async searchBotHealth(): Promise<WebhookVerdict | null> {
+    const token = searchBotToken();
+    const url = searchWebhookUrl();
+    if (!token || !url) return null;
+    const read = () => this.replyVia.run({ token }, () => this.get('getWebhookInfo', {}))
+      .then((info) => webhookVerdict(info, url, Date.now()));
+    const first = await read();
+    if (first && (first.kind === 'unset' || first.kind === 'updates')) {
+      await this.setupSearchBot().catch(() => {});
+      return read();
+    }
+    return first;
   }
 
   /**
@@ -628,7 +714,7 @@ export class TelegramBotService implements OnModuleInit {
   }
 
   private async call(method: string, payload: Record<string, any>): Promise<boolean> {
-    const token = await this.telegramToken();
+    const token = this.replyVia.getStore()?.token || await this.telegramToken();
     if (!token) return false;
     try {
       await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload, { timeout: 15000 });
@@ -641,7 +727,7 @@ export class TelegramBotService implements OnModuleInit {
 
   /** A Telegram call whose RESULT is needed (getMe, getChat…). Null on any failure. */
   private async get(method: string, payload: Record<string, any>): Promise<any | null> {
-    const token = await this.telegramToken();
+    const token = this.replyVia.getStore()?.token || await this.telegramToken();
     if (!token) return null;
     try {
       const res = await axios.post(`https://api.telegram.org/bot${token}/${method}`, payload, { timeout: 15000 });

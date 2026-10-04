@@ -13,6 +13,7 @@ import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-p
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 import { withShopperInvite } from './shopper-invite';
 import { webhookVerdict } from '../watchdog/webhook-health';
+import { searchBotToken, searchWebhookUrl } from '../telegram-bot/search-bot';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, interleaveSeasonal, weightedRotation } from './keyword-rotation';
@@ -4766,19 +4767,24 @@ export class PostsService {
    * the line appears on its own once a broken webhook is fixed. Never throws: an invite line is never a reason for a post to fail.
    */
   private async shopperBotUsername(userId: string, creds: DecryptedCredentials): Promise<string | null> {
-    if (process.env.SHOPPER_BOT_DISABLED === '1' || !process.env.WATCHDOG_TELEGRAM_CHAT_ID) return null;
+    // A dedicated search bot (SEARCH_BOT_TOKEN, search-bot.ts) takes the readers; without
+    // one they go to the owner's bot, whose webhook needs the owner chat configured.
+    const searchToken = searchBotToken();
+    if (process.env.SHOPPER_BOT_DISABLED === '1') return null;
+    if (!searchToken && !process.env.WATCHDOG_TELEGRAM_CHAT_ID) return null;
     const hit = this.shopperBotCache.get(userId);
     if (hit && Date.now() - hit.at < 3600_000) return hit.username;
     let username: string | null = null;
     try {
       const [row] = await this.repo.query(`SELECT role FROM users WHERE id = $1`, [userId]);
-      const token = process.env.WATCHDOG_TELEGRAM_BOT_TOKEN || creds?.telegram_bot_token;
+      const token = searchToken || process.env.WATCHDOG_TELEGRAM_BOT_TOKEN || creds?.telegram_bot_token;
       if (row?.role === 'admin' && token) {
         // Only invite readers to a bot that actually answers: the webhook must be ours and
         // delivering. Otherwise the line would send every reader to a silent chat.
         const base = (process.env.BACKEND_URL || '').replace(/\/$/, '');
         const info = await axios.get(`https://api.telegram.org/bot${token}/getWebhookInfo`, { timeout: 8000 });
-        if (!webhookVerdict(info.data?.result ?? null, `${base}/telegram/webhook`, Date.now())
+        const expected = searchToken ? (searchWebhookUrl() || '') : `${base}/telegram/webhook`;
+        if (!webhookVerdict(info.data?.result ?? null, expected, Date.now())
           && info.data?.result?.url) {
           const res = await axios.get(`https://api.telegram.org/bot${token}/getMe`, { timeout: 8000 });
           username = res.data?.result?.username || null;

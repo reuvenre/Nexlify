@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -46,6 +46,7 @@ import {
   searchConstraints, seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
 } from './seasonal-gap';
 import { WebhookVerdict, webhookVerdict } from './webhook-health';
+import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
  *  Three weeks of baseline absorbs a single odd week; one week of "recent" still reacts fast. */
@@ -123,6 +124,8 @@ export class WatchdogService implements OnModuleInit {
     private readonly security: SecurityService,
     private readonly channels: ChannelsService,
     private readonly memory: PersistentValueStore,
+    // The readers' search bot, when it has a bot of its own — checked alongside ours.
+    @Optional() private readonly bot?: TelegramBotService,
   ) {}
 
   @Cron('0 */15 * * * *')
@@ -1230,6 +1233,21 @@ export class WatchdogService implements OnModuleInit {
         ].join('\n'),
         details: [hook.detail],
         ...(hook.action ? { action: hook.action } : {}),
+      });
+    }
+    const searchHook = await this.bot?.searchBotHealth().catch(() => null);
+    if (searchHook) {
+      out.push({
+        key: `telegram_search_webhook:${searchHook.kind}`,
+        title: `בוט החיפוש לקוראים: ${searchHook.title}`,
+        body: [
+          `**בדיקה:** getWebhookInfo של בוט החיפוש (SEARCH_BOT_TOKEN) — הבוט שהקוראים מגיעים אליו מהשורה בסוף כל פוסט.`,
+          `**ממצא:** ${searchHook.detail}`,
+          '',
+          'כיווני חקירה: setupSearchBot (telegram-bot.service), TelegramWebhookController.searchWebhook.',
+        ].join('\n'),
+        details: [searchHook.detail],
+        ...(searchHook.action ? { action: searchHook.action } : {}),
       });
     }
 

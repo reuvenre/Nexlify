@@ -1,7 +1,8 @@
-import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Post } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { WatchdogService } from './watchdog.service';
 import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
+import { searchWebhookSecret } from '../telegram-bot/search-bot';
 
 /** Constant-time string compare — avoids leaking the secret via response timing. */
 function safeEqual(a: string, b: string): boolean {
@@ -46,5 +47,25 @@ export class TelegramWebhookController {
       await handled.catch(() => {});
     }
     return { ok: true };
+  }
+
+  /** The readers' search bot, when it has a bot of its own (SEARCH_BOT_TOKEN). Same rules:
+   *  secret header or nothing, and always 200. */
+  @Post('search-webhook')
+  @HttpCode(200)
+  async searchWebhook(
+    @Headers('x-telegram-bot-api-secret-token') secret: string,
+    @Body() body: any,
+  ) {
+    if (secret && safeEqual(secret, searchWebhookSecret())) {
+      await this.bot.handleSearchBotUpdate(body).catch(() => {});
+    }
+    return { ok: true };
+  }
+
+  /** Public: the bot readers are sent to, for the site's /bot link. Null = the owner's bot. */
+  @Get('search-bot')
+  async searchBot() {
+    return { username: await this.bot.searchBotUsername().catch(() => null) };
   }
 }

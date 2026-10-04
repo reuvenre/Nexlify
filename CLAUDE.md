@@ -157,6 +157,11 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
   - Links are short links minted with `kind = 'shopper'`, so their clicks are counted in `link_targets.clicks`.
   - Searches are rate-limited per member and per day.
   - Kill switch: set `SHOPPER_BOT_DISABLED=1`.
+- **A dedicated search bot** (`search-bot.ts`, optional): set `SEARCH_BOT_TOKEN` to a second BotFather bot and the readers move to it.
+  - It has its own webhook (`/telegram/search-webhook`) and secret, and its replies go out through it via `AsyncLocalStorage` (`replyVia`).
+  - The post invite line and the site's `/bot` link (via `GET /telegram/search-bot`) point to it.
+  - A reader who still reaches the owner's bot is forwarded.
+  - The watchdog checks its webhook too.
 
 ### Model input and output boundaries
 - **Third-party text is fenced** (`common/untrusted.ts`). Product titles, categories and supplier notes are a seller's words. They go into a prompt only through `fenceUntrusted()`, which flattens newlines and control characters, caps the length, and wraps the text in `⟦…⟧`. Any brief that carries fenced text also appends `UNTRUSTED_DATA_RULE`. The marks must never be published: `stripFenceMarks` runs on every draft in `generateText`, the content agent, and again in `buildPostBody`.
