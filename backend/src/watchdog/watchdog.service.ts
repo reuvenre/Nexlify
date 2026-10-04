@@ -45,6 +45,7 @@ import {
   MIN_POSTS_TO_JUDGE, SEASONAL_ALERT_KEY_PREFIX, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
   searchConstraints, seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
 } from './seasonal-gap';
+import { WebhookVerdict, webhookVerdict } from './webhook-health';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
  *  Three weeks of baseline absorbs a single odd week; one week of "recent" still reacts fast. */
@@ -1214,7 +1215,47 @@ export class WatchdogService implements OnModuleInit {
     const sec = await this.security.scan().catch(() => []);
     out.push(...sec);
 
+    // 12. The bot's webhook. When Telegram cannot deliver to us the bot just goes silent —
+    //     no request arrives, so nothing on our side can fail. Only Telegram knows.
+    const hook = await this.webhookHealth().catch(() => null);
+    if (hook) {
+      out.push({
+        key: `telegram_webhook:${hook.kind}`,
+        title: hook.title,
+        body: [
+          `**בדיקה:** getWebhookInfo של בוט הטלגרם (סטטוס, המנהל, חיפוש החברים וכפתורי דוח הבוקר עוברים כולם דרכו).`,
+          `**ממצא:** ${hook.detail}`,
+          '',
+          'כיווני חקירה: setupTelegramWebhook (watchdog.service), TelegramWebhookController, לוגים של Render בזמן ההודעה.',
+        ].join('\n'),
+        details: [hook.detail],
+        ...(hook.action ? { action: hook.action } : {}),
+      });
+    }
+
     return out;
+  }
+
+  /** Telegram's own view of our webhook — null when it is healthy or cannot be read. */
+  private async webhookHealth(): Promise<WebhookVerdict | null> {
+    if (!process.env.WATCHDOG_TELEGRAM_CHAT_ID) return null;
+    const base = (process.env.BACKEND_URL || '').replace(/\/$/, '');
+    if (!base || /localhost|127\.0\.0\.1/.test(base)) return null;
+    const token = await this.telegramToken();
+    if (!token) return null;
+    const read = async () => {
+      const res = await axios.get(`https://api.telegram.org/bot${token}/getWebhookInfo`, { timeout: 10000 });
+      return webhookVerdict(res.data?.result ?? null, `${base}/telegram/webhook`, Date.now());
+    };
+    const first = await read();
+    // Unset or incomplete is ours to fix — the boot-time registration simply did not stick.
+    // Re-register and look again; only what survives that is worth an alert. A foreign
+    // webhook is left alone: setupTelegramWebhook never takes over another integration's.
+    if (first && (first.kind === 'unset' || first.kind === 'updates')) {
+      await this.setupTelegramWebhook().catch(() => {});
+      return read();
+    }
+    return first;
   }
 
   // ── Reporters ─────────────────────────────────────────────────────────────
