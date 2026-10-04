@@ -14,13 +14,13 @@
 
 const HEBREW = /[֐-׿]/;
 
-export const SHOPPER_INVITE_TEXT = '🔎 מחפשים מוצר אחר? בקשו מ-Nexlify Bot והוא ימצא לכם תוך שניות';
+export const SHOPPER_INVITE_TEXT = '🔎 מחפשים מוצר אחר? בקשו מ-Nexlify Deals Bot והוא ימצא לכם תוך שניות';
 
 /** Longest first; each is tried until one fits under the caption limit. */
 export const SHOPPER_INVITE_VARIANTS = [
   SHOPPER_INVITE_TEXT,
-  '🔎 מחפשים מוצר אחר? בקשו מ-Nexlify Bot',
-  '🔎 Nexlify Bot',
+  '🔎 מחפשים מוצר אחר? בקשו מ-Nexlify Deals Bot',
+  '🔎 Nexlify Deals Bot',
 ];
 
 /** A Telegram bot username: 5-32 chars, letters/digits/underscore. */

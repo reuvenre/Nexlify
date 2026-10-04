@@ -32,6 +32,10 @@ export function searchWebhookUrl(): string | null {
   return `${base}${SEARCH_WEBHOOK_PATH}`;
 }
 
+/** The bot's display name, everywhere readers meet it — set on the bot itself at boot, so
+ *  the chat header matches the posts, the welcome and the launch image. */
+export const SEARCH_BOT_NAME = 'Nexlify Deals Bot';
+
 /** Shown on the bot's empty chat before "Start", and on its profile. */
 export const SEARCH_BOT_DESCRIPTION =
   '👋 ברוכים הבאים ל-Nexlify Deals Bot — המקום למציאת הדילים הכי שווים באלי אקספרס 🛍️\n'

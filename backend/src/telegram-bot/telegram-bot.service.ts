@@ -18,7 +18,7 @@ import {
 import { splitMessage } from './split-message';
 import { groupReadiness, readinessLine } from './group-readiness';
 import {
-  SEARCH_BOT_DESCRIPTION, SEARCH_BOT_SHORT_DESCRIPTION, searchBotToken, searchWebhookSecret, searchWebhookUrl,
+  SEARCH_BOT_DESCRIPTION, SEARCH_BOT_NAME, SEARCH_BOT_SHORT_DESCRIPTION, searchBotToken, searchWebhookSecret, searchWebhookUrl,
 } from './search-bot';
 import { SEARCH_BOT_UPDATES, WebhookVerdict, webhookVerdict } from '../watchdog/webhook-health';
 import { LinksService } from '../links/links.service';
@@ -566,6 +566,9 @@ export class TelegramBotService implements OnModuleInit {
       }
       const find = { command: 'find', description: 'חיפוש מוצר באלי אקספרס' };
       await this.call('setMyCommands', { commands: [find], scope: { type: 'default' } });
+      // Only when it differs: Telegram rate-limits renames.
+      const named = await this.get('getMyName', {});
+      if (named?.name !== SEARCH_BOT_NAME) await this.call('setMyName', { name: SEARCH_BOT_NAME });
       await this.call('setMyDescription', { description: SEARCH_BOT_DESCRIPTION });
       await this.call('setMyShortDescription', { short_description: SEARCH_BOT_SHORT_DESCRIPTION });
     });
