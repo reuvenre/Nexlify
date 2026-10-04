@@ -11,6 +11,8 @@ import { PostedProduct } from './posted-product.entity';
 import { copyDefect } from './copy-guard';
 import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-policy';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
+import { withShopperInvite } from './shopper-invite';
+import { webhookVerdict } from '../watchdog/webhook-health';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, interleaveSeasonal, weightedRotation } from './keyword-rotation';
@@ -247,6 +249,9 @@ export class PostsService {
   private readonly noVideoProducts = new Set<string>();
   /** Hebrew keyword → English search phrase. Deterministic, so one lookup per keyword. */
   private readonly keywordCache = new Map<string, string>();
+  /** The search bot's @username for the post footer, per user (null = no invite line).
+   *  Re-derivable from getMe, so memory is enough. */
+  private readonly shopperBotCache = new Map<string, { username: string | null; at: number }>();
 
   constructor(
     @InjectRepository(Post)
@@ -4753,6 +4758,42 @@ export class PostsService {
    * computed once by prepareTelegramMedia and reused across all target groups; when
    * omitted it is computed here (single-target callers).
    */
+  /**
+   * The @username of the bot that runs the members' search, when this user's posts should
+   * invite readers to it — or null. Only the admin account runs that bot (TelegramBotService
+   * acts as the admin), the webhook must be wired (WATCHDOG_TELEGRAM_CHAT_ID) and healthy by
+   * Telegram's own account, and the kill switch must be off. Rechecked hourly, so
+   * the line appears on its own once a broken webhook is fixed. Never throws: an invite line is never a reason for a post to fail.
+   */
+  private async shopperBotUsername(userId: string, creds: DecryptedCredentials): Promise<string | null> {
+    if (process.env.SHOPPER_BOT_DISABLED === '1' || !process.env.WATCHDOG_TELEGRAM_CHAT_ID) return null;
+    const hit = this.shopperBotCache.get(userId);
+    if (hit && Date.now() - hit.at < 3600_000) return hit.username;
+    let username: string | null = null;
+    try {
+      const [row] = await this.repo.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+      const token = process.env.WATCHDOG_TELEGRAM_BOT_TOKEN || creds?.telegram_bot_token;
+      if (row?.role === 'admin' && token) {
+        // Only invite readers to a bot that actually answers: the webhook must be ours and
+        // delivering. Otherwise the line would send every reader to a silent chat.
+        const base = (process.env.BACKEND_URL || '').replace(/\/$/, '');
+        const info = await axios.get(`https://api.telegram.org/bot${token}/getWebhookInfo`, { timeout: 8000 });
+        if (!webhookVerdict(info.data?.result ?? null, `${base}/telegram/webhook`, Date.now())
+          && info.data?.result?.url) {
+          const res = await axios.get(`https://api.telegram.org/bot${token}/getMe`, { timeout: 8000 });
+          username = res.data?.result?.username || null;
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`shopper bot username lookup failed: ${err?.message}`);
+      // A failed lookup is retried after a short pause, not cached for the hour.
+      this.shopperBotCache.set(userId, { username: null, at: Date.now() - 3600_000 + 10 * 60_000 });
+      return null;
+    }
+    this.shopperBotCache.set(userId, { username, at: Date.now() });
+    return username;
+  }
+
   private async sendToTelegramChannel(post: Post, creds: DecryptedCredentials, caption: string, channelOverride?: string, media?: TgMedia) {
     // Stamp the short link with its platform BEFORE the anchor rewrite below wraps it —
     // the tag is how the click recorder knows this click came from Telegram.
@@ -4763,6 +4804,9 @@ export class PostsService {
     // WhatsApp/Facebook get the plain-text body, where the raw URL must stay visible.
     caption = caption.replace(/🔗\s*(https?:\/\/\S+)/g, (_m, url) =>
       `<a href="${url}">${NON_LATIN_RE.test(caption) ? '🛒 לרכישה — לחצו כאן 🛒' : '🛒 Tap here to shop 🛒'}</a>`);
+    // The owner's audiences are channels, where members cannot type /find — this last line
+    // sends them to the search bot's private chat instead (shopper-invite.ts).
+    caption = withShopperInvite(caption, await this.shopperBotUsername(post.user_id, creds), TG_CAPTION_LIMIT);
 
     let token = creds?.telegram_bot_token;
     let channel = normalizeTelegramChatId(creds?.telegram_channel_id);
