@@ -51,7 +51,8 @@ describe('shopperCaption', () => {
   it('shows price, saving, social proof and a buy button that hides the link', () => {
     const c = shopperCaption(prod('1'), 1, 'https://nexlify.app/r/AbC');
     expect(c).toContain('₪50');
-    expect(c).toContain('-50%');
+    expect(c).toContain('₪50 במקום ₪100 · 50% הנחה');
+    expect(c).not.toContain('-50%');
     expect(c.split('\n').pop()).toBe('<a href="https://nexlify.app/r/AbC">🛒 לרכישה — לחצו כאן 🛒</a>');
     expect(c).not.toMatch(/^🔗/m);
   });

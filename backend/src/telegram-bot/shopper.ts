@@ -89,7 +89,8 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   const lines = [`${index}. ${escapeHtml(truncate(p.title, 110))}`];
   const sale = formatMoney(p.sale_price, p.currency);
   lines.push(p.discount_percent > 0 && p.original_price > p.sale_price
-    ? `💰 ${sale} (במקום ${formatMoney(p.original_price, p.currency)}, -${p.discount_percent}%)`
+    // No "-50%": a leading minus inside right-to-left text is drawn at the wrong end ("50%-").
+    ? `💰 ${sale} במקום ${formatMoney(p.original_price, p.currency)} · ${p.discount_percent}% הנחה`
     : `💰 ${sale}`);
   const stats: string[] = [];
   if (p.rating > 0) stats.push(`⭐ ${p.rating}`);

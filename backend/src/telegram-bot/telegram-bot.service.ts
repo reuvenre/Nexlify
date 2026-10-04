@@ -351,7 +351,8 @@ export class TelegramBotService implements OnModuleInit {
       return code ? this.links.shortUrl(code) : p.affiliate_url!;
     };
     const budgetLabel = parsed.maxPrice || parsed.minPrice
-      ? ` (${parsed.minPrice ? `מ-${parsed.minPrice}` : ''}${parsed.minPrice && parsed.maxPrice ? ' ' : ''}${parsed.maxPrice ? `עד ${parsed.maxPrice}` : ''})`
+      // No parentheses: a bracket at the end of right-to-left text is drawn mirrored.
+      ? ` ${[parsed.minPrice ? `מ-${parsed.minPrice}` : '', parsed.maxPrice ? `עד ${parsed.maxPrice}` : ''].filter(Boolean).join(' ')} ש"ח`
       : '';
     const header = `🔎 ${picks.length} המומלצים ל«${escapeHtml(parsed.keyword)}»${budgetLabel}:`;
 
