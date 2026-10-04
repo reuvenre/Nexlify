@@ -29,23 +29,9 @@ type Keyboard = Array<Array<{ text: string; callback_data?: string; url?: string
 const RESULTS_PER_PAGE = 5;
 
 const HELP = [
-  '🛍️ בוט המוצרים של Nexlify',
-  '',
-  'שלח לי מילת חיפוש (עברית או אנגלית) ואחזיר את המוצרים הנמכרים ביותר באלי אקספרס,',
-  'עם מחיר בשקלים ואחוז הנחה. לחיצה על "פרסם לקבוצה" בוחרת קבוצה ומפרסמת מיד,',
-  'כולל כתיבת הטקסט השיווקי וקישור השותפים.',
-  '',
-  'דוגמאות:',
-  '• אוזניות בלוטות\'',
-  '• /search robot vacuum',
-  '',
-  '🧠 שאלות על המערכת — פשוט שואלים, למשל:',
-  '• למה פינטרסט ירד השבוע?',
-  '• תסביר לי את ההרצה האחרונה של טקטי בקליק',
-  '(או /ask ואחריו השאלה). שינויים המנהל רק מציע — אתה מאשר בכפתור.',
-  '',
-  '/status — מצב המערכת והתקלות הפתוחות',
-  '/groups — האם חברי כל קבוצה יכולים לחפש עם /find',
+  '🛍️ מילת חיפוש ← מוצרים עם כפתור "פרסם לקבוצה"',
+  '🧠 שאלה ← המנהל עונה, למשל: למה פינטרסט ירד השבוע?',
+  '/status · /groups',
 ].join('\n');
 
 /**
@@ -123,6 +109,12 @@ export class TelegramBotService implements OnModuleInit {
     }
     if (/^\/groups(@\S+)?$/i.test(text)) {
       await this.reportGroups(chatId);
+      return;
+    }
+    // The owner tapping the link at the foot of his own post (/start post) sees what his
+    // readers see — not his own command list.
+    if (/^\/start(@\S+)?(\s|$)/i.test(text)) {
+      await this.send(chatId, `👀 כך זה נראה לקוראים שלוחצים על הקישור בפוסט:\n\n${SHOPPER_HELP}`);
       return;
     }
     const keyword = this.keywordFrom(text);

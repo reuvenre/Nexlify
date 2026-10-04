@@ -88,16 +88,12 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   return lines.join('\n');
 }
 
-export const SHOPPER_FOOTER = 'ℹ️ קישורי שותפים: רכישה דרכם תומכת בקבוצה, בלי שום עלות נוספת עבורך.';
+export const SHOPPER_FOOTER = 'ℹ️ קישורי שותפים — בלי עלות נוספת עבורכם.';
 
+/** What a reader sees after tapping the link in a post — two lines, nothing to read through. */
 export const SHOPPER_HELP = [
-  '🔎 חיפוש מוצרים באלי אקספרס',
-  '',
-  'כתוב מה אתה מחפש, ואפשר להוסיף תקציב:',
-  '• אוזניות בלוטות\' עד 100 ש"ח',
-  '• תיק גב לטיולים בין 80 ל-200',
-  '',
-  'בקבוצה: /find ואחריו מה שמחפשים.',
+  '🔎 כתבו מה אתם מחפשים ואמצא 3 מוצרים מומלצים באלי אקספרס.',
+  'למשל: אוזניות בלוטות\' עד 100 ש"ח',
 ].join('\n');
 
 /**
