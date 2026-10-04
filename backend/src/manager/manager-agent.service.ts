@@ -103,6 +103,14 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'top_searches',
+    description: 'What readers searched for in the search bot, most frequent first, with how many searches found nothing (unmet demand — candidate keywords for a campaign).',
+    input_schema: {
+      type: 'object' as const,
+      properties: { days: { type: 'number', description: '1-30, default 7' } },
+    },
+  },
+  {
     name: 'propose_change',
     description: 'Propose ONE change for the owner to approve. Nothing changes until he taps approve. '
       + 'kinds: posts_per_run (integer 1-5), campaign_status ("active"|"paused"), seasonal_keywords (true|false), '
@@ -371,6 +379,19 @@ export class ManagerAgentService {
           [userId, String(days)],
         );
         return { days, links_handed_out: row?.links ?? 0, clicks: row?.clicks ?? 0 };
+      }
+
+      case 'top_searches': {
+        const days = clampInt(input.days, 1, 30, 7);
+        const rows: any[] = await this.campaigns.query(
+          `SELECT keyword, count(*)::int AS searches, count(*) FILTER (WHERE results = 0)::int AS found_nothing
+           FROM shopper_searches
+           WHERE user_id = $1 AND created_at > now() - ($2 || ' days')::interval
+           GROUP BY keyword ORDER BY searches DESC LIMIT 30`,
+          [userId, String(days)],
+        );
+        // Readers' words — third-party text like a product title.
+        return { days, searches: rows.map((r) => ({ ...r, keyword: fenceUntrusted(r.keyword, 80) })) };
       }
 
       case 'propose_change': {

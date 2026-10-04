@@ -157,6 +157,7 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
   - Links are short links minted with `kind = 'shopper'`, so their clicks are counted in `link_targets.clicks`.
   - Searches are rate-limited per member and per day.
   - Kill switch: set `SHOPPER_BOT_DISABLED=1`.
+  - Every reader search is logged anonymously to `shopper_searches`: the normalised words and the result count, never who searched, and never the owner's own `/find`. The owner reads it through `/searches` and the manager's `top_searches` tool. Zero-result searches are unmet demand.
 - **A dedicated search bot** (`search-bot.ts`, optional): set `SEARCH_BOT_TOKEN` to a second BotFather bot and the readers move to it.
   - It has its own webhook (`/telegram/search-webhook`) and secret, and its replies go out through it via `AsyncLocalStorage` (`replyVia`).
   - The post invite line and the site's `/bot` link (via `GET /telegram/search-bot`) point to it.

@@ -4,6 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
 import { Channel } from '../channels/channel.entity';
+import { ShopperSearch } from './shopper-search.entity';
+import { normaliseSearch, searchesReport } from './search-stats';
 import { User } from '../users/user.entity';
 import { ProductsService } from '../products/products.service';
 import { PostsService } from '../posts/posts.service';
@@ -36,7 +38,7 @@ const RESULTS_PER_PAGE = 5;
 const HELP = [
   '🛍️ מילת חיפוש ← מוצרים עם כפתור "פרסם לקבוצה"',
   '🧠 שאלה ← המנהל עונה, למשל: למה פינטרסט ירד השבוע?',
-  '/status · /groups',
+  '/status · /searches · /groups',
 ].join('\n');
 
 /**
@@ -74,6 +76,7 @@ export class TelegramBotService implements OnModuleInit {
   constructor(
     @InjectRepository(Channel) private readonly channels: Repository<Channel>,
     @InjectRepository(User) private readonly users: Repository<User>,
+    @InjectRepository(ShopperSearch) private readonly searches: Repository<ShopperSearch>,
     private readonly products: ProductsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
@@ -145,6 +148,10 @@ export class TelegramBotService implements OnModuleInit {
     const question = managerQuestion(text);
     if (question) {
       await this.askManager(chatId, question);
+      return;
+    }
+    if (/^\/searches(@\S+)?$/i.test(text)) {
+      await this.reportSearches(chatId);
       return;
     }
     if (/^\/groups(@\S+)?$/i.test(text)) {
@@ -380,6 +387,13 @@ export class TelegramBotService implements OnModuleInit {
     }
 
     const picks = rankShopperResults(items, 3);
+    // What readers ask for — anonymous, and never the owner's own test searches.
+    if (!memberKey.startsWith('owner:')) {
+      void this.searches.insert({
+        user_id: userId, keyword: normaliseSearch(parsed.keyword),
+        max_price: parsed.maxPrice ?? null, results: picks.length,
+      }).catch((err) => this.logger.warn(`search log failed: ${err?.message}`));
+    }
     if (!picks.length) {
       await this.send(chatId, `לא מצאתי מוצרים מתאימים ל«${parsed.keyword}»${parsed.maxPrice ? ' בתקציב הזה' : ''}. נסה ניסוח אחר.`,
         undefined, replyTo);
@@ -500,11 +514,28 @@ export class TelegramBotService implements OnModuleInit {
       commands: [
         { command: 'ask', description: 'שאלה למנהל של Nexlify' },
         { command: 'search', description: 'חיפוש מוצר ופרסום לקבוצה' },
+        { command: 'searches', description: 'מה הקוראים מחפשים בבוט' },
         { command: 'groups', description: 'בדיקת /find בכל קבוצה' },
         { command: 'status', description: 'מצב המערכת' },
       ],
       scope: { type: 'chat', chat_id: process.env.WATCHDOG_TELEGRAM_CHAT_ID },
     });
+  }
+
+  /** /searches — what readers searched for most in the last week. */
+  private async reportSearches(chatId: string): Promise<void> {
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    const days = 7;
+    const rows: Array<{ keyword: string; searches: number; empty: number }> = await this.searches.query(
+      `SELECT keyword, count(*)::int AS searches, count(*) FILTER (WHERE results = 0)::int AS empty
+       FROM shopper_searches
+       WHERE user_id = $1 AND created_at > now() - ($2 || ' days')::interval
+       GROUP BY keyword ORDER BY searches DESC, keyword LIMIT 30`,
+      [userId, String(days)],
+    ).catch(() => []);
+    const total = rows.reduce((n, r) => n + r.searches, 0);
+    await this.sendLong(chatId, searchesReport(rows, days, total));
   }
 
   /** /groups — for every active Telegram group: can its members use /find? */
