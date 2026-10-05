@@ -26,6 +26,8 @@ export interface BotProduct {
   currency: string;
   image_url?: string;
   affiliate_url?: string;
+  /** Extra lines a result must carry (a channel post's hidden-product instructions). */
+  notes?: string[];
 }
 
 export function formatMoney(amount: number, currency: string): string {

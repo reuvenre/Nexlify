@@ -1,5 +1,5 @@
 import { BotProduct } from './product-card';
-import { MORE_BUTTON, ShopperLimiter, channelHits, channelMatchFloor, channelSearchTerms, postHeadline, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
+import { MORE_BUTTON, ShopperLimiter, channelHits, channelMatchFloor, hiddenProductNotes, channelSearchTerms, postHeadline, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
 
 describe('parseShopperQuery', () => {
   it('reads a budget in Hebrew and strips it from the keyword', () => {
@@ -157,5 +157,32 @@ describe('search in the channel\'s own posts', () => {
     expect(shopperCaption(hits[1].product, 2, 'https://x/r/B')).not.toContain('💰');
     expect(hits[0].product.title).toBe('🔥 ידית הסתערות טקטית');
     expect(channelHits([{ ...row('e', '9', 1, ''), gallery_json: 'not json' }])).toEqual([]);
+  });
+});
+
+describe('a hidden product found in the channel', () => {
+  const POST = [
+    '🔧 ידיות הסתערות לשדרוג הנשק 🔧', '',
+    '⚠️ שימו לב: מדובר מוצר מוסתר — בעמוד ייתכן שיופיע מוצר אחר.',
+    '➡️ להזמנה: https://s.click.aliexpress.com/e/_c3yh4uXV', '',
+    'זוג ידיות הסתערות שחור ומדברי', '⚠️המוצר הוא מוצר מוסתר', 'יש לבחור בקוד XT-5',
+  ].join('\n');
+
+  it('is matched by the reader\'s words and carries the post\'s instructions to the reader', () => {
+    const terms = channelSearchTerms('ידיות הסתערות');
+    expect(terms.every((t) => POST.includes(t))).toBe(true);
+    const [hit] = channelHits([{ id: 'a', product_id: 'custom-1', product_title: 'פוסט מתוזמן',
+      product_image: 'https://img/x.jpg', generated_text: POST, price_ils: 0 }], 2, terms);
+    expect(hit.product.title).toBe('🔧 ידיות הסתערות לשדרוג הנשק 🔧');
+    const c = shopperCaption(hit.product, 1, 'https://x/r/A');
+    expect(c).toContain('⚠️ מוצר מוסתר');
+    expect(c).toContain('🔑 בעמוד בחרו את הקוד: XT-5');
+    expect(c.split('\n').pop()).toContain('לרכישה');
+  });
+
+  it('adds nothing to an ordinary post, and no code when none is written', () => {
+    expect(hiddenProductNotes('פנס טקטי חזק')).toEqual([]);
+    expect(hiddenProductNotes('מוצר מוסתר — בחרו לפי התמונה')).toHaveLength(1);
+    expect(hiddenProductNotes('מוצר מוסתר, קוד קופון: SAVE5')).toHaveLength(1);
   });
 });

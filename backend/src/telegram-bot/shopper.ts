@@ -1,6 +1,7 @@
 import { productScore } from '../agents/product-grounding';
 import { BotProduct, formatMoney, truncate } from './product-card';
 import { applyWordPolicy } from '../posts/word-policy';
+import { HIDDEN_PRODUCT_NOTICE } from '../posts/flylink-trust';
 
 /**
  * The members' product search — pure parts.
@@ -126,6 +127,7 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   if (p.rating > 0) stats.push(`⭐ ${p.rating}`);
   if (p.orders_count > 0) stats.push(`📦 ${p.orders_count.toLocaleString('en-US')} נמכרו`);
   if (stats.length) lines.push(stats.join('  ·  '));
+  for (const note of p.notes || []) lines.push(escapeHtml(note));
   lines.push(`<a href="${escapeHtml(link).replace(/"/g, '&quot;')}">${SHOPPER_BUY_TEXT}</a>`);
   return lines.join('\n');
 }
@@ -179,6 +181,18 @@ export function postHeadline(text: string, fallback = '', terms: string[] = []):
   return truncate(named || lines[0] || fallback, 110);
 }
 
+/**
+ * A hidden product's instructions, from the post that sold it. Without them a reader who
+ * taps the link lands on another item's page and has no idea which option to pick — the
+ * channel post told its readers («יש לבחור בקוד XT-5»), the bot must too.
+ */
+export function hiddenProductNotes(text: string): string[] {
+  const t = String(text || '').replace(/<[^>]*>/g, ' ');
+  if (!/מוצר\s*מוסתר/u.test(t)) return [];
+  const code = t.match(/קוד\s*[:\-]?\s*([A-Za-z]{1,5}-?[A-Za-z0-9]{1,10})(?![A-Za-z0-9])/u);
+  return [HIDDEN_PRODUCT_NOTICE, ...(code ? [`🔑 בעמוד בחרו את הקוד: ${code[1]}`] : [])];
+}
+
 /** A row of the posts table, as the channel search reads it. */
 export interface ChannelPostRow {
   id: string;
@@ -220,7 +234,7 @@ export function channelHits(
       product: {
         product_id: r.product_id, title: postHeadline(r.generated_text, r.product_title, terms),
         sale_price: price, original_price: price, discount_percent: 0, orders_count: 0, rating: 0,
-        currency: 'ILS', image_url: image,
+        currency: 'ILS', image_url: image, notes: hiddenProductNotes(r.generated_text),
       },
     });
     if (out.length >= count) break;
