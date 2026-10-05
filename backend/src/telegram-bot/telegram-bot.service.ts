@@ -10,7 +10,7 @@ import { User } from '../users/user.entity';
 import { Post } from '../posts/post.entity';
 import { ChannelMessage } from './channel-message.entity';
 import {
-  ChannelRef, buyLink, channelPostRef, channelPostUrl, forwardedChannelRef, isOwnChannel, messageLinks, messageText,
+  ChannelRef, buyLink, channelPostRef, channelPostUrl, forwardedChannelRef, isOwnChannel, messageLinks, messageText, parsePostLink,
 } from './channel-capture';
 import { ProductsService } from '../products/products.service';
 import { PostsService } from '../posts/posts.service';
@@ -123,6 +123,11 @@ export class TelegramBotService implements OnModuleInit {
       return;
     }
     if (!text || !chatId) return;
+    // The owner sending a link to one of his channel posts (a channel that blocks forwarding).
+    if (this.isOwner(chatId) && parsePostLink(text)) {
+      await this.savePostByLink(chatId, msg);
+      return;
+    }
     if (this.isOwner(chatId)) {
       await this.handleMessage(chatId, text);
       return;
@@ -149,6 +154,10 @@ export class TelegramBotService implements OnModuleInit {
     // The owner may forward channel posts here too — save them, never search their text.
     if (token && msg?.chat?.id && this.isOwner(String(msg.chat.id)) && forwardedChannelRef(msg)) {
       await this.replyVia.run({ token }, () => this.saveForwardedPost(String(msg.chat.id), msg));
+      return;
+    }
+    if (token && msg?.chat?.id && this.isOwner(String(msg.chat.id)) && parsePostLink(text)) {
+      await this.replyVia.run({ token }, () => this.savePostByLink(String(msg.chat.id), msg));
       return;
     }
     if (!token || !text || !msg?.chat?.id) return;
@@ -764,6 +773,73 @@ export class TelegramBotService implements OnModuleInit {
     await this.send(chatId, buy
       ? `📥 נשמר לחיפוש בבוט: «${headline}»`
       : `📥 נשמר, אבל אין בו קישור לרכישה — הקוראים לא יקבלו אותו כתוצאה: «${headline}»`);
+  }
+
+  /**
+   * The owner sent a link to a post in one of his channels. A channel with "Restrict saving
+   * content" blocks forwarding, so this is how its old posts get in: the bot (the channel's
+   * admin) tries to read the post itself; when Telegram refuses that too, the owner pastes
+   * the post's text under the link and that is what is saved.
+   */
+  private async savePostByLink(chatId: string, msg: any): Promise<void> {
+    const link = parsePostLink(messageText(msg))!;
+    // Reads go through the owner's bot — the channel's admin — even when he wrote to the
+    // readers' bot; replies stay with whichever bot he wrote to.
+    const ownerToken = await this.telegramToken();
+    const asOwner = <T>(fn: () => Promise<T>) => (ownerToken ? this.replyVia.run({ token: ownerToken }, fn) : fn());
+
+    let ref: ChannelRef = { chatId: link.chatId || '', username: link.username, messageId: link.messageId, date: 0 };
+    if (link.username) {
+      const chat = await asOwner(() => this.get('getChat', { chat_id: `@${link.username}` }));
+      if (!chat?.id) {
+        await this.send(chatId, `⚠️ לא מצאתי את הערוץ @${link.username}. בדוק את הקישור.`);
+        return;
+      }
+      ref = { ...ref, chatId: String(chat.id), username: chat.username || link.username };
+    }
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    const own = await this.telegramChannels(userId).catch(() => [] as Channel[]);
+    if (!isOwnChannel(ref, own.map((c) => c.channel_id))) {
+      await this.send(chatId, '⚠️ הקישור הוא לערוץ שאינו מהערוצים שלך — לא נשמר.');
+      return;
+    }
+
+    let text = link.rest;
+    let links = text ? messageLinks(msg) : [];
+    if (!text) {
+      // Let the bot read the post: forward it into this chat, take its text, remove the copy.
+      const copy = await asOwner(() => this.get('forwardMessage', {
+        chat_id: chatId, from_chat_id: ref.chatId, message_id: ref.messageId, disable_notification: true,
+      }));
+      if (copy) {
+        text = messageText(copy).trim();
+        links = messageLinks(copy);
+        ref.date = Number(copy.forward_origin?.date || copy.forward_date) || 0;
+        void asOwner(() => this.call('deleteMessage', { chat_id: chatId, message_id: copy.message_id }));
+      }
+      if (!text) {
+        await this.send(chatId, [
+          '🔒 הערוץ חוסם העברה של פוסטים, אז גם הבוט לא יכול לקרוא את הפוסט הזה.',
+          'העתק את הטקסט של הפוסט ושלח אותו כך — הקישור בשורה הראשונה והטקסט מתחתיו:',
+          '',
+          `${channelPostUrl(ref.username, ref.chatId, ref.messageId)}`,
+          '(כאן הטקסט של הפוסט)',
+        ].join('\n'));
+        return;
+      }
+    }
+    const buy = buyLink(links);
+    try {
+      await this.saveChannelMessage(userId, ref, text, buy);
+    } catch (err: any) {
+      await this.send(chatId, `❌ לא נשמר: ${String(err?.message || err).slice(0, 150)}`);
+      return;
+    }
+    const headline = postHeadline(text);
+    await this.send(chatId, buy
+      ? `📥 נשמר לחיפוש בבוט: «${headline}»`
+      : `📥 נשמר, אבל לא מצאתי בו קישור לרכישה — הקוראים לא יקבלו אותו כתוצאה. אם הקישור מוסתר מאחורי טקסט, הוסף אותו בסוף ההודעה. «${headline}»`);
   }
 
   /** One row per channel post; a later edit or a second forward refreshes it. */

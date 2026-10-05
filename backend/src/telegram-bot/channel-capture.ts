@@ -74,3 +74,30 @@ export function channelPostUrl(username: string | null, chatId: string, messageI
   const m = String(chatId).match(/^-100(\d+)$/);
   return m ? `https://t.me/c/${m[1]}/${messageId}` : null;
 }
+
+export interface PostLink {
+  /** Public channel: its @username (without the @). */
+  username: string | null;
+  /** Private channel (t.me/c/…): the full -100… id. */
+  chatId: string | null;
+  messageId: number;
+  /** Whatever the owner wrote after the link — the post's text, pasted. */
+  rest: string;
+}
+
+/**
+ * A message that STARTS with a link to a channel post: t.me/<channel>/<id> or t.me/c/<id>/<id>.
+ * The way to save an old post from a channel that blocks forwarding ("Restrict saving
+ * content"): the owner sends its link, and the post's text under it when the bot cannot read it.
+ */
+export function parsePostLink(text: string): PostLink | null {
+  const t = String(text || '').trim();
+  const m = t.match(/^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/(?:c\/(\d+)|([A-Za-z][A-Za-z0-9_]{3,}))\/(\d+)(?:\?\S*)?(?=\s|$)/i);
+  if (!m) return null;
+  return {
+    username: m[2] || null,
+    chatId: m[1] ? `-100${m[1]}` : null,
+    messageId: Number(m[3]),
+    rest: t.slice(m[0].length).trim(),
+  };
+}

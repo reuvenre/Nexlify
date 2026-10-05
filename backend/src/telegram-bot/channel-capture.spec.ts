@@ -1,5 +1,5 @@
 import {
-  buyLink, channelPostRef, channelPostUrl, forwardedChannelRef, isOwnChannel, messageLinks, messageText,
+  buyLink, parsePostLink, channelPostRef, channelPostUrl, forwardedChannelRef, isOwnChannel, messageLinks, messageText,
 } from './channel-capture';
 import { channelHits, shopperCaption } from './shopper';
 
@@ -74,5 +74,21 @@ describe('a result from the channel itself', () => {
       { ...base, id: 'm', product_id: 'tg:-100:1', product_image: '', post_url: 'https://t.me/c/1/1' },
     ]);
     expect(hits.map((h) => h.post.id)).toEqual(['p']);
+  });
+});
+
+describe('parsePostLink — saving a post from a channel that blocks forwarding', () => {
+  it('reads a public or private post link at the start, and the pasted text after it', () => {
+    expect(parsePostLink('https://t.me/TactiBeClick/4926')).toEqual({ username: 'TactiBeClick', chatId: null, messageId: 4926, rest: '' });
+    expect(parsePostLink('t.me/c/1234567/88?single\n🔧 ידיות הסתערות')).toEqual({ username: null, chatId: '-1001234567', messageId: 88, rest: '🔧 ידיות הסתערות' });
+    expect(parsePostLink('https://t.me/TactiBeClick/4926\n🔧 ידיות הסתערות\n➡️ https://s.click.aliexpress.com/e/x')!.rest)
+      .toBe('🔧 ידיות הסתערות\n➡️ https://s.click.aliexpress.com/e/x');
+  });
+
+  it('leaves alone a message that only mentions a link, a bot link, or a channel without a post', () => {
+    expect(parsePostLink('כמה קליקים היו על https://t.me/TactiBeClick/4926?')).toBeNull();
+    expect(parsePostLink('https://t.me/nexlify_deals_bot?start=post')).toBeNull();
+    expect(parsePostLink('https://t.me/TactiBeClick')).toBeNull();
+    expect(parsePostLink('https://t.me/TactiBeClick/4926abc')).toBeNull();
   });
 });
