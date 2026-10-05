@@ -163,7 +163,7 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
   - Searches are rate-limited per member and per day.
   - In a private chat, «עוד מוצרים» (a reply-keyboard button, or the words) shows the next three results of the reader's last search. The session is kept in memory for 30 minutes, since a reader can simply search again, and a new API page is fetched when the ranked list runs out.
   - Kill switch: set `SHOPPER_BOT_DISABLED=1`.
-  - Every reader search is logged anonymously to `shopper_searches`: the normalised words and the result count, never who searched, and never the owner's own `/find`. The owner reads it through `/searches` and the manager's `top_searches` tool. Zero-result searches are unmet demand.
+  - Every reader search is logged anonymously to `shopper_searches`: the normalised words and the result count, never who searched, and never the owner's own tests (his `/find`, and him writing to the readers' bot, recognised by his Telegram id). The owner reads it through `/searches` and the manager's `top_searches` tool. `/resetsearches <word>` clears the log except the first search containing that word; `/resetsearches הכל` clears all of it. Zero-result searches are unmet demand.
 - **A dedicated search bot** (`search-bot.ts`, optional): set `SEARCH_BOT_TOKEN` to a second BotFather bot and the readers move to it.
   - It has its own webhook (`/telegram/search-webhook`) and secret, and its replies go out through it via `AsyncLocalStorage` (`replyVia`).
   - The post invite line and the site's `/bot` link (via `GET /telegram/search-bot`) point to it.

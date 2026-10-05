@@ -43,7 +43,7 @@ const RESULTS_PER_PAGE = 5;
 const HELP = [
   '🛍️ מילת חיפוש ← מוצרים עם כפתור "פרסם לקבוצה"',
   '🧠 שאלה ← המנהל עונה, למשל: למה פינטרסט ירד השבוע?',
-  '/status · /searches · /groups',
+  '/status · /searches · /groups · /resetsearches',
 ].join('\n');
 
 /**
@@ -199,6 +199,11 @@ export class TelegramBotService implements OnModuleInit {
     const question = managerQuestion(text);
     if (question) {
       await this.askManager(chatId, question);
+      return;
+    }
+    const reset = text.match(/^\/resetsearches(?:@\S+)?(?:\s+(.+))?$/i);
+    if (reset) {
+      await this.resetSearches(chatId, (reset[1] || '').trim());
       return;
     }
     if (/^\/searches(@\S+)?$/i.test(text)) {
@@ -471,8 +476,9 @@ export class TelegramBotService implements OnModuleInit {
     // Three in all, as promised: the channel's own posts first, the API fills the rest.
     const picks = ranked.slice(0, 3 - fromChannel.length);
     const total = fromChannel.length + picks.length;
-    // What readers ask for — anonymous, and never the owner's own test searches.
-    if (!memberKey.startsWith('owner:')) {
+    // What readers ask for — anonymous, and never the owner's own test searches: his /find
+    // in his own bot ('owner:…'), and him writing to the readers' bot (his Telegram id).
+    if (!memberKey.startsWith('owner:') && !this.isOwner(memberKey)) {
       void this.searches.insert({
         user_id: userId, keyword: normaliseSearch(parsed.keyword),
         max_price: parsed.maxPrice ?? null, results: total,
@@ -945,6 +951,45 @@ export class TelegramBotService implements OnModuleInit {
     ).catch(() => []);
     const total = rows.reduce((n, r) => n + r.searches, 0);
     await this.sendLong(chatId, searchesReport(rows, days, total));
+  }
+
+  /**
+   * /resetsearches — clear the readers' search log, e.g. of the owner's own tests from before
+   * they stopped being recorded. «/resetsearches cz» keeps the first search containing "cz";
+   * «/resetsearches הכל» clears everything; bare, it only says what it would do.
+   */
+  private async resetSearches(chatId: string, arg: string): Promise<void> {
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    const [{ n }] = await this.searches.query(
+      `SELECT count(*)::int AS n FROM shopper_searches WHERE user_id = $1`, [userId]);
+    if (!arg) {
+      await this.send(chatId, [
+        `🧹 ברשימת החיפושים יש ${n} חיפושים.`,
+        '/resetsearches הכל — מוחק את כולם',
+        '/resetsearches cz — מוחק הכל חוץ מהחיפוש הראשון שמכיל «cz»',
+      ].join('\n'));
+      return;
+    }
+    let kept: { id: string; keyword: string; created_at: Date } | null = null;
+    if (arg !== 'הכל') {
+      const word = normaliseSearch(arg);
+      [kept] = await this.searches.query(
+        `SELECT id, keyword, created_at FROM shopper_searches
+          WHERE user_id = $1 AND strpos(keyword, $2) > 0 ORDER BY created_at ASC LIMIT 1`,
+        [userId, word]);
+      if (!kept) {
+        await this.send(chatId, `לא מצאתי חיפוש שמכיל «${word}» — לא נמחק כלום.`);
+        return;
+      }
+    }
+    const deleted: any[] = await this.searches.query(
+      `DELETE FROM shopper_searches WHERE user_id = $1 AND ($2::uuid IS NULL OR id <> $2::uuid) RETURNING id`,
+      [userId, kept?.id ?? null]);
+    const when = kept ? new Date(kept.created_at).toLocaleString('he-IL', { timeZone: process.env.SCHEDULER_TZ || 'Asia/Jerusalem' }) : '';
+    await this.send(chatId, `🧹 נמחקו ${deleted.length} חיפושים.`
+      + (kept ? ` נשאר: «${kept.keyword}» (${when}).` : '')
+      + '\nמעכשיו החיפושים שלך בבוט הקוראים לא נרשמים — הרשימה היא רק של העוקבים.');
   }
 
   /** /groups — for every active Telegram group: can its members use /find? */
