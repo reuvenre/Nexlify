@@ -421,7 +421,9 @@ export class TelegramBotService implements OnModuleInit {
       if (fromChannel.length === 0) {
         line += `\n${await this.channelSearchFunnel(userId, terms).catch((e) => `בדיקה נכשלה: ${e?.message}`)}`;
       }
-      await this.send(chatId, `🔧 (רק אתה רואה) ${line}`);
+      // Which build answered — Render sets RENDER_GIT_COMMIT; tells "not deployed yet" apart from "deployed and missed".
+      const build = String(process.env.RENDER_GIT_COMMIT || '').slice(0, 7);
+      await this.send(chatId, `🔧 (רק אתה רואה${build ? ` · גרסה ${build}` : ''}) ${line}`);
     };
     fromChannel.forEach((h) => sameProductKeys(h.product).forEach((k) => seen.add(k)));
 
@@ -518,8 +520,19 @@ export class TelegramBotService implements OnModuleInit {
          FROM posts WHERE ${TelegramBotService.CHANNEL_SCORE} >= $3`,
       [userId, terms, channelMatchFloor(terms)],
     );
+    // Each stem on its own, across every post: tells "the words are not in our posts" apart
+    // from "they are, but the match floor or a filter dropped them".
+    const each: Array<{ t: string; n: number; last: Date | null }> = await this.postsRepo.query(
+      `SELECT t, count(p.id)::int AS n, max(coalesce(p.sent_at, p.created_at)) AS last
+         FROM unnest($1::text[]) t
+         LEFT JOIN posts p ON translate(coalesce(p.generated_text, '') || ' ' || coalesce(p.product_title, ''),
+                                        '${HEBREW_FINALS[0]}', '${HEBREW_FINALS[1]}') ILIKE '%' || t || '%'
+        GROUP BY t`,
+      [terms],
+    );
+    const perTerm = each.map((e) => `«${e.t}» ב-${e.n}${e.last ? ` (אחרון ${new Date(e.last).toISOString().slice(0, 10)})` : ''}`).join(' · ');
     return `בכל המערכת ${r?.text ?? 0} פוסטים מכילים את המילים · שלך ${r?.mine ?? 0} · נשלחו ${r?.sent ?? 0}`
-      + ` · ב-180 יום ${r?.recent ?? 0}${r?.statuses ? ` · סטטוסים: ${r.statuses}` : ''}`;
+      + ` · ב-180 יום ${r?.recent ?? 0}${r?.statuses ? ` · סטטוסים: ${r.statuses}` : ''}\nכל מילה לבד: ${perTerm}`;
   }
 
   /** One page of the API, ranked, links only. Throws on an API failure (strict search). */
