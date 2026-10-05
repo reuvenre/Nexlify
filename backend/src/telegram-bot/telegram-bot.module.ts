@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Channel } from '../channels/channel.entity';
 import { User } from '../users/user.entity';
+import { Post } from '../posts/post.entity';
 import { ProductsModule } from '../products/products.module';
 import { PostsModule } from '../posts/posts.module';
 import { CredentialsModule } from '../credentials/credentials.module';
@@ -20,7 +21,8 @@ import { TelegramBotService } from './telegram-bot.service';
 // WatchdogModule, so the morning report's buttons don't reopen that circle.
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Channel, User, ShopperSearch]),
+    // Post: the members' search also looks through what the channel already published.
+    TypeOrmModule.forFeature([Channel, User, ShopperSearch, Post]),
     ProductsModule, PostsModule, CredentialsModule, OptimizerModule,
     // The manager agent (owner questions) and short links for the members' search.
     // Neither reaches UsersModule or WatchdogModule.

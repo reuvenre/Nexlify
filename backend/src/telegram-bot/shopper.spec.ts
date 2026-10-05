@@ -1,5 +1,5 @@
 import { BotProduct } from './product-card';
-import { MORE_BUTTON, ShopperLimiter, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
+import { MORE_BUTTON, ShopperLimiter, channelHits, channelSearchTerms, postHeadline, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
 
 describe('parseShopperQuery', () => {
   it('reads a budget in Hebrew and strips it from the keyword', () => {
@@ -119,5 +119,32 @@ describe('shopperCaption — Hebrew titles', () => {
     const c = shopperCaption(prod('1', { title: 'סכין ציד מתקפלת' }), 1, 'https://x/r/A');
     expect(c).toContain('סכין טקטי מתקפלת');
     expect(c).not.toContain('ציד');
+  });
+});
+
+describe('search in the channel\'s own posts', () => {
+  it('turns the reader\'s words into patterns a post must all contain, stemming Hebrew plurals', () => {
+    expect(channelSearchTerms('ידיות הסתערות')).toEqual(['%ידי%', '%הסתער%']);
+    expect(channelSearchTerms('תיק גב של צבא')).toEqual(['%תיק%', '%גב%', '%צבא%']);
+    expect(channelSearchTerms('100%_cotton')).toEqual(['%100%', '%cotton%']);
+    expect(channelSearchTerms('')).toEqual([]);
+  });
+
+  it('reads a post\'s headline without markup', () => {
+    expect(postHeadline('\n<b>🔥 ידית הסתערות טקטית</b>\nפרטים')).toBe('🔥 ידית הסתערות טקטית');
+    expect(postHeadline('**דיל חם** על פנס')).toBe('דיל חם על פנס');
+    expect(postHeadline('', 'Tactical grip')).toBe('Tactical grip');
+  });
+
+  it('one result per product, at most two, priced as published', () => {
+    const row = (id: string, product_id: string, price = 49.9) => ({
+      id, product_id, product_title: 'Grip', product_image: `https://img/${product_id}.jpg`,
+      generated_text: '🔥 ידית הסתערות טקטית\nעוד', price_ils: price,
+    });
+    const hits = channelHits([row('a', '1'), row('b', '1'), row('c', '2', 0), row('d', '3')]);
+    expect(hits.map((h) => h.post.id)).toEqual(['a', 'c']);
+    expect(shopperCaption(hits[0].product, 1, 'https://x/r/A')).toContain('💰 ₪49.9');
+    expect(shopperCaption(hits[1].product, 2, 'https://x/r/B')).not.toContain('💰');
+    expect(hits[0].product.title).toBe('🔥 ידית הסתערות טקטית');
   });
 });

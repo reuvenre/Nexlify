@@ -7,6 +7,7 @@ import { Channel } from '../channels/channel.entity';
 import { ShopperSearch } from './shopper-search.entity';
 import { normaliseSearch, searchesReport } from './search-stats';
 import { User } from '../users/user.entity';
+import { Post } from '../posts/post.entity';
 import { ProductsService } from '../products/products.service';
 import { PostsService } from '../posts/posts.service';
 import { CredentialsService } from '../credentials/credentials.service';
@@ -26,7 +27,7 @@ import { ManagerAgentService, isAuthError } from '../manager/manager-agent.servi
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
-  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
+  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, ChannelPostRow, channelHits, channelSearchTerms, sameProductKeys, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
 } from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
@@ -84,6 +85,7 @@ export class TelegramBotService implements OnModuleInit {
     @InjectRepository(Channel) private readonly channels: Repository<Channel>,
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(ShopperSearch) private readonly searches: Repository<ShopperSearch>,
+    @InjectRepository(Post) private readonly postsRepo: Repository<Post>,
     private readonly products: ProductsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
@@ -400,25 +402,37 @@ export class TelegramBotService implements OnModuleInit {
       return;
     }
 
-    let ranked: BotProduct[];
+    // The channel first: a product AliExpress hides under another name is found by the
+    // words our own post used. Its products then count as seen, so the API never repeats them.
     const seen = new Set<string>();
+    const fromChannel = await this.channelPostHits(userId, parsed).catch((err) => {
+      this.logger.warn(`channel search "${parsed.keyword}" failed: ${err?.message}`);
+      return [] as Array<{ post: ChannelPostRow; product: BotProduct }>;
+    });
+    fromChannel.forEach((h) => sameProductKeys(h.product).forEach((k) => seen.add(k)));
+
+    let ranked: BotProduct[] = [];
     try {
       ranked = takeUnseen(await this.shopperPage(userId, parsed, 1), seen);
     } catch (err: any) {
       this.logger.warn(`shopper search "${parsed.keyword}" failed: ${err?.message}`);
-      await this.send(chatId, '❌ החיפוש לא זמין כרגע, נסה שוב מאוחר יותר.', undefined, replyTo);
-      return;
+      if (!fromChannel.length) {
+        await this.send(chatId, '❌ החיפוש לא זמין כרגע, נסה שוב מאוחר יותר.', undefined, replyTo);
+        return;
+      }
     }
 
-    const picks = ranked.slice(0, 3);
+    // Three in all, as promised: the channel's own posts first, the API fills the rest.
+    const picks = ranked.slice(0, 3 - fromChannel.length);
+    const total = fromChannel.length + picks.length;
     // What readers ask for — anonymous, and never the owner's own test searches.
     if (!memberKey.startsWith('owner:')) {
       void this.searches.insert({
         user_id: userId, keyword: normaliseSearch(parsed.keyword),
-        max_price: parsed.maxPrice ?? null, results: picks.length,
+        max_price: parsed.maxPrice ?? null, results: total,
       }).catch((err) => this.logger.warn(`search log failed: ${err?.message}`));
     }
-    if (!picks.length) {
+    if (!total) {
       await this.send(chatId, `לא מצאתי מוצרים מתאימים ל«${parsed.keyword}»${parsed.maxPrice ? ' בתקציב הזה' : ''}. נסה ניסוח אחר.`,
         undefined, replyTo);
       return;
@@ -432,8 +446,33 @@ export class TelegramBotService implements OnModuleInit {
       // No parentheses: a bracket at the end of right-to-left text is drawn mirrored.
       ? ` ${[parsed.minPrice ? `מ-${parsed.minPrice}` : '', parsed.maxPrice ? `עד ${parsed.maxPrice}` : ''].filter(Boolean).join(' ')} ש"ח`
       : '';
-    const header = `🔎 ${picks.length} המומלצים ל«${escapeHtml(parsed.keyword)}»${budgetLabel}:`;
-    await this.showShopperResults(chatId, userId, header, picks, 1, isGroup, replyTo);
+    const header = `🔎 ${total} המומלצים ל«${escapeHtml(parsed.keyword)}»${budgetLabel}:`;
+    await this.showShopperResults(chatId, userId, header, [...fromChannel.map((h) => h.product), ...picks], 1, isGroup, replyTo,
+      new Map(fromChannel.map((h) => [h.product.product_id, h.post.id])));
+  }
+
+  /**
+   * Posts the channel already published that carry every word of the search — at most two,
+   * newest first, within the reader's budget. Only what really went out to Telegram, never
+   * an expired promotion or a custom post (it has no product behind it).
+   */
+  private async channelPostHits(userId: string, q: ShopperQuery): Promise<Array<{ post: ChannelPostRow; product: BotProduct }>> {
+    const terms = channelSearchTerms(q.keyword);
+    if (!terms.length) return [];
+    const rows: ChannelPostRow[] = await this.postsRepo.query(
+      `SELECT id, product_id, product_title, product_image, generated_text, price_ils
+         FROM posts
+        WHERE user_id = $1 AND status = 'sent' AND telegram_message_id IS NOT NULL
+          AND sent_at > now() - interval '180 days'
+          AND product_id NOT LIKE 'custom-%' AND coalesce(promo_expired, false) = false
+          AND coalesce(affiliate_url, '') <> '' AND coalesce(product_image, '') <> ''
+          AND ($3::float IS NULL OR price_ils >= $3) AND ($4::float IS NULL OR price_ils <= $4)
+          AND (coalesce(generated_text, '') || ' ' || coalesce(product_title, '')) ILIKE ALL($2::text[])
+        ORDER BY sent_at DESC
+        LIMIT 30`,
+      [userId, terms, q.minPrice ?? null, q.maxPrice ?? null],
+    );
+    return channelHits(rows, 2);
   }
 
   /** One page of the API, ranked, links only. Throws on an API failure (strict search). */
@@ -495,8 +534,17 @@ export class TelegramBotService implements OnModuleInit {
   private async showShopperResults(
     chatId: string, userId: string, header: string, picks: BotProduct[], from: number,
     isGroup: boolean, replyTo?: number,
+    /** product_id → post id, for results that are the channel's own posts. */
+    channelPosts: Map<string, string> = new Map(),
   ): Promise<void> {
     const linkFor = async (p: BotProduct) => {
+      // A channel post keeps its own short link, so the click counts on that post.
+      const postId = channelPosts.get(p.product_id);
+      if (postId) {
+        const post = await this.postsRepo.findOne({ where: { id: postId } }).catch(() => null);
+        const code = post ? await this.links.ensureCode(post).catch(() => null) : null;
+        return code ? this.links.shortUrl(code) : post?.affiliate_url || '';
+      }
       const code = await this.links.mintTarget(p.affiliate_url!, userId, 'shopper').catch(() => null);
       return code ? this.links.shortUrl(code) : p.affiliate_url!;
     };

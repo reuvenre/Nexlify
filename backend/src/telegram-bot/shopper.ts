@@ -117,7 +117,8 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   // A translated title can now say "ציד" — the owner's vocabulary holds in the bot too.
   const lines = [`${index}. ${escapeHtml(truncate(applyWordPolicy(p.title), 110))}`];
   const sale = formatMoney(p.sale_price, p.currency);
-  lines.push(p.discount_percent > 0 && p.original_price > p.sale_price
+  // A channel post can lack a stored price — no "₪0" then.
+  if (Number(p.sale_price) > 0) lines.push(p.discount_percent > 0 && p.original_price > p.sale_price
     // No "-50%": a leading minus inside right-to-left text is drawn at the wrong end ("50%-").
     ? `💰 ${sale} במקום ${formatMoney(p.original_price, p.currency)} · ${p.discount_percent}% הנחה`
     : `💰 ${sale}`);
@@ -127,6 +128,74 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   if (stats.length) lines.push(stats.join('  ·  '));
   lines.push(`<a href="${escapeHtml(link).replace(/"/g, '&quot;')}">${SHOPPER_BUY_TEXT}</a>`);
   return lines.join('\n');
+}
+
+// ── The channel's own posts ──────────────────────────────────────────────────
+//
+// Some products AliExpress hides behind another name (a FLYLINK "hidden product": the page
+// shows something else). Searching the API for what the reader calls it finds nothing
+// useful — but the channel post we published says it in Hebrew. So the reader's words are
+// matched against our own published copy too.
+
+const SEARCH_STOPWORDS = new Set(['של', 'עם', 'את', 'או', 'גם', 'על', 'for', 'the', 'and', 'with', 'of']);
+
+/**
+ * The reader's words as ILIKE patterns, all of which a post must contain. A long Hebrew
+ * plural loses its suffix so «ידיות» also finds «ידית» (substring match: the stem
+ * still matches the plural). LIKE wildcards are escaped.
+ */
+export function channelSearchTerms(keyword: string): string[] {
+  const words = String(keyword || '').toLowerCase()
+    .replace(/[^\p{L}\p{N}\s'׳-]+/gu, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/^['׳-]+|['׳-]+$/g, ''))
+    .filter((w) => w.length >= 2 && !SEARCH_STOPWORDS.has(w));
+  const terms = words.map((w) => (/^[֐-׿]{5,}$/.test(w) ? w.replace(/(?:ים|ות)$/, '') : w));
+  return [...new Set(terms)].slice(0, 5).map((t) => `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+}
+
+/** A published post's headline: its first line that has words, tags and markdown stripped. */
+export function postHeadline(text: string, fallback = ''): string {
+  const line = String(text || '')
+    .replace(/<[^>]*>/g, ' ')
+    .split('\n')
+    .map((l) => l.replace(/[*_~`]+/g, '').replace(/\s+/g, ' ').trim())
+    .find((l) => /[\p{L}\p{N}]/u.test(l));
+  return truncate(line || fallback, 110);
+}
+
+/** A row of the posts table, as the channel search reads it. */
+export interface ChannelPostRow {
+  id: string;
+  product_id: string;
+  product_title: string;
+  product_image: string;
+  generated_text: string;
+  price_ils: number;
+}
+
+/**
+ * Channel posts as results: one per product, newest first, at most `count`. The price is
+ * the one the post was published with; there is no rating or order count to show.
+ */
+export function channelHits(rows: ChannelPostRow[], count = 2): Array<{ post: ChannelPostRow; product: BotProduct }> {
+  const out: Array<{ post: ChannelPostRow; product: BotProduct }> = [];
+  const ids = new Set<string>();
+  for (const r of rows || []) {
+    if (!r?.product_image || ids.has(r.product_id)) continue;
+    ids.add(r.product_id);
+    const price = Math.round((Number(r.price_ils) || 0) * 100) / 100;
+    out.push({
+      post: r,
+      product: {
+        product_id: r.product_id, title: postHeadline(r.generated_text, r.product_title),
+        sale_price: price, original_price: price, discount_percent: 0, orders_count: 0, rating: 0,
+        currency: 'ILS', image_url: r.product_image,
+      },
+    });
+    if (out.length >= count) break;
+  }
+  return out;
 }
 
 /** The first message a reader gets (the link in a post opens the chat with /start). */
