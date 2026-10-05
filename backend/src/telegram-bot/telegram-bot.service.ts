@@ -329,6 +329,7 @@ export class TelegramBotService implements OnModuleInit {
       case CB_UNDO: return this.onUndo(chatId, cbId, messageId, args[0]);
       case 'pa': return this.onProposal(chatId, cbId, messageId, args[0], true);
       case 'pr': return this.onProposal(chatId, cbId, messageId, args[0], false);
+      case 'rs': return this.onResetSearches(chatId, cbId, messageId, args[0]);
       case 'x':
         await this.answer(cbId, 'בוטל');
         await this.editText(chatId, messageId, 'בוטל.');
@@ -963,40 +964,70 @@ export class TelegramBotService implements OnModuleInit {
   /**
    * /resetsearches — clear the readers' search log, e.g. of the owner's own tests from before
    * they stopped being recorded. «/resetsearches cz» keeps the first search containing "cz";
-   * «/resetsearches הכל» clears everything; bare, it only says what it would do.
+   * «/resetsearches הכל» clears everything. Bare, it offers the same as buttons — tapping the
+   * command in a message sends it bare, so typing the word was the only way, and it was missed.
    */
   private async resetSearches(chatId: string, arg: string): Promise<void> {
     const userId = await this.ownerUserId();
     if (!userId) return;
-    const [{ n }] = await this.searches.query(
-      `SELECT count(*)::int AS n FROM shopper_searches WHERE user_id = $1`, [userId]);
     if (!arg) {
+      const [{ n }] = await this.searches.query(
+        `SELECT count(*)::int AS n FROM shopper_searches WHERE user_id = $1`, [userId]);
+      // Each search's first time, oldest first — the one to keep is usually the first.
+      const firsts: Array<{ id: string; keyword: string }> = await this.searches.query(
+        `SELECT DISTINCT ON (keyword) id, keyword, created_at FROM shopper_searches
+          WHERE user_id = $1 ORDER BY keyword, created_at ASC`, [userId]);
+      firsts.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      // The readers' bot receives no button taps — there, the typed form only.
+      const buttons = !this.replyVia.getStore() && n > 0;
+      const keyboard: Keyboard | undefined = buttons ? [
+        ...firsts.slice(0, 6).map((f) => [{ text: `🧹 השאר רק «${truncate(f.keyword, 24)}»`, callback_data: `rs:${f.id}` }]),
+        [{ text: '🗑️ מחק הכל', callback_data: 'rs:all' }, { text: 'ביטול', callback_data: 'x' }],
+      ] : undefined;
       await this.send(chatId, [
         `🧹 ברשימת החיפושים יש ${n} חיפושים.`,
-        '/resetsearches הכל — מוחק את כולם',
-        '/resetsearches cz — מוחק הכל חוץ מהחיפוש הראשון שמכיל «cz»',
-      ].join('\n'));
+        buttons ? 'בחר מה להשאיר — כל השאר יימחק:' : 'כדי למחוק, הקלד את הפקודה עם המילה שתישאר, למשל:',
+        ...(buttons ? [] : ['/resetsearches cz — מוחק הכל חוץ מהחיפוש הראשון שמכיל «cz»', '/resetsearches הכל — מוחק את כולם']),
+      ].join('\n'), keyboard);
       return;
     }
-    let kept: { id: string; keyword: string; created_at: Date } | null = null;
+    let keepId: string | null = null;
     if (arg !== 'הכל') {
       const word = normaliseSearch(arg);
-      [kept] = await this.searches.query(
-        `SELECT id, keyword, created_at FROM shopper_searches
-          WHERE user_id = $1 AND strpos(keyword, $2) > 0 ORDER BY created_at ASC LIMIT 1`,
+      const [first] = await this.searches.query(
+        `SELECT id FROM shopper_searches WHERE user_id = $1 AND strpos(keyword, $2) > 0 ORDER BY created_at ASC LIMIT 1`,
         [userId, word]);
-      if (!kept) {
+      if (!first) {
         await this.send(chatId, `לא מצאתי חיפוש שמכיל «${word}» — לא נמחק כלום.`);
         return;
       }
+      keepId = first.id;
     }
+    await this.send(chatId, await this.clearSearches(userId, keepId));
+  }
+
+  /** Delete the search log except one row (or all of it); the owner-facing summary. */
+  private async clearSearches(userId: string, keepId: string | null): Promise<string> {
     const deleted: any[] = await this.searches.query(
       `DELETE FROM shopper_searches WHERE user_id = $1 AND ($2::uuid IS NULL OR id <> $2::uuid) RETURNING id`,
-      [userId, kept?.id ?? null]);
+      [userId, keepId]);
+    const [kept] = keepId
+      ? await this.searches.query(`SELECT keyword, created_at FROM shopper_searches WHERE id = $1`, [keepId])
+      : [];
     const when = kept ? new Date(kept.created_at).toLocaleString('he-IL', { timeZone: process.env.SCHEDULER_TZ || 'Asia/Jerusalem' }) : '';
-    await this.send(chatId, `🧹 נמחקו ${deleted.length} חיפושים.`
+    return `🧹 נמחקו ${deleted.length} חיפושים.`
       + (kept ? ` נשאר: «${kept.keyword}» (${when}).` : '')
-      + '\nמעכשיו החיפושים שלך בבוט הקוראים לא נרשמים — הרשימה היא רק של העוקבים.');
+      + '\nמעכשיו החיפושים שלך בבוט הקוראים לא נרשמים — הרשימה היא רק של העוקבים.';
+  }
+
+  /** A tap on one of /resetsearches' buttons. */
+  private async onResetSearches(chatId: string, cbId: string, messageId: number, arg: string): Promise<void> {
+    await this.answer(cbId);
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    const keepId = arg === 'all' ? null : arg;
+    if (keepId && !/^[0-9a-f-]{36}$/i.test(keepId)) return;
+    await this.editText(chatId, messageId, await this.clearSearches(userId, keepId));
   }
 
   /** /groups — for every active Telegram group: can its members use /find? */
