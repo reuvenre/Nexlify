@@ -1,5 +1,5 @@
 import { BotProduct } from './product-card';
-import { MORE_BUTTON, ShopperLimiter, channelHits, channelSearchTerms, postHeadline, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
+import { MORE_BUTTON, ShopperLimiter, channelHits, channelMatchFloor, channelSearchTerms, postHeadline, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
 
 describe('parseShopperQuery', () => {
   it('reads a budget in Hebrew and strips it from the keyword', () => {
@@ -123,28 +123,39 @@ describe('shopperCaption — Hebrew titles', () => {
 });
 
 describe('search in the channel\'s own posts', () => {
-  it('turns the reader\'s words into patterns a post must all contain, stemming Hebrew plurals', () => {
-    expect(channelSearchTerms('ידיות הסתערות')).toEqual(['%ידי%', '%הסתער%']);
-    expect(channelSearchTerms('תיק גב של צבא')).toEqual(['%תיק%', '%גב%', '%צבא%']);
-    expect(channelSearchTerms('100%_cotton')).toEqual(['%100%', '%cotton%']);
+  it('turns the reader\'s words into stems, Hebrew plurals stemmed, no LIKE wildcards', () => {
+    expect(channelSearchTerms('ידיות הסתערות')).toEqual(['ידי', 'הסתער']);
+    expect(channelSearchTerms('תיק גב של צבא')).toEqual(['תיק', 'גב', 'צבא']);
+    expect(channelSearchTerms('100%_cotton')).toEqual(['100', 'cotton']);
     expect(channelSearchTerms('')).toEqual([]);
   });
 
-  it('reads a post\'s headline without markup', () => {
+  it('the long, rare word carries a match; a short common one alone does not', () => {
+    const terms = channelSearchTerms('ידיות הסתערות');
+    const floor = channelMatchFloor(terms);
+    expect('הסתער'.length).toBeGreaterThanOrEqual(floor); // «גריפ הסתערות» is found
+    expect('ידי'.length).toBeLessThan(floor);             // «ידית לסיר» is not
+    expect(channelMatchFloor(['פנס'])).toBe(2);
+  });
+
+  it('reads a post\'s headline without markup, preferring the line that names the search', () => {
     expect(postHeadline('\n<b>🔥 ידית הסתערות טקטית</b>\nפרטים')).toBe('🔥 ידית הסתערות טקטית');
     expect(postHeadline('**דיל חם** על פנס')).toBe('דיל חם על פנס');
     expect(postHeadline('', 'Tactical grip')).toBe('Tactical grip');
+    expect(postHeadline('🔥 דיל שלא חוזר!\nגריפ הסתערות לרובה\n🛒 לרכישה', 'MM-1', ['הסתער'])).toBe('גריפ הסתערות לרובה');
   });
 
-  it('one result per product, at most two, priced as published', () => {
-    const row = (id: string, product_id: string, price = 49.9) => ({
-      id, product_id, product_title: 'Grip', product_image: `https://img/${product_id}.jpg`,
+  it('one result per product, at most two, priced as published, photo from the gallery when needed', () => {
+    const row = (id: string, product_id: string, price = 49.9, image = `https://img/${product_id}.jpg`) => ({
+      id, product_id, product_title: 'MM-2642001DP', product_image: image, gallery_json: '["https://img/g.jpg"]',
       generated_text: '🔥 ידית הסתערות טקטית\nעוד', price_ils: price,
     });
-    const hits = channelHits([row('a', '1'), row('b', '1'), row('c', '2', 0), row('d', '3')]);
+    const hits = channelHits([row('a', '1'), row('b', '1'), row('c', '2', 0, ''), row('d', '3')]);
     expect(hits.map((h) => h.post.id)).toEqual(['a', 'c']);
+    expect(hits[1].product.image_url).toBe('https://img/g.jpg');
     expect(shopperCaption(hits[0].product, 1, 'https://x/r/A')).toContain('💰 ₪49.9');
     expect(shopperCaption(hits[1].product, 2, 'https://x/r/B')).not.toContain('💰');
     expect(hits[0].product.title).toBe('🔥 ידית הסתערות טקטית');
+    expect(channelHits([{ ...row('e', '9', 1, ''), gallery_json: 'not json' }])).toEqual([]);
   });
 });

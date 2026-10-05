@@ -154,7 +154,10 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
 - **Anyone else** gets the members' product search (`shopper.ts`):
   - In a private chat any text is a search. In a group only `/find` or `/search` is, and only in the owner's own groups.
   - No model picks products. Results come from a strict search (never mock data) and are ranked by a fixed formula.
-  - The channel's own posts are searched first (`channelPostHits`), because AliExpress lists some products (FLYLINK hidden products) under another name and only our Hebrew copy names them. A post must contain every search word (`channelSearchTerms`: ILIKE ALL, with Hebrew plurals stemmed). At most two posts are shown, from those sent to Telegram in the last 180 days, and the API fills the rest of the three. A channel hit links through the post's own short code, so its click counts on that post.
+  - The channel's own posts are searched first (`channelPostHits`), because AliExpress lists some products (FLYLINK hidden products) under another name and only our Hebrew copy names them.
+    - A post must cover `CHANNEL_MATCH_SHARE` (60 %) of the search's letters (`channelSearchTerms` stems, with Hebrew plurals stemmed), not every word. A FLYLINK post's title is a supplier code and its copy is written by the model from the photos, so the reader's «ידיות הסתערות» can be the post's «גריפ הסתערות». The long word carries the match; a short common one alone does not.
+    - At most two posts are shown, from those sent in the last 180 days (custom posts included when they carry a link), and the API fills the rest of the three. A channel hit links through the post's own short code, so its click counts on that post.
+    - The owner testing the readers' search gets a `🔧 (רק אתה רואה)` line with how many posts matched which stems.
   - Links are short links minted with `kind = 'shopper'`, so their clicks are counted in `link_targets.clicks`.
   - Searches are rate-limited per member and per day.
   - In a private chat, «עוד מוצרים» (a reply-keyboard button, or the words) shows the next three results of the reader's last search. The session is kept in memory for 30 minutes, since a reader can simply search again, and a new API page is fetched when the ranked list runs out.

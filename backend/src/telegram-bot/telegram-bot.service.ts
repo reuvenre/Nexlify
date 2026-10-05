@@ -27,7 +27,7 @@ import { ManagerAgentService, isAuthError } from '../manager/manager-agent.servi
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
-  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, ChannelPostRow, channelHits, channelSearchTerms, sameProductKeys, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
+  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, ChannelPostRow, channelHits, channelMatchFloor, channelSearchTerms, sameProductKeys, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
 } from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
@@ -405,10 +405,19 @@ export class TelegramBotService implements OnModuleInit {
     // The channel first: a product AliExpress hides under another name is found by the
     // words our own post used. Its products then count as seen, so the API never repeats them.
     const seen = new Set<string>();
-    const fromChannel = await this.channelPostHits(userId, parsed).catch((err) => {
+    const channel = await this.channelPostHits(userId, parsed).catch((err) => {
       this.logger.warn(`channel search "${parsed.keyword}" failed: ${err?.message}`);
-      return [] as Array<{ post: ChannelPostRow; product: BotProduct }>;
+      return { hits: [] as Array<{ post: ChannelPostRow; product: BotProduct }>, matched: -1, terms: [] as string[] };
     });
+    const fromChannel = channel.hits;
+    // The owner testing the readers' search sees what the channel search did — readers don't.
+    const ownerDiag = async () => {
+      if (!isPrivate || !(this.isOwner(chatId) || memberKey.startsWith('owner:'))) return;
+      await this.send(chatId, channel.matched < 0
+        ? '🔧 (רק אתה רואה) החיפוש בערוץ נכשל — ראה לוג.'
+        : `🔧 (רק אתה רואה) בפוסטים של הערוץ: ${channel.matched} תואמים ל-${channel.terms.join(' + ')}`
+          + (channel.matched ? `, הוצגו ${fromChannel.length} ראשונים.` : '. אם המוצר פורסם, בפוסט כתוב שם אחר — נסה את המילה שמופיעה בו.'));
+    };
     fromChannel.forEach((h) => sameProductKeys(h.product).forEach((k) => seen.add(k)));
 
     let ranked: BotProduct[] = [];
@@ -435,6 +444,7 @@ export class TelegramBotService implements OnModuleInit {
     if (!total) {
       await this.send(chatId, `לא מצאתי מוצרים מתאימים ל«${parsed.keyword}»${parsed.maxPrice ? ' בתקציב הזה' : ''}. נסה ניסוח אחר.`,
         undefined, replyTo);
+      await ownerDiag();
       return;
     }
     if (isPrivate) {
@@ -449,30 +459,40 @@ export class TelegramBotService implements OnModuleInit {
     const header = `🔎 ${total} המומלצים ל«${escapeHtml(parsed.keyword)}»${budgetLabel}:`;
     await this.showShopperResults(chatId, userId, header, [...fromChannel.map((h) => h.product), ...picks], 1, isGroup, replyTo,
       new Map(fromChannel.map((h) => [h.product.product_id, h.post.id])));
+    await ownerDiag();
   }
 
   /**
-   * Posts the channel already published that carry every word of the search — at most two,
-   * newest first, within the reader's budget. Only what really went out to Telegram, never
-   * an expired promotion or a custom post (it has no product behind it).
+   * Posts the channel already published that cover most of the search (CHANNEL_MATCH_SHARE
+   * of its letters), best covered first, then newest — at most two shown, within the
+   * reader's budget. A post without a stored price passes any budget. Only sent posts with
+   * a link and a photo, never an expired promotion.
    */
-  private async channelPostHits(userId: string, q: ShopperQuery): Promise<Array<{ post: ChannelPostRow; product: BotProduct }>> {
+  private async channelPostHits(userId: string, q: ShopperQuery): Promise<{
+    hits: Array<{ post: ChannelPostRow; product: BotProduct }>; matched: number; terms: string[];
+  }> {
     const terms = channelSearchTerms(q.keyword);
-    if (!terms.length) return [];
+    if (!terms.length) return { hits: [], matched: 0, terms };
     const rows: ChannelPostRow[] = await this.postsRepo.query(
-      `SELECT id, product_id, product_title, product_image, generated_text, price_ils
-         FROM posts
-        WHERE user_id = $1 AND status = 'sent' AND telegram_message_id IS NOT NULL
-          AND sent_at > now() - interval '180 days'
-          AND product_id NOT LIKE 'custom-%' AND coalesce(promo_expired, false) = false
-          AND coalesce(affiliate_url, '') <> '' AND coalesce(product_image, '') <> ''
-          AND ($3::float IS NULL OR price_ils >= $3) AND ($4::float IS NULL OR price_ils <= $4)
-          AND (coalesce(generated_text, '') || ' ' || coalesce(product_title, '')) ILIKE ALL($2::text[])
-        ORDER BY sent_at DESC
-        LIMIT 30`,
-      [userId, terms, q.minPrice ?? null, q.maxPrice ?? null],
+      `SELECT * FROM (
+         SELECT id, product_id, product_title, product_image, gallery_json, generated_text, price_ils, sent_at,
+                (SELECT coalesce(sum(length(t)), 0) FROM unnest($2::text[]) t
+                  WHERE (coalesce(generated_text, '') || ' ' || coalesce(product_title, '')) ILIKE '%' || t || '%') AS score
+           FROM posts
+          WHERE user_id = $1 AND status = 'sent'
+            AND sent_at > now() - interval '180 days'
+            AND coalesce(promo_expired, false) = false
+            AND coalesce(affiliate_url, '') <> ''
+            AND (coalesce(product_image, '') <> '' OR coalesce(gallery_json, '') LIKE '[%')
+            AND ($3::float IS NULL OR coalesce(price_ils, 0) <= 0 OR price_ils >= $3)
+            AND ($4::float IS NULL OR coalesce(price_ils, 0) <= 0 OR price_ils <= $4)
+       ) m
+       WHERE score >= $5
+       ORDER BY score DESC, sent_at DESC
+       LIMIT 30`,
+      [userId, terms, q.minPrice ?? null, q.maxPrice ?? null, channelMatchFloor(terms)],
     );
-    return channelHits(rows, 2);
+    return { hits: channelHits(rows, 2, terms), matched: new Set(rows.map((r) => r.product_id)).size, terms };
   }
 
   /** One page of the API, ranked, links only. Throws on an API failure (strict search). */

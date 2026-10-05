@@ -140,9 +140,9 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
 const SEARCH_STOPWORDS = new Set(['של', 'עם', 'את', 'או', 'גם', 'על', 'for', 'the', 'and', 'with', 'of']);
 
 /**
- * The reader's words as ILIKE patterns, all of which a post must contain. A long Hebrew
- * plural loses its suffix so «ידיות» also finds «ידית» (substring match: the stem
- * still matches the plural). LIKE wildcards are escaped.
+ * The reader's words as search stems. A long Hebrew plural loses its suffix so «ידיות»
+ * also finds «ידית» (substring match: the stem still matches the plural). Only letters,
+ * digits, ' ׳ and - survive, so no LIKE wildcard can reach the query.
  */
 export function channelSearchTerms(keyword: string): string[] {
   const words = String(keyword || '').toLowerCase()
@@ -150,18 +150,33 @@ export function channelSearchTerms(keyword: string): string[] {
     .split(/\s+/)
     .map((w) => w.replace(/^['׳-]+|['׳-]+$/g, ''))
     .filter((w) => w.length >= 2 && !SEARCH_STOPWORDS.has(w));
-  const terms = words.map((w) => (/^[֐-׿]{5,}$/.test(w) ? w.replace(/(?:ים|ות)$/, '') : w));
-  return [...new Set(terms)].slice(0, 5).map((t) => `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  const terms = words.map((w) => (/^[\u0590-\u05FF]{5,}$/.test(w) ? w.replace(/(?:ים|ות)$/, '') : w));
+  return [...new Set(terms)].slice(0, 5);
 }
 
-/** A published post's headline: its first line that has words, tags and markdown stripped. */
-export function postHeadline(text: string, fallback = ''): string {
-  const line = String(text || '')
+/**
+ * How much of the search a post must cover, counted in letters of the stems it contains.
+ * Not every word: a FLYLINK post's copy is written by the model from the photos, so the
+ * reader's «ידיות הסתערות» may be the post's «גריפ הסתערות». The longer, rarer word
+ * carries the match; a short common one alone («ידי») does not.
+ */
+export const CHANNEL_MATCH_SHARE = 0.6;
+
+export function channelMatchFloor(terms: string[]): number {
+  const total = terms.reduce((n, t) => n + t.length, 0);
+  return Math.ceil(total * CHANNEL_MATCH_SHARE);
+}
+
+/** A published post's headline: the first line that has words, tags and markdown stripped —
+ *  preferring a line that names what was searched for. */
+export function postHeadline(text: string, fallback = '', terms: string[] = []): string {
+  const lines = String(text || '')
     .replace(/<[^>]*>/g, ' ')
     .split('\n')
     .map((l) => l.replace(/[*_~`]+/g, '').replace(/\s+/g, ' ').trim())
-    .find((l) => /[\p{L}\p{N}]/u.test(l));
-  return truncate(line || fallback, 110);
+    .filter((l) => /[\p{L}\p{N}]/u.test(l) && !/^(?:https?:\/\/|🛒|🔗|⚠️)/u.test(l));
+  const named = lines.find((l) => terms.some((t) => l.toLowerCase().includes(t)));
+  return truncate(named || lines[0] || fallback, 110);
 }
 
 /** A row of the posts table, as the channel search reads it. */
@@ -170,27 +185,42 @@ export interface ChannelPostRow {
   product_id: string;
   product_title: string;
   product_image: string;
+  gallery_json?: string | null;
   generated_text: string;
   price_ils: number;
 }
 
+/** The post's photo: its main image, or the first of its gallery. */
+export function channelPostImage(r: ChannelPostRow): string {
+  if (r.product_image) return r.product_image;
+  try {
+    const g = JSON.parse(r.gallery_json || '[]');
+    return Array.isArray(g) && typeof g[0] === 'string' ? g[0] : '';
+  } catch {
+    return '';
+  }
+}
+
 /**
- * Channel posts as results: one per product, newest first, at most `count`. The price is
- * the one the post was published with; there is no rating or order count to show.
+ * Channel posts as results: one per product, best match first, at most `count`. The price
+ * is the one the post was published with; there is no rating or order count to show.
  */
-export function channelHits(rows: ChannelPostRow[], count = 2): Array<{ post: ChannelPostRow; product: BotProduct }> {
+export function channelHits(
+  rows: ChannelPostRow[], count = 2, terms: string[] = [],
+): Array<{ post: ChannelPostRow; product: BotProduct }> {
   const out: Array<{ post: ChannelPostRow; product: BotProduct }> = [];
   const ids = new Set<string>();
   for (const r of rows || []) {
-    if (!r?.product_image || ids.has(r.product_id)) continue;
+    const image = r ? channelPostImage(r) : '';
+    if (!image || ids.has(r.product_id)) continue;
     ids.add(r.product_id);
     const price = Math.round((Number(r.price_ils) || 0) * 100) / 100;
     out.push({
       post: r,
       product: {
-        product_id: r.product_id, title: postHeadline(r.generated_text, r.product_title),
+        product_id: r.product_id, title: postHeadline(r.generated_text, r.product_title, terms),
         sale_price: price, original_price: price, discount_percent: 0, orders_count: 0, rating: 0,
-        currency: 'ILS', image_url: r.product_image,
+        currency: 'ILS', image_url: image,
       },
     });
     if (out.length >= count) break;
