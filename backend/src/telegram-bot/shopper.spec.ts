@@ -155,7 +155,8 @@ describe('search in the channel\'s own posts', () => {
   it('one result per product, at most two, priced as published, photo from the gallery when needed', () => {
     const row = (id: string, product_id: string, price = 49.9, image = `https://img/${product_id}.jpg`) => ({
       id, product_id, product_title: 'MM-2642001DP', product_image: image, gallery_json: '["https://img/g.jpg"]',
-      generated_text: '🔥 ידית הסתערות טקטית\nעוד', price_ils: price, affiliate_url: 'https://s.click.aliexpress.com/e/A',
+      generated_text: product_id === '1' ? '🔥 ידית הסתערות טקטית\nעוד' : `🔥 ידית הסתערות דגם ${product_id}\nעוד`,
+      price_ils: price, affiliate_url: 'https://s.click.aliexpress.com/e/A',
     });
     const hits = channelHits([row('a', '1'), row('b', '1'), row('c', '2', 0, ''), row('d', '3')]);
     expect(hits.map((h) => h.post.id)).toEqual(['a', 'c']);

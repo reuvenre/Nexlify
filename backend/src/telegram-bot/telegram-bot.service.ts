@@ -8,6 +8,10 @@ import { ShopperSearch } from './shopper-search.entity';
 import { normaliseSearch, searchesReport } from './search-stats';
 import { User } from '../users/user.entity';
 import { Post } from '../posts/post.entity';
+import { ChannelMessage } from './channel-message.entity';
+import {
+  ChannelRef, buyLink, channelPostRef, channelPostUrl, forwardedChannelRef, isOwnChannel, messageLinks, messageText,
+} from './channel-capture';
 import { ProductsService } from '../products/products.service';
 import { PostsService } from '../posts/posts.service';
 import { CredentialsService } from '../credentials/credentials.service';
@@ -27,7 +31,7 @@ import { ManagerAgentService, isAuthError } from '../manager/manager-agent.servi
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
-  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, ChannelPostRow, HEBREW_FINALS, channelHits, channelMatchFloor, channelSearchTerms, sameProductKeys, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
+  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, ChannelPostRow, HEBREW_FINALS, channelHits, postHeadline, channelMatchFloor, channelSearchTerms, sameProductKeys, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
 } from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
@@ -86,6 +90,7 @@ export class TelegramBotService implements OnModuleInit {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(ShopperSearch) private readonly searches: Repository<ShopperSearch>,
     @InjectRepository(Post) private readonly postsRepo: Repository<Post>,
+    @InjectRepository(ChannelMessage) private readonly channelMessages: Repository<ChannelMessage>,
     private readonly products: ProductsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
@@ -103,9 +108,20 @@ export class TelegramBotService implements OnModuleInit {
       await this.handleCallback(update.callback_query);
       return;
     }
+    // A post in one of the owner's channels (the bot is its admin): keep it searchable.
+    const channelPost = update?.channel_post || update?.edited_channel_post;
+    if (channelPost) {
+      await this.captureChannelPost(channelPost);
+      return;
+    }
     const msg = update?.message;
     const text = String(msg?.text || '').trim();
     const chatId = String(msg?.chat?.id ?? '');
+    // The owner forwarding a channel post (photo posts carry a caption, not text) saves it.
+    if (chatId && this.isOwner(chatId) && forwardedChannelRef(msg)) {
+      await this.saveForwardedPost(chatId, msg);
+      return;
+    }
     if (!text || !chatId) return;
     if (this.isOwner(chatId)) {
       await this.handleMessage(chatId, text);
@@ -130,6 +146,11 @@ export class TelegramBotService implements OnModuleInit {
     const token = searchBotToken();
     const msg = update?.message;
     const text = String(msg?.text || '').trim();
+    // The owner may forward channel posts here too — save them, never search their text.
+    if (token && msg?.chat?.id && this.isOwner(String(msg.chat.id)) && forwardedChannelRef(msg)) {
+      await this.replyVia.run({ token }, () => this.saveForwardedPost(String(msg.chat.id), msg));
+      return;
+    }
     if (!token || !text || !msg?.chat?.id) return;
     // The owner testing the readers' bot gets the readers' search — except a question for
     // the manager, which lives in his own bot (it needs buttons this bot does not receive).
@@ -470,9 +491,13 @@ export class TelegramBotService implements OnModuleInit {
   }
 
   /** How much of the search a post covers, in letters of the stems it contains ($2 = stems). */
-  private static readonly CHANNEL_SCORE = `(SELECT coalesce(sum(length(t)), 0) FROM unnest($2::text[]) t
-      WHERE translate(coalesce(generated_text, '') || ' ' || coalesce(product_title, ''), '${HEBREW_FINALS[0]}', '${HEBREW_FINALS[1]}')
-            ILIKE '%' || t || '%')`;
+  private static channelScore(haystack: string): string {
+    return `(SELECT coalesce(sum(length(t)), 0) FROM unnest($2::text[]) t
+      WHERE translate(${haystack}, '${HEBREW_FINALS[0]}', '${HEBREW_FINALS[1]}') ILIKE '%' || t || '%')`;
+  }
+  private static readonly CHANNEL_SCORE = TelegramBotService.channelScore(
+    `coalesce(generated_text, '') || ' ' || coalesce(product_title, '')`);
+  private static readonly CHANNEL_MESSAGE_SCORE = TelegramBotService.channelScore(`coalesce(text, '')`);
 
   /**
    * Posts the channel already published that cover most of the search (CHANNEL_MATCH_SHARE
@@ -501,7 +526,30 @@ export class TelegramBotService implements OnModuleInit {
        LIMIT 30`,
       [userId, terms, q.minPrice ?? null, q.maxPrice ?? null, channelMatchFloor(terms)],
     );
-    return { hits: channelHits(rows, 2, terms), matched: new Set(rows.map((r) => r.product_id)).size, terms };
+    // What the channel itself shows: posts edited in Telegram, deleted from the posts screen,
+    // or written there by hand. No stored price — they pass any budget, like a custom post.
+    const shown: Array<{ id: string; chat_id: string; chat_username: string | null; message_id: number;
+      text: string; buy_url: string; at: Date; score: string }> = await this.channelMessages.query(
+      `SELECT * FROM (
+         SELECT id, chat_id, chat_username, message_id, text, buy_url, posted_at AS at,
+                ${TelegramBotService.CHANNEL_MESSAGE_SCORE} AS score
+           FROM channel_messages
+          WHERE user_id = $1 AND coalesce(buy_url, '') <> ''
+       ) m
+       WHERE score >= $3
+       ORDER BY score DESC, at DESC
+       LIMIT 30`,
+      [userId, terms, channelMatchFloor(terms)],
+    ).catch((err) => { this.logger.warn(`channel_messages search failed: ${err?.message}`); return []; });
+    const fromChannel: Array<ChannelPostRow & { score: number; at: Date; rank: number }> = shown.map((m) => ({
+      id: m.id, product_id: `tg:${m.chat_id}:${m.message_id}`, product_title: '', product_image: '',
+      generated_text: m.text, price_ils: 0, affiliate_url: m.buy_url,
+      post_url: channelPostUrl(m.chat_username, m.chat_id, m.message_id), score: Number(m.score), at: m.at, rank: 1,
+    }));
+    // Best covered first; on a tie the system's own post (it has the photo), then the newest.
+    const merged = [...(rows as any[]).map((r) => ({ ...r, score: Number(r.score), rank: 0 })), ...fromChannel]
+      .sort((a, b) => b.score - a.score || a.rank - b.rank || new Date(b.at).getTime() - new Date(a.at).getTime());
+    return { hits: channelHits(merged, 2, terms), matched: rows.length + shown.length, terms };
   }
 
   /**
@@ -530,9 +578,16 @@ export class TelegramBotService implements OnModuleInit {
         GROUP BY t`,
       [terms],
     );
+    const [cm] = await this.channelMessages.query(
+      `SELECT count(*)::int AS saved,
+              count(*) FILTER (WHERE ${TelegramBotService.CHANNEL_MESSAGE_SCORE} >= $3)::int AS matching
+         FROM channel_messages WHERE user_id = $1 AND $2::text[] IS NOT NULL`,
+      [userId, terms, channelMatchFloor(terms)],
+    ).catch(() => [null]);
     const perTerm = each.map((e) => `«${e.t}» ב-${e.n}${e.last ? ` (אחרון ${new Date(e.last).toISOString().slice(0, 10)})` : ''}`).join(' · ');
     return `בכל המערכת ${r?.text ?? 0} פוסטים מכילים את המילים · שלך ${r?.mine ?? 0} · נשלחו ${r?.sent ?? 0}`
-      + ` · ב-180 יום ${r?.recent ?? 0}${r?.statuses ? ` · סטטוסים: ${r.statuses}` : ''}\nכל מילה לבד: ${perTerm}`;
+      + ` · ב-180 יום ${r?.recent ?? 0}${r?.statuses ? ` · סטטוסים: ${r.statuses}` : ''}\nכל מילה לבד: ${perTerm}`
+      + `\nשמורים מהערוץ עצמו: ${cm?.saved ?? 0}, תואמים ${cm?.matching ?? 0}`;
   }
 
   /** One page of the API, ranked, links only. Throws on an API failure (strict search). */
@@ -605,6 +660,8 @@ export class TelegramBotService implements OnModuleInit {
         const code = await this.links.ensureCode(post).catch(() => null);
         return code ? this.links.shortUrl(code) : post.affiliate_url;
       }
+      // Already one of our short links (a channel post's buy button): its clicks count on that post.
+      if (p.affiliate_url!.startsWith(this.links.shortUrl(''))) return p.affiliate_url!;
       const code = await this.links.mintTarget(p.affiliate_url!, userId, 'shopper').catch(() => null);
       return code ? this.links.shortUrl(code) : p.affiliate_url!;
     };
@@ -624,6 +681,16 @@ export class TelegramBotService implements OnModuleInit {
     });
     for (let i = 0; i < picks.length; i++) {
       const caption = shopperCaption(picks[i], from + i, await linkFor(picks[i]));
+      if (!picks[i].image_url) {
+        // A post saved from the channel itself: its own preview shows the photo, above the text.
+        await this.call('sendMessage', {
+          chat_id: chatId, text: caption, parse_mode: 'HTML',
+          link_preview_options: picks[i].post_url
+            ? { url: picks[i].post_url, prefer_large_media: true, show_above_text: true }
+            : { is_disabled: true },
+        });
+        continue;
+      }
       const sent = await this.call('sendPhoto', {
         chat_id: chatId, photo: picks[i].image_url!, caption, parse_mode: 'HTML',
       });
@@ -648,6 +715,67 @@ export class TelegramBotService implements OnModuleInit {
     if (chat.username) ids.add(`@${String(chat.username).toLowerCase()}`);
     const groups = await this.telegramChannels(userId).catch(() => [] as Channel[]);
     return groups.some((g) => ids.has(String(g.channel_id).trim().toLowerCase()) || ids.has(String(g.channel_id).trim()));
+  }
+
+  // ── The channel as it really is ────────────────────────────────────────────
+
+  /** A post (or an edit) in a channel the bot administers — kept when it is one of the owner's. */
+  private async captureChannelPost(msg: any): Promise<void> {
+    const ref = channelPostRef(msg);
+    const text = messageText(msg).trim();
+    // An album's other photos carry no caption; the one with the text is what is searched.
+    if (!ref || !text) return;
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    const own = await this.telegramChannels(userId).catch(() => [] as Channel[]);
+    if (!isOwnChannel(ref, own.map((c) => c.channel_id))) return;
+    await this.saveChannelMessage(userId, ref, text, buyLink(messageLinks(msg)))
+      .catch((err) => this.logger.warn(`channel post ${ref.chatId}/${ref.messageId} not saved: ${err?.message}`));
+  }
+
+  /**
+   * The owner forwarded a channel post to the bot — the way an OLD post gets in, since
+   * Telegram gives a bot no channel history. Only his own channels: a post from someone
+   * else's channel carries their affiliate link, and readers would buy through it.
+   */
+  private async saveForwardedPost(chatId: string, msg: any): Promise<void> {
+    const ref = forwardedChannelRef(msg)!;
+    const text = messageText(msg).trim();
+    if (!text) {
+      // An album arrives one photo per message and only one carries the caption — stay quiet.
+      if (!msg?.media_group_id) await this.send(chatId, '⚠️ בפוסט הזה אין טקסט — אין מה לחפש בו. העבר את ההודעה שיש בה את הכיתוב.');
+      return;
+    }
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    const own = await this.telegramChannels(userId).catch(() => [] as Channel[]);
+    if (!isOwnChannel(ref, own.map((c) => c.channel_id))) {
+      await this.send(chatId, `⚠️ הפוסט הזה מערוץ שאינו מהערוצים שלך${ref.username ? ` (@${ref.username})` : ''} — לא נשמר.`);
+      return;
+    }
+    const buy = buyLink(messageLinks(msg));
+    try {
+      await this.saveChannelMessage(userId, ref, text, buy);
+    } catch (err: any) {
+      await this.send(chatId, `❌ לא נשמר: ${String(err?.message || err).slice(0, 150)}`);
+      return;
+    }
+    const headline = postHeadline(text);
+    await this.send(chatId, buy
+      ? `📥 נשמר לחיפוש בבוט: «${headline}»`
+      : `📥 נשמר, אבל אין בו קישור לרכישה — הקוראים לא יקבלו אותו כתוצאה: «${headline}»`);
+  }
+
+  /** One row per channel post; a later edit or a second forward refreshes it. */
+  private async saveChannelMessage(userId: string, ref: ChannelRef, text: string, buy: string | null): Promise<void> {
+    await this.channelMessages.query(
+      `INSERT INTO channel_messages (user_id, chat_id, chat_username, message_id, text, buy_url, posted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7))
+       ON CONFLICT (chat_id, message_id) DO UPDATE
+         SET text = EXCLUDED.text, buy_url = EXCLUDED.buy_url,
+             chat_username = coalesce(EXCLUDED.chat_username, channel_messages.chat_username), updated_at = now()`,
+      [userId, ref.chatId, ref.username, ref.messageId, text.slice(0, 8000), buy, ref.date || Date.now() / 1000],
+    );
   }
 
   // ── Setup and diagnostics ──────────────────────────────────────────────────

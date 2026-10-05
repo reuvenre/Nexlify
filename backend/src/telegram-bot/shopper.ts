@@ -129,6 +129,7 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
   if (p.orders_count > 0) stats.push(`📦 ${p.orders_count.toLocaleString('en-US')} נמכרו`);
   if (stats.length) lines.push(stats.join('  ·  '));
   for (const note of p.notes || []) lines.push(escapeHtml(note));
+  if (p.post_url) lines.push(`<a href="${escapeHtml(p.post_url).replace(/"/g, '&quot;')}">📢 לפוסט המלא בערוץ</a>`);
   lines.push(`<a href="${escapeHtml(link).replace(/"/g, '&quot;')}">${SHOPPER_BUY_TEXT}</a>`);
   return lines.join('\n');
 }
@@ -222,6 +223,8 @@ export interface ChannelPostRow {
   generated_text: string;
   price_ils: number;
   affiliate_url?: string | null;
+  /** Set for a row from channel_messages: the post on t.me (it has no photo of its own). */
+  post_url?: string | null;
 }
 
 /**
@@ -255,18 +258,27 @@ export function channelHits(
 ): Array<{ post: ChannelPostRow; product: BotProduct }> {
   const out: Array<{ post: ChannelPostRow; product: BotProduct }> = [];
   const ids = new Set<string>();
+  const titles = new Set<string>();
   for (const r of rows || []) {
-    const image = r ? channelPostImage(r) : '';
-    const link = r ? channelPostLink(r) : '';
-    if (!image || !link || ids.has(r.product_id)) continue;
+    if (!r) continue;
+    const image = channelPostImage(r);
+    const link = channelPostLink(r);
+    // A row from the channel itself has no photo here, but its link shows the post's own.
+    if ((!image && !r.post_url) || !link || ids.has(r.product_id)) continue;
+    const title = postHeadline(r.generated_text, r.product_title, terms);
+    // The same post found twice — in the posts table and as the channel shows it.
+    const titleKey = normaliseHebrew(title.toLowerCase()).replace(/[^\p{L}\p{N}]+/gu, '');
+    if (titleKey.length >= 8 && titles.has(titleKey)) continue;
     ids.add(r.product_id);
+    titles.add(titleKey);
     const price = Math.round((Number(r.price_ils) || 0) * 100) / 100;
     out.push({
       post: r,
       product: {
-        product_id: r.product_id, title: postHeadline(r.generated_text, r.product_title, terms),
+        product_id: r.product_id, title,
         sale_price: price, original_price: price, discount_percent: 0, orders_count: 0, rating: 0,
-        currency: 'ILS', image_url: image, affiliate_url: link, notes: hiddenProductNotes(r.generated_text),
+        currency: 'ILS', image_url: image || undefined, affiliate_url: link, notes: hiddenProductNotes(r.generated_text),
+        ...(r.post_url ? { post_url: r.post_url } : {}),
       },
     });
     if (out.length >= count) break;

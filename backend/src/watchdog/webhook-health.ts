@@ -34,8 +34,12 @@ export function hostOf(url: string): string {
   try { return new URL(url).host; } catch { return '(כתובת לא תקינה)'; }
 }
 
-/** What the owner's bot needs: messages, and the taps on its inline buttons. */
+/** What the owner's bot cannot work without: messages, and the taps on its inline buttons. */
 export const OWNER_BOT_UPDATES = ['message', 'callback_query'];
+/** What it is registered for: also the posts in the channels it administers, kept
+ *  searchable for the readers (channel-capture.ts). Missing them is not an outage — the
+ *  boot registration adds them — so the health check does not require them. */
+export const OWNER_BOT_REGISTERED_UPDATES = [...OWNER_BOT_UPDATES, 'channel_post', 'edited_channel_post'];
 /** The readers' search bot sends no buttons — messages are all it receives. */
 export const SEARCH_BOT_UPDATES = ['message'];
 

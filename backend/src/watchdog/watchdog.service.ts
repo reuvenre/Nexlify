@@ -45,7 +45,7 @@ import {
   MIN_POSTS_TO_JUDGE, SEASONAL_ALERT_KEY_PREFIX, SEASONAL_GAP_DAYS, SEASONAL_GAP_REPEAT_MS, SeasonalCampaignRow,
   searchConstraints, seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
 } from './seasonal-gap';
-import { WebhookVerdict, webhookVerdict } from './webhook-health';
+import { OWNER_BOT_REGISTERED_UPDATES, WebhookVerdict, webhookVerdict } from './webhook-health';
 import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
@@ -1394,7 +1394,9 @@ export class WatchdogService implements OnModuleInit {
     // 'callback_query' carries the product bot's inline-button taps. It is NOT implied by
     // a previously-registered ['message'] webhook, so an already-ours webhook still has to
     // be re-registered when it predates the product bot — otherwise every tap is dropped.
-    const wanted = ['message', 'callback_query'];
+    // 'channel_post' / 'edited_channel_post' keep the channel's own posts searchable for
+    // the readers' bot; adding them re-registers an existing webhook once, the same way.
+    const wanted = OWNER_BOT_REGISTERED_UPDATES;
     try {
       const info = await axios.get(`https://api.telegram.org/bot${token}/getWebhookInfo`, { timeout: 10000 });
       const current = info.data?.result?.url || '';

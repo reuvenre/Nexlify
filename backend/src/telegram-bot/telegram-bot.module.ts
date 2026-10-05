@@ -10,6 +10,7 @@ import { OptimizerModule } from '../optimizer/optimizer.module';
 import { LinksModule } from '../links/links.module';
 import { ManagerModule } from '../manager/manager.module';
 import { ShopperSearch } from './shopper-search.entity';
+import { ChannelMessage } from './channel-message.entity';
 import { TelegramBotService } from './telegram-bot.service';
 
 // Channel/User are registered as REPOSITORIES rather than pulling in ChannelsModule +
@@ -21,8 +22,9 @@ import { TelegramBotService } from './telegram-bot.service';
 // WatchdogModule, so the morning report's buttons don't reopen that circle.
 @Module({
   imports: [
-    // Post: the members' search also looks through what the channel already published.
-    TypeOrmModule.forFeature([Channel, User, ShopperSearch, Post]),
+    // Post / ChannelMessage: the members' search also looks through what the channel
+    // already published — as the system sent it, and as the channel shows it.
+    TypeOrmModule.forFeature([Channel, User, ShopperSearch, Post, ChannelMessage]),
     ProductsModule, PostsModule, CredentialsModule, OptimizerModule,
     // The manager agent (owner questions) and short links for the members' search.
     // Neither reaches UsersModule or WatchdogModule.

@@ -28,6 +28,8 @@ export interface BotProduct {
   affiliate_url?: string;
   /** Extra lines a result must carry (a channel post's hidden-product instructions). */
   notes?: string[];
+  /** The channel post this result came from — shown as «לפוסט המלא בערוץ». */
+  post_url?: string;
 }
 
 export function formatMoney(amount: number, currency: string): string {
