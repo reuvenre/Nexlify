@@ -125,7 +125,14 @@ describe('shopperCaption — Hebrew titles', () => {
 describe('search in the channel\'s own posts', () => {
   it('turns the reader\'s words into stems, Hebrew plurals stemmed, no LIKE wildcards', () => {
     expect(channelSearchTerms('ידיות הסתערות')).toEqual(['ידי', 'הסתער']);
+    // Singular and plural meet on one stem — «ידית» once found nothing in a post saying «ידיות».
+    expect(channelSearchTerms('ידית הסתערות')).toEqual(['ידי', 'הסתער']);
+    expect(channelSearchTerms('מנורה')).toEqual(channelSearchTerms('מנורות'));
+    expect(channelSearchTerms('סכין')).toEqual(['סכינ']);
+    expect(channelSearchTerms('סכינים')).toEqual(['סכינ']);
+    expect(channelSearchTerms('שעונים')).toEqual(channelSearchTerms('שעון'));
     expect(channelSearchTerms('תיק גב של צבא')).toEqual(['תיק', 'גב', 'צבא']);
+    expect(channelSearchTerms('אוזניה')).toEqual(channelSearchTerms('אוזניות'));
     expect(channelSearchTerms('100%_cotton')).toEqual(['100', 'cotton']);
     expect(channelSearchTerms('')).toEqual([]);
   });

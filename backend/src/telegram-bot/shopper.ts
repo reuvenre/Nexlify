@@ -142,9 +142,27 @@ export function shopperCaption(p: BotProduct, index: number, link: string): stri
 
 const SEARCH_STOPWORDS = new Set(['של', 'עם', 'את', 'או', 'גם', 'על', 'for', 'the', 'and', 'with', 'of']);
 
+/** Hebrew final letters as their ordinary forms, so «סכין» and «סכינים» share a stem. The
+ *  SQL side applies the same mapping (HEBREW_FINALS) to the post text. */
+export const HEBREW_FINALS: [string, string] = ['ךםןףץ', 'כמנפצ'];
+export function normaliseHebrew(s: string): string {
+  return String(s || '').replace(/[ךםןףץ]/g, (c) => HEBREW_FINALS[1][HEBREW_FINALS[0].indexOf(c)]);
+}
+
 /**
- * The reader's words as search stems. A long Hebrew plural loses its suffix so «ידיות»
- * also finds «ידית» (substring match: the stem still matches the plural). Only letters,
+ * One Hebrew word as the stem singular and plural share: «ידית» and «ידיות» → «ידי»,
+ * «מנורה» and «מנורות» → «מנור», «שעון» and «שעונים» → «שעונ». Matching is by substring, so
+ * a stem a little too short only widens the match; it never needs the exact inflection.
+ */
+function hebrewStem(w: string): string {
+  let t = normaliseHebrew(w);
+  if (t.length >= 5) t = t.replace(/(?:ימ|ות)$/, ''); // «ים» after final-letter normalising
+  if (t.length >= 4) t = t.replace(/[הת]$/, '');
+  return t;
+}
+
+/**
+ * The reader's words as search stems (hebrewStem, final letters normalised). Only letters,
  * digits, ' ׳ and - survive, so no LIKE wildcard can reach the query.
  */
 export function channelSearchTerms(keyword: string): string[] {
@@ -153,7 +171,7 @@ export function channelSearchTerms(keyword: string): string[] {
     .split(/\s+/)
     .map((w) => w.replace(/^['׳-]+|['׳-]+$/g, ''))
     .filter((w) => w.length >= 2 && !SEARCH_STOPWORDS.has(w));
-  const terms = words.map((w) => (/^[\u0590-\u05FF]{5,}$/.test(w) ? w.replace(/(?:ים|ות)$/, '') : w));
+  const terms = words.map((w) => (/^[\u0590-\u05FF]+$/.test(w) ? hebrewStem(w) : w));
   return [...new Set(terms)].slice(0, 5);
 }
 
@@ -178,7 +196,7 @@ export function postHeadline(text: string, fallback = '', terms: string[] = []):
     .split('\n')
     .map((l) => l.replace(/[*_~`]+/g, '').replace(/\s+/g, ' ').trim())
     .filter((l) => /[\p{L}\p{N}]/u.test(l) && !/^(?:https?:\/\/|🛒|🔗|⚠️)/u.test(l));
-  const named = lines.find((l) => terms.some((t) => l.toLowerCase().includes(t)));
+  const named = lines.find((l) => terms.some((t) => normaliseHebrew(l.toLowerCase()).includes(t)));
   return truncate(named || lines[0] || fallback, 110);
 }
 

@@ -27,7 +27,7 @@ import { ManagerAgentService, isAuthError } from '../manager/manager-agent.servi
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
-  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, ChannelPostRow, channelHits, channelMatchFloor, channelSearchTerms, sameProductKeys, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
+  SHOPPER_HELP, SHOPPER_WELCOME, MORE_BUTTON, ChannelPostRow, HEBREW_FINALS, channelHits, channelMatchFloor, channelSearchTerms, sameProductKeys, isMoreRequest, ShopperQuery, ShopperLimiter, escapeHtml, takeUnseen, parseShopperQuery, rankShopperResults, shopperCaption,
 } from './shopper';
 
 /** Inline keyboard row(s) as Telegram wants them. A button carries EITHER a callback or a
@@ -469,7 +469,8 @@ export class TelegramBotService implements OnModuleInit {
 
   /** How much of the search a post covers, in letters of the stems it contains ($2 = stems). */
   private static readonly CHANNEL_SCORE = `(SELECT coalesce(sum(length(t)), 0) FROM unnest($2::text[]) t
-      WHERE (coalesce(generated_text, '') || ' ' || coalesce(product_title, '')) ILIKE '%' || t || '%')`;
+      WHERE translate(coalesce(generated_text, '') || ' ' || coalesce(product_title, ''), '${HEBREW_FINALS[0]}', '${HEBREW_FINALS[1]}')
+            ILIKE '%' || t || '%')`;
 
   /**
    * Posts the channel already published that cover most of the search (CHANNEL_MATCH_SHARE
