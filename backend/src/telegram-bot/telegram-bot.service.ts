@@ -407,16 +407,21 @@ export class TelegramBotService implements OnModuleInit {
     const seen = new Set<string>();
     const channel = await this.channelPostHits(userId, parsed).catch((err) => {
       this.logger.warn(`channel search "${parsed.keyword}" failed: ${err?.message}`);
-      return { hits: [] as Array<{ post: ChannelPostRow; product: BotProduct }>, matched: -1, terms: [] as string[] };
+      return { hits: [] as Array<{ post: ChannelPostRow; product: BotProduct }>, matched: -1, terms: [] as string[],
+        error: String(err?.message || err).slice(0, 200) };
     });
     const fromChannel = channel.hits;
     // The owner testing the readers' search sees what the channel search did — readers don't.
     const ownerDiag = async () => {
       if (!isPrivate || !(this.isOwner(chatId) || memberKey.startsWith('owner:'))) return;
-      await this.send(chatId, channel.matched < 0
-        ? '🔧 (רק אתה רואה) החיפוש בערוץ נכשל — ראה לוג.'
-        : `🔧 (רק אתה רואה) בפוסטים של הערוץ: ${channel.matched} תואמים ל-${channel.terms.join(' + ')}`
-          + (channel.matched ? `, הוצגו ${fromChannel.length} ראשונים.` : '. אם המוצר פורסם, בפוסט כתוב שם אחר — נסה את המילה שמופיעה בו.'));
+      const terms = channelSearchTerms(parsed.keyword);
+      let line = channel.matched < 0
+        ? `החיפוש בערוץ נכשל: ${(channel as { error?: string }).error}`
+        : `בפוסטים של הערוץ: ${channel.matched} תואמים ל-${terms.join(' + ')}, הוצגו ${fromChannel.length}.`;
+      if (fromChannel.length === 0) {
+        line += `\n${await this.channelSearchFunnel(userId, terms).catch((e) => `בדיקה נכשלה: ${e?.message}`)}`;
+      }
+      await this.send(chatId, `🔧 (רק אתה רואה) ${line}`);
     };
     fromChannel.forEach((h) => sameProductKeys(h.product).forEach((k) => seen.add(k)));
 
@@ -462,11 +467,15 @@ export class TelegramBotService implements OnModuleInit {
     await ownerDiag();
   }
 
+  /** How much of the search a post covers, in letters of the stems it contains ($2 = stems). */
+  private static readonly CHANNEL_SCORE = `(SELECT coalesce(sum(length(t)), 0) FROM unnest($2::text[]) t
+      WHERE (coalesce(generated_text, '') || ' ' || coalesce(product_title, '')) ILIKE '%' || t || '%')`;
+
   /**
    * Posts the channel already published that cover most of the search (CHANNEL_MATCH_SHARE
    * of its letters), best covered first, then newest — at most two shown, within the
    * reader's budget. A post without a stored price passes any budget. Only sent posts with
-   * a link and a photo, never an expired promotion.
+   * a photo and somewhere to send the reader (channelPostLink), never an expired promotion.
    */
   private async channelPostHits(userId: string, q: ShopperQuery): Promise<{
     hits: Array<{ post: ChannelPostRow; product: BotProduct }>; matched: number; terms: string[];
@@ -475,24 +484,41 @@ export class TelegramBotService implements OnModuleInit {
     if (!terms.length) return { hits: [], matched: 0, terms };
     const rows: ChannelPostRow[] = await this.postsRepo.query(
       `SELECT * FROM (
-         SELECT id, product_id, product_title, product_image, gallery_json, generated_text, price_ils, sent_at,
-                (SELECT coalesce(sum(length(t)), 0) FROM unnest($2::text[]) t
-                  WHERE (coalesce(generated_text, '') || ' ' || coalesce(product_title, '')) ILIKE '%' || t || '%') AS score
+         SELECT id, product_id, product_title, product_image, gallery_json, generated_text, price_ils,
+                affiliate_url, coalesce(sent_at, created_at) AS at, ${TelegramBotService.CHANNEL_SCORE} AS score
            FROM posts
           WHERE user_id = $1 AND status = 'sent'
-            AND sent_at > now() - interval '180 days'
+            AND coalesce(sent_at, created_at) > now() - interval '180 days'
             AND coalesce(promo_expired, false) = false
-            AND coalesce(affiliate_url, '') <> ''
-            AND (coalesce(product_image, '') <> '' OR coalesce(gallery_json, '') LIKE '[%')
             AND ($3::float IS NULL OR coalesce(price_ils, 0) <= 0 OR price_ils >= $3)
             AND ($4::float IS NULL OR coalesce(price_ils, 0) <= 0 OR price_ils <= $4)
        ) m
        WHERE score >= $5
-       ORDER BY score DESC, sent_at DESC
+       ORDER BY score DESC, at DESC
        LIMIT 30`,
       [userId, terms, q.minPrice ?? null, q.maxPrice ?? null, channelMatchFloor(terms)],
     );
     return { hits: channelHits(rows, 2, terms), matched: new Set(rows.map((r) => r.product_id)).size, terms };
+  }
+
+  /**
+   * For the owner only, when the channel search came back empty: where the matching posts
+   * fell out — so a miss can be read off one test instead of guessed at.
+   */
+  private async channelSearchFunnel(userId: string, terms: string[]): Promise<string> {
+    if (!terms.length) return 'אין מילים לחפש';
+    const [r] = await this.postsRepo.query(
+      `SELECT count(*)::int AS text,
+              count(*) FILTER (WHERE user_id = $1)::int AS mine,
+              count(*) FILTER (WHERE user_id = $1 AND status = 'sent')::int AS sent,
+              count(*) FILTER (WHERE user_id = $1 AND status = 'sent'
+                AND coalesce(sent_at, created_at) > now() - interval '180 days')::int AS recent,
+              string_agg(DISTINCT status, ',') AS statuses
+         FROM posts WHERE ${TelegramBotService.CHANNEL_SCORE} >= $3`,
+      [userId, terms, channelMatchFloor(terms)],
+    );
+    return `בכל המערכת ${r?.text ?? 0} פוסטים מכילים את המילים · שלך ${r?.mine ?? 0} · נשלחו ${r?.sent ?? 0}`
+      + ` · ב-180 יום ${r?.recent ?? 0}${r?.statuses ? ` · סטטוסים: ${r.statuses}` : ''}`;
   }
 
   /** One page of the API, ranked, links only. Throws on an API failure (strict search). */
@@ -560,10 +586,10 @@ export class TelegramBotService implements OnModuleInit {
     const linkFor = async (p: BotProduct) => {
       // A channel post keeps its own short link, so the click counts on that post.
       const postId = channelPosts.get(p.product_id);
-      if (postId) {
-        const post = await this.postsRepo.findOne({ where: { id: postId } }).catch(() => null);
-        const code = post ? await this.links.ensureCode(post).catch(() => null) : null;
-        return code ? this.links.shortUrl(code) : post?.affiliate_url || '';
+      const post = postId ? await this.postsRepo.findOne({ where: { id: postId } }).catch(() => null) : null;
+      if (post?.affiliate_url) {
+        const code = await this.links.ensureCode(post).catch(() => null);
+        return code ? this.links.shortUrl(code) : post.affiliate_url;
       }
       const code = await this.links.mintTarget(p.affiliate_url!, userId, 'shopper').catch(() => null);
       return code ? this.links.shortUrl(code) : p.affiliate_url!;

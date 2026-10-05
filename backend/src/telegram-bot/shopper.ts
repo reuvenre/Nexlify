@@ -2,6 +2,7 @@ import { productScore } from '../agents/product-grounding';
 import { BotProduct, formatMoney, truncate } from './product-card';
 import { applyWordPolicy } from '../posts/word-policy';
 import { HIDDEN_PRODUCT_NOTICE } from '../posts/flylink-trust';
+import { firstLink } from '../custom-posts/post-link';
 
 /**
  * The members' product search — pure parts.
@@ -202,6 +203,18 @@ export interface ChannelPostRow {
   gallery_json?: string | null;
   generated_text: string;
   price_ils: number;
+  affiliate_url?: string | null;
+}
+
+/**
+ * Where a channel hit sends the reader: the post's stored link, or — for a hand-written
+ * post whose links sit inside its text — the first one there that is not a Telegram link
+ * (the bot invite, a channel mention).
+ */
+export function channelPostLink(r: ChannelPostRow): string {
+  if (r.affiliate_url) return r.affiliate_url;
+  const text = String(r.generated_text || '').replace(/https?:\/\/(?:t\.me|telegram\.me)\/[^\s"'<>]*/gi, ' ');
+  return firstLink(text) || '';
 }
 
 /** The post's photo: its main image, or the first of its gallery. */
@@ -226,7 +239,8 @@ export function channelHits(
   const ids = new Set<string>();
   for (const r of rows || []) {
     const image = r ? channelPostImage(r) : '';
-    if (!image || ids.has(r.product_id)) continue;
+    const link = r ? channelPostLink(r) : '';
+    if (!image || !link || ids.has(r.product_id)) continue;
     ids.add(r.product_id);
     const price = Math.round((Number(r.price_ils) || 0) * 100) / 100;
     out.push({
@@ -234,7 +248,7 @@ export function channelHits(
       product: {
         product_id: r.product_id, title: postHeadline(r.generated_text, r.product_title, terms),
         sale_price: price, original_price: price, discount_percent: 0, orders_count: 0, rating: 0,
-        currency: 'ILS', image_url: image, notes: hiddenProductNotes(r.generated_text),
+        currency: 'ILS', image_url: image, affiliate_url: link, notes: hiddenProductNotes(r.generated_text),
       },
     });
     if (out.length >= count) break;

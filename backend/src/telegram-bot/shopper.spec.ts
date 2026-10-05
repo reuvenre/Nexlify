@@ -1,5 +1,5 @@
 import { BotProduct } from './product-card';
-import { MORE_BUTTON, ShopperLimiter, channelHits, channelMatchFloor, hiddenProductNotes, channelSearchTerms, postHeadline, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
+import { MORE_BUTTON, ShopperLimiter, channelHits, channelMatchFloor, channelPostLink, hiddenProductNotes, channelSearchTerms, postHeadline, isMoreRequest, parseShopperQuery, rankShopperResults, shopperCaption, takeUnseen } from './shopper';
 
 describe('parseShopperQuery', () => {
   it('reads a budget in Hebrew and strips it from the keyword', () => {
@@ -184,5 +184,15 @@ describe('a hidden product found in the channel', () => {
     expect(hiddenProductNotes('פנס טקטי חזק')).toEqual([]);
     expect(hiddenProductNotes('מוצר מוסתר — בחרו לפי התמונה')).toHaveLength(1);
     expect(hiddenProductNotes('מוצר מוסתר, קוד קופון: SAVE5')).toHaveLength(1);
+  });
+});
+
+describe('channelPostLink', () => {
+  const row = (over: any) => ({ id: 'a', product_id: 'c', product_title: '', product_image: 'i', price_ils: 0, generated_text: '', ...over });
+  it('uses the stored link, else the first link in a hand-written post that is not Telegram', () => {
+    expect(channelPostLink(row({ affiliate_url: 'https://s.click.aliexpress.com/e/A' }))).toBe('https://s.click.aliexpress.com/e/A');
+    expect(channelPostLink(row({ affiliate_url: '', generated_text: 'בוט: https://t.me/nexlify_deals_bot?start=post\n➡️ להזמנה: https://s.click.aliexpress.com/e/_c3yh4uXV' })))
+      .toBe('https://s.click.aliexpress.com/e/_c3yh4uXV');
+    expect(channelPostLink(row({ generated_text: 'אין כאן קישור' }))).toBe('');
   });
 });
