@@ -156,6 +156,13 @@ export class TelegramBotService implements OnModuleInit {
       await this.replyVia.run({ token }, () => this.saveForwardedPost(String(msg.chat.id), msg));
       return;
     }
+    // The owner's search-log commands work here too — this is where he looks at the readers' side.
+    if (token && msg?.chat?.id && this.isOwner(String(msg.chat.id)) && /^\/(?:searches|resetsearches)(?:@\S+)?(?:\s|$)/i.test(text)) {
+      const chatId = String(msg.chat.id);
+      const reset = text.match(/^\/resetsearches(?:@\S+)?(?:\s+(.+))?$/i);
+      await this.replyVia.run({ token }, () => (reset ? this.resetSearches(chatId, (reset[1] || '').trim()) : this.reportSearches(chatId)));
+      return;
+    }
     if (token && msg?.chat?.id && this.isOwner(String(msg.chat.id)) && parsePostLink(text)) {
       await this.replyVia.run({ token }, () => this.savePostByLink(String(msg.chat.id), msg));
       return;
