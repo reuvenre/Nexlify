@@ -5,6 +5,7 @@ import { AiUsageService } from './ai-usage.service';
 import { anthropicInputTokens, cachedSystem } from './anthropic-cache';
 import { finishReasonTruncated } from './finish-reason';
 import { geminiOutputBudget } from './gemini-budget';
+import { describeAiFailure, describeEmptyAnswer, isRefusedKey } from './ai-failure';
 
 export type AiProvider = 'anthropic' | 'openai' | 'gemini';
 
@@ -29,6 +30,11 @@ export interface GenerateOptions {
    * by design and must NOT burn a second provider on it.
    */
   truncationFailover?: boolean;
+  /**
+   * Filled with one line per provider that produced nothing («anthropic: המפתח נדחה»), so a
+   * caller that ends up with no copy can say why instead of only that it failed.
+   */
+  failures?: string[];
 }
 
 export interface GenerateResult {
@@ -39,6 +45,8 @@ export interface GenerateResult {
   outputTokens?: number;
   /** The provider stopped at the token budget — the text is cut, not finished. */
   truncated?: boolean;
+  /** The provider's own stop / finish reason, kept to explain an empty answer. */
+  stopReason?: string;
 }
 
 /**
@@ -192,7 +200,9 @@ export class AiService {
           default: continue;
         }
         if (!result?.text?.trim()) {
-          this.logger.warn(`[AI:${provider}] returned empty text${i < order.length - 1 ? ' — failing over to next provider' : ''}`);
+          opts.failures?.push(`${provider}: ${describeEmptyAnswer(result?.stopReason)}`);
+          this.logger.warn(`[AI:${provider}] returned empty text (${result?.stopReason || '?'})`
+            + `${i < order.length - 1 ? ' — failing over to next provider' : ''}`);
           continue;
         }
         // Meter token consumption per user/day/provider (best-effort, never blocks).
@@ -211,6 +221,7 @@ export class AiService {
         return result;
       } catch (err: any) {
         const msg = err?.response?.data?.error?.message || err.message;
+        opts.failures?.push(`${provider}: ${describeAiFailure(err)}`);
         this.logger.error(`[AI:${provider}] generation failed: ${msg}${i < order.length - 1 ? ' — failing over to next provider' : ''}`);
       }
     }
@@ -224,7 +235,7 @@ export class AiService {
   private async callAnthropic(
     creds: DecryptedCredentials, opts: GenerateOptions, maxTokens: number, temperature: number,
   ): Promise<GenerateResult> {
-    const res = await this.withRetry(() =>
+    const post = (apiKey: string) => this.withRetry(() =>
       axios.post(
         'https://api.anthropic.com/v1/messages',
         {
@@ -249,7 +260,7 @@ export class AiService {
         },
         {
           headers: {
-            'x-api-key': creds.anthropic_api_key,
+            'x-api-key': apiKey,
             'anthropic-version': '2023-06-01',
             'content-type': 'application/json',
           },
@@ -257,6 +268,14 @@ export class AiService {
         },
       ),
     );
+    const res = await post(creds.anthropic_api_key!).catch((err: any) => {
+      // A refused account key (expired, revoked, mistyped in settings) gets one more try on
+      // the platform's key when that is a different one — as the agents do (AgentClient).
+      const platform = (process.env.ANTHROPIC_API_KEY || '').trim();
+      if (!isRefusedKey(err) || !platform || platform === creds.anthropic_api_key) throw err;
+      this.logger.warn(`[AI:anthropic] account key refused — retrying on the platform key`);
+      return post(platform);
+    });
     const text = (res.data?.content || [])
       .filter((b: any) => b.type === 'text')
       .map((b: any) => b.text)
@@ -267,7 +286,7 @@ export class AiService {
     const outputTokens = usage.output_tokens || 0;
     return {
       text, provider: 'anthropic', tokens: promptTokens + outputTokens, promptTokens, outputTokens,
-      truncated: finishReasonTruncated(res.data?.stop_reason),
+      truncated: finishReasonTruncated(res.data?.stop_reason), stopReason: res.data?.stop_reason,
     };
   }
 
@@ -308,7 +327,7 @@ export class AiService {
     const outputTokens = u.completion_tokens || 0;
     return {
       text, provider: 'openai', tokens: u.total_tokens || promptTokens + outputTokens, promptTokens, outputTokens,
-      truncated: finishReasonTruncated(res.data?.choices?.[0]?.finish_reason),
+      truncated: finishReasonTruncated(res.data?.choices?.[0]?.finish_reason), stopReason: res.data?.choices?.[0]?.finish_reason,
     };
   }
 
@@ -370,6 +389,7 @@ export class AiService {
       tokens: usage.totalTokenCount || promptTokens + outputTokens,
       promptTokens, outputTokens,
       truncated: finishReasonTruncated(res.data?.candidates?.[0]?.finishReason),
+      stopReason: res.data?.candidates?.[0]?.finishReason || res.data?.promptFeedback?.blockReason,
     };
   }
 

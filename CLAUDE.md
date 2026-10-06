@@ -132,6 +132,8 @@ To see what the season actually did, don't read one run. The run note carries `�
 
 Two paths bypass it and need covering separately: the **Pinterest AI rewrite** (its own draft) and the **pin frame's title band** (`pin-frame.ts`), which is burned into an image where no downstream text filter can reach it.
 
+When every draft fails, the post is not created and the run note says why per provider (`ai/ai-failure.ts`: «anthropic: המפתח נדחה», «נגמר הקרדיט בחשבון», «המודל סירב…»), not only that the providers returned nothing. A refused *account* Anthropic key retries once on the platform's `ANTHROPIC_API_KEY` when that is a different key, as `AgentClient` does; an empty credit balance does not, since that would bill the account's usage to the platform.
+
 Two guards sit on generated copy, and they do different jobs:
 - **`copy-guard.ts` (`copyDefect`)** — *rejects* a draft so it regenerates. Only for defect shapes that can never be real copy (prompt leaks, model deliberation, unfilled placeholders). A false positive silently downgrades good AI copy, so each pattern is deliberately narrow.
 - **`word-policy.ts` (`applyWordPolicy`)** — *rewrites* the finished body to enforce the owner's vocabulary (currently: ציד/hunting → טקטי/tactical). The same rule is appended to every copy brief (`WORD_POLICY_BRIEF`) so the model phrases it naturally and the filter has nothing left to do.

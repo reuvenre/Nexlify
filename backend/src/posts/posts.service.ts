@@ -6457,7 +6457,9 @@ export class PostsService {
     // `calls` bounds the loop so repeated truncations can't spin it forever.
     let attempt = 0;
     for (let calls = 0; calls < 4 && attempt < 2; calls++) {
+      const failures: string[] = [];
       const result = await this.ai.generate(creds, {
+        failures,
         system: systemPrompt,
         prompt: userPrompt,
         images: visionImages,
@@ -6474,7 +6476,8 @@ export class PostsService {
       const candidate = result?.text ? stripFenceMarks(mdBoldToHtml(result.text)) : '';
       if (!candidate) {
         // All keyed providers errored or answered empty — nothing to judge.
-        reasons.push('ספקי ה-AI לא החזירו טקסט');
+        // Name why («anthropic: המפתח נדחה») — the bare fact told the owner nothing to fix.
+        reasons.push(`ספקי ה-AI לא החזירו טקסט${failures.length ? ` — ${[...new Set(failures)].join('; ')}` : ''}`);
         this.logger.warn(`generateText: empty AI result for "${String(product?.title || '').slice(0, 60)}" — attempt ${attempt + 1}/2`);
         attempt++;
         continue;
@@ -6514,7 +6517,8 @@ export class PostsService {
         await this.subscription.refund(creds.user_id, this.subscription.costs.ai_generate, 'ai-generate-failed')
           .catch(() => {});
       }
-      const why = reasons.join(' | ') || 'סיבה לא ידועה';
+      // The same reason twice (both attempts hit the same refused key) is said once.
+      const why = [...new Set(reasons)].join(' | ') || 'סיבה לא ידועה';
       this.logger.error(`generateText: all drafts failed for "${String(product?.title || '').slice(0, 60)}" — ${why}`);
       throw new BadRequestException(`יצירת הטקסט נכשלה (${why}) — הפוסט לא נוצר כדי שלא תישלח תבנית גנרית לקבוצות`);
     }
