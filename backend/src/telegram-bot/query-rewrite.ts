@@ -1,5 +1,5 @@
 import { UNTRUSTED_DATA_RULE, fenceUntrusted } from '../common/untrusted';
-import { channelSearchTerms, normaliseHebrew } from './shopper';
+import { channelMatchFloor, channelSearchTerms, normaliseHebrew } from './shopper';
 import { normaliseSearch } from './search-stats';
 
 /**
@@ -72,20 +72,28 @@ export function parseRewrites(text: string, original: string): string[] {
 const HEBREW_PREFIX = /^[הובלמשכ]/;
 
 /**
- * Do the results have nothing to do with a Hebrew search? None of the titles (AliExpress
- * translates them to Hebrew) contains any of the search's stems — «לבשר» also counts as
- * «בשר». Only decided for Hebrew searches: an English search is answered with Hebrew titles,
- * and comparing the two would call every result unrelated.
+ * Is this (Hebrew) title about what a Hebrew search asked for? It must cover most of the
+ * search — CHANNEL_MATCH_SHARE of its letters, the bar a channel post meets — not one word:
+ * «מתפס לטלפון» shares «מתפס» with «מתפס פיקטיני» and is still a phone clamp. A stem also
+ * counts without its one-letter prefix («לבשר» finds «בשר»).
+ *
+ * An English search is answered with Hebrew titles, and comparing the two would call every
+ * result unrelated — so only a Hebrew search is judged; anything else counts as related.
  */
+export function titleMatchesSearch(keyword: string, title: string): boolean {
+  if (!/[\u0590-\u05FF]/.test(keyword)) return true;
+  const stems = channelSearchTerms(keyword);
+  if (!stems.length) return true;
+  const hay = normaliseHebrew(String(title || '').toLowerCase());
+  const covered = stems.reduce((n, s) => {
+    const hit = hay.includes(s) || (s.length >= 4 && HEBREW_PREFIX.test(s) && hay.includes(s.slice(1)));
+    return hit ? n + s.length : n;
+  }, 0);
+  return covered >= channelMatchFloor(stems);
+}
+
+/** None of the titles is about a Hebrew search (titleMatchesSearch) — the search needs rewriting. */
 export function looksUnrelated(keyword: string, titles: string[]): boolean {
-  if (!/[֐-׿]/.test(keyword) || !titles.length) return false;
-  const stems = channelSearchTerms(keyword).filter((t) => /[֐-׿]/.test(t) && t.length >= 3);
-  if (!stems.length) return false;
-  const forms = new Set<string>();
-  for (const s of stems) {
-    forms.add(s);
-    if (s.length >= 4 && HEBREW_PREFIX.test(s)) forms.add(s.slice(1));
-  }
-  const hay = titles.map((t) => normaliseHebrew(String(t || '').toLowerCase()));
-  return !hay.some((t) => [...forms].some((f) => t.includes(f)));
+  if (!/[\u0590-\u05FF]/.test(keyword) || !titles.length) return false;
+  return !titles.some((t) => titleMatchesSearch(keyword, t));
 }

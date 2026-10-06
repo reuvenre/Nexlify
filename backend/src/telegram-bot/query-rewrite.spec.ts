@@ -1,4 +1,4 @@
-import { REWRITE_SYSTEM, looksUnrelated, parseRewrites, rewriteKey, rewritePrompt } from './query-rewrite';
+import { REWRITE_SYSTEM, looksUnrelated, parseRewrites, rewriteKey, rewritePrompt, titleMatchesSearch } from './query-rewrite';
 import { searchesReport } from './search-stats';
 
 describe('parseRewrites — the model only ever hands back search words', () => {
@@ -22,17 +22,32 @@ describe('parseRewrites — the model only ever hands back search words', () => 
   });
 });
 
-describe('looksUnrelated — when AliExpress answered something else', () => {
-  it('a Hebrew search whose stems appear in no title', () => {
-    expect(looksUnrelated('ידיות הסתערות', ['כיסוי לטלפון', 'תיק גב לטיולים'])).toBe(true);
-    expect(looksUnrelated('ידיות הסתערות', ['ידית אחיזה טקטית לרובה'])).toBe(false);
+describe('titleMatchesSearch — a title must cover most of the search, not one word', () => {
+  it('one shared word is not a match: a phone clamp is not a picatinny clamp', () => {
+    expect(titleMatchesSearch('מתפס פיקטיני', 'מתפס לטלפון לרכב')).toBe(false);
+    expect(titleMatchesSearch('מתפס פיקטיני', 'מתפס פיקטיני 20 מ"מ לפנס')).toBe(true);
+    // the long word alone covers most of the search's letters
+    expect(titleMatchesSearch('מתפס פיקטיני', 'מסילת פיקטיני קצרה')).toBe(true);
   });
 
   it('a one-letter prefix does not hide a match («לבשר» finds «בשר»)', () => {
-    expect(looksUnrelated('מד חום לבשר', ['מדחום דיגיטלי לבישול בשר'])).toBe(false);
+    expect(titleMatchesSearch('מד חום לבשר', 'מדחום דיגיטלי לבישול בשר')).toBe(true);
   });
 
-  it('never judges an English search (its titles come back in Hebrew), or no results', () => {
+  it('an English search is never judged against Hebrew titles', () => {
+    expect(titleMatchesSearch('meat thermometer', 'מדחום דיגיטלי')).toBe(true);
+  });
+});
+
+describe('looksUnrelated — when none of AliExpress\'s answers is about the search', () => {
+  it('a Hebrew search no title covers', () => {
+    expect(looksUnrelated('ידיות הסתערות', ['כיסוי לטלפון', 'תיק גב לטיולים'])).toBe(true);
+    expect(looksUnrelated('ידיות הסתערות', ['ידית אחיזה טקטית לרובה'])).toBe(true);
+    expect(looksUnrelated('ידיות הסתערות', ['ידית הסתערות טקטית לרובה'])).toBe(false);
+    expect(looksUnrelated('מתפס פיקטיני', ['מתפס לטלפון', 'מתפס פיקטיני לפנס'])).toBe(false);
+  });
+
+  it('never judges an English search, or no results', () => {
     expect(looksUnrelated('meat thermometer', ['מדחום דיגיטלי'])).toBe(false);
     expect(looksUnrelated('ידיות', [])).toBe(false);
   });

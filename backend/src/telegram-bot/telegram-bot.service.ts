@@ -31,7 +31,7 @@ import { ManagerAgentService, isAuthError } from '../manager/manager-agent.servi
 import { AgentClient } from '../agents/agent-client.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import {
-  REWRITE_EMPTY_TTL_MS, REWRITE_MODEL, REWRITE_SYSTEM, REWRITE_TTL_MS, looksUnrelated, parseRewrites, rewriteKey, rewritePrompt,
+  REWRITE_EMPTY_TTL_MS, REWRITE_MODEL, REWRITE_SYSTEM, REWRITE_TTL_MS, parseRewrites, titleMatchesSearch, rewriteKey, rewritePrompt,
 } from './query-rewrite';
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
@@ -469,12 +469,16 @@ export class TelegramBotService implements OnModuleInit {
     let rewrite: string | null = null;
     // What the rewrite step did, for the owner's 🔧 line — including why it did nothing.
     let rewriteNote = '';
+    // What reached the reader from the channel (filled in below, read by ownerDiag).
+    let shownChannel = 0;
+    let shownFull = 0;
     const ownerDiag = async () => {
       if (!isPrivate || !(this.isOwner(chatId) || memberKey.startsWith('owner:'))) return;
       const terms = channelSearchTerms(parsed.keyword);
       let line = channel.matched < 0
         ? `החיפוש בערוץ נכשל: ${(channel as { error?: string }).error}`
-        : `בפוסטים של הערוץ: ${channel.matched} תואמים ל-${terms.join(' + ')}, הוצגו ${fromChannel.length}.`;
+        : `בפוסטים של הערוץ: ${channel.matched} תואמים ל-${terms.join(' + ')}, הוצגו ${shownChannel}`
+          + (shownChannel ? ` (${shownFull} עם כל המילים).` : '.');
       if (fromChannel.length === 0) {
         line += `\n${await this.channelSearchFunnel(userId, terms).catch((e) => `בדיקה נכשלה: ${e?.message}`)}`;
       }
@@ -499,19 +503,30 @@ export class TelegramBotService implements OnModuleInit {
     // The reader's words found nothing on AliExpress, or nothing related: let a model turn them
     // into the English a seller writes, and search again. Its results go first; the originals
     // stay behind them. The model only rewrites the search — it never sees or picks a product.
-    const shownFromApi = ranked.slice(0, 3 - fromChannel.length);
-    const unrelated = !shownFromApi.length || looksUnrelated(parsed.keyword, shownFromApi.map((p) => p.title));
-    if (fromChannel.length >= 3) {
+    // A channel post that holds every word of the search is a full match; one that matched on
+    // its long word only («פיקטיני» in a post about a flashlight FOR picatinny) is partial, and
+    // gives way to AliExpress results that do match the search.
+    const searchLetters = channel.terms.reduce((n, t) => n + t.length, 0);
+    const fullCh = fromChannel.filter((h) => Number((h.post as any).score) >= searchLetters);
+    const partCh = fromChannel.filter((h) => !fullCh.includes(h));
+    // AliExpress results that cover the search go first (titleMatchesSearch), the rest after.
+    const matches = (p: BotProduct) => titleMatchesSearch(parsed.keyword, p.title);
+    let relatedN = ranked.filter(matches).length;
+    ranked = [...ranked.filter(matches), ...ranked.filter((p) => !matches(p))];
+
+    if (fullCh.length >= 3) {
       rewriteNote = 'ניסוח חכם: לא נדרש — הערוץ מילא את התוצאות';
     } else if (process.env.SHOPPER_REWRITE_DISABLED === '1') {
       rewriteNote = 'ניסוח חכם: כבוי (SHOPPER_REWRITE_DISABLED)';
-    } else if (!unrelated) {
-      rewriteNote = `ניסוח חכם: לא נדרש — ב-${shownFromApi.length} התוצאות של AliExpress יש מילה מהחיפוש`;
+    } else if (relatedN > 0) {
+      rewriteNote = `ניסוח חכם: לא נדרש — ${relatedN} מתוצאות AliExpress מתאימות לחיפוש`;
     } else {
       try {
         const found = await this.rewrittenResults(userId, parsed, seen);
         if (found.query) {
+          // The rewrite's results answer the search by construction — they count as matching.
           ranked = [...found.items, ...ranked];
+          relatedN = found.items.length;
           rewrite = found.query;
           rewriteNote = `AliExpress לא הבין את החיפוש — חיפשתי במקומו: ${rewrite}`;
         } else {
@@ -525,9 +540,21 @@ export class TelegramBotService implements OnModuleInit {
       }
     }
 
-    // Three in all, as promised: the channel's own posts first, the API fills the rest.
-    const picks = ranked.slice(0, 3 - fromChannel.length);
-    const total = fromChannel.length + picks.length;
+    // Up to three, in this order: channel posts with every word, AliExpress results that match
+    // the search, channel posts that matched in part. AliExpress results that do NOT match
+    // (a phone clamp for «מתפס פיקטיני») only when there is nothing else at all — two right
+    // answers beat three with a wrong one. The API's share is always a prefix of `ranked`,
+    // so «עוד מוצרים» picks up after it.
+    const slots = 3 - fullCh.length;
+    const apiFirst = ranked.slice(0, Math.min(relatedN, slots));
+    const partPicks = partCh.slice(0, slots - apiFirst.length);
+    const apiRest = fullCh.length + apiFirst.length + partPicks.length ? [] : ranked.slice(0, slots);
+    const picks = [...apiFirst, ...apiRest];
+    const channelPicks = [...fullCh, ...partPicks];
+    const shownInOrder = [...fullCh.map((h) => h.product), ...apiFirst, ...partPicks.map((h) => h.product), ...apiRest];
+    const total = shownInOrder.length;
+    shownChannel = channelPicks.length;
+    shownFull = fullCh.length;
     // What readers ask for — anonymous, and never the owner's own test searches: his /find
     // in his own bot ('owner:…'), and him writing to the readers' bot (his Telegram id).
     if (!memberKey.startsWith('owner:') && !this.isOwner(memberKey)) {
@@ -554,8 +581,8 @@ export class TelegramBotService implements OnModuleInit {
       ? ` ${[parsed.minPrice ? `מ-${parsed.minPrice}` : '', parsed.maxPrice ? `עד ${parsed.maxPrice}` : ''].filter(Boolean).join(' ')} ש"ח`
       : '';
     const header = `🔎 ${total} המומלצים ל«${escapeHtml(parsed.keyword)}»${budgetLabel}:`;
-    await this.showShopperResults(chatId, userId, header, [...fromChannel.map((h) => h.product), ...picks], 1, isGroup, replyTo,
-      new Map(fromChannel.map((h) => [h.product.product_id, h.post.id])));
+    await this.showShopperResults(chatId, userId, header, shownInOrder, 1, isGroup, replyTo,
+      new Map(channelPicks.map((h) => [h.product.product_id, h.post.id])));
     await ownerDiag();
   }
 
