@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { AsyncLocalStorage } from 'async_hooks';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -27,7 +28,7 @@ import {
 } from './search-bot';
 import { SEARCH_BOT_UPDATES, WebhookVerdict, webhookVerdict } from '../watchdog/webhook-health';
 import { LinksService } from '../links/links.service';
-import { ManagerAgentService, isAuthError } from '../manager/manager-agent.service';
+import { ManagerAgentService, ManagerAnswer, isAuthError } from '../manager/manager-agent.service';
 import { AgentClient } from '../agents/agent-client.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import {
@@ -48,7 +49,7 @@ const RESULTS_PER_PAGE = 5;
 const HELP = [
   '🛍️ מילת חיפוש ← מוצרים עם כפתור "פרסם לקבוצה"',
   '🧠 שאלה ← המנהל עונה, למשל: למה פינטרסט ירד השבוע?',
-  '/status · /searches · /groups · /resetsearches',
+  '/status · /searches · /groups · /resetsearches · /weekly',
 ].join('\n');
 
 /**
@@ -227,6 +228,12 @@ export class TelegramBotService implements OnModuleInit {
       await this.reportSearches(chatId);
       return;
     }
+    // The manager's weekly review, now — the same one Sunday morning brings unasked.
+    if (/^\/weekly(@\S+)?$/i.test(text)) {
+      await this.call('sendChatAction', { chat_id: chatId, action: 'typing' });
+      await this.sendWeeklyReview(chatId);
+      return;
+    }
     if (/^\/groups(@\S+)?$/i.test(text)) {
       await this.reportGroups(chatId);
       return;
@@ -372,13 +379,62 @@ export class TelegramBotService implements OnModuleInit {
         : `❌ המנהל לא הצליח לענות: ${err?.message || err}`);
       return;
     }
-    await this.sendLong(chatId, answer.text);
+    await this.deliverManagerAnswer(chatId, answer);
+  }
+
+  /** The manager's answer, then each proposal with its own ✅/❌. */
+  private async deliverManagerAnswer(chatId: string, answer: ManagerAnswer, header = ''): Promise<void> {
+    await this.sendLong(chatId, `${header}${answer.text}`);
     for (const p of answer.proposals) {
       await this.send(chatId, `💡 הצעה: ${proposalText(p)}\n${p.reason}`, [[
         { text: '✅ אשר', callback_data: encodeCallback('pa', p.id) },
         { text: '❌ דחה', callback_data: encodeCallback('pr', p.id) },
       ]]);
     }
+  }
+
+  // ── The manager, unasked ────────────────────────────────────────────────
+
+  private weeklyRunning = false;
+
+  /**
+   * Sunday morning, the manager reads the week and brings what it would change — at most
+   * three proposals, each waiting for the owner's tap. Tried every 20 minutes from 09:00 to
+   * 13:40 until one gets through; the week's delivery is remembered in persistent_values, so
+   * a deploy mid-morning neither loses it nor sends it twice. Off with MANAGER_WEEKLY_DISABLED=1.
+   */
+  @Cron('0 */20 9-13 * * 0', { timeZone: 'Asia/Jerusalem' })
+  async weeklyManagerReview(): Promise<void> {
+    const chatId = String(process.env.WATCHDOG_TELEGRAM_CHAT_ID || '');
+    if (!chatId || process.env.MANAGER_WEEKLY_DISABLED === '1' || this.weeklyRunning) return;
+    const day = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+    const key = `manager_weekly:${day}`;
+    if (await this.memory.load(key)) return;
+    this.weeklyRunning = true;
+    try {
+      if (await this.sendWeeklyReview(chatId)) await this.memory.save(key, true, 8 * 24 * 3600_000);
+    } finally {
+      this.weeklyRunning = false;
+    }
+  }
+
+  /** Run the review and send it. False when it should be tried again later. */
+  private async sendWeeklyReview(chatId: string): Promise<boolean> {
+    const userId = await this.ownerUserId();
+    if (!userId) return false;
+    let answer: ManagerAnswer;
+    try {
+      answer = await this.manager.weeklyReview(userId);
+    } catch (err: any) {
+      this.logger.warn(`weekly review failed: ${err?.message}`);
+      if (!isAuthError(err)) return false; // a blip — the next slot tries again
+      // Retrying a refused key changes nothing: say so once, in the owner's terms.
+      await this.send(chatId, '🔑 הסקירה השבועית של המנהל לא נשלחה: מפתח ה-Anthropic נדחה. '
+        + 'עדכן אותו בהגדרות ← Anthropic API Key (או ANTHROPIC_API_KEY ב-Render), ואז שלח /weekly.');
+      return true;
+    }
+    await this.deliverManagerAnswer(chatId, answer, '🧭 הסקירה השבועית של המנהל\n\n');
+    return true;
   }
 
   /** "אשר" / "דחה" on a proposal. Editing the message drops the buttons — one tap only. */

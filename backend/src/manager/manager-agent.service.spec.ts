@@ -109,3 +109,24 @@ describe('ManagerAgentService.ask — a refused Anthropic key', () => {
     expect(isAuthError(new Error('timeout'))).toBe(false);
   });
 });
+
+describe('ManagerAgentService.weeklyReview — the manager, unasked', () => {
+  it('asks the fixed weekly question in a conversation of its own', async () => {
+    const create = jest.fn(async (_req: any) => ({
+      stop_reason: 'end_turn', content: [{ type: 'text', text: 'השבוע: אין מה לשנות.' }], usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    const agentClient: any = { for: jest.fn(async () => ({ client: { apiKey: 'k', messages: { create } }, model: 'm' })), fallback: () => null, record: jest.fn() };
+    const svc = new ManagerAgentService({} as any, agentClient, {} as any);
+
+    const res = await svc.weeklyReview('u1');
+    expect(res.text).toBe('השבוע: אין מה לשנות.');
+    const sent = create.mock.calls[0][0].messages;
+    expect(sent).toHaveLength(1); // no history from the owner's own questions
+    expect(sent[0].content).toContain('סקירה שבועית יזומה');
+    expect(sent[0].content).toContain('english_search');
+
+    // The owner's next question does not carry the review as its context.
+    await svc.ask('u1', 'כמה קליקים?', 'chat-1');
+    expect(create.mock.calls[1][0].messages).toHaveLength(1);
+  });
+});

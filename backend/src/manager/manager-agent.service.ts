@@ -41,6 +41,19 @@ What the system's own words mean (from the run notes):
 
 ${UNTRUSTED_DATA_RULE}`;
 
+/**
+ * What the weekly review asks. Three kinds of opportunity, each tied to money: words that
+ * draw clicks but no sales, demand readers voiced that no campaign answers, and a campaign
+ * whose clicks fell. "Nothing worth changing" is a valid answer — proposals only on evidence.
+ */
+export const WEEKLY_REVIEW_QUESTION = `סקירה שבועית יזומה (אף אחד לא שאל — אתה פותח).
+עבור על הנתונים של 7 הימים האחרונים וחפש בדיוק שלושה סוגי הזדמנויות:
+1. מילת מפתח שמביאה קליקים בלי הזמנות (keyword_clicks של כל קמפיין פעיל) — קוראים נכנסים ולא קונים.
+2. ביקוש בלי מענה: חיפושים שחוזרים בבוט החיפוש (top_searches) ואין להם מילה בשום קמפיין. כשיש english_search — זו המילה להציע.
+3. קמפיין שהקליקים שלו ירדו שבוע מול שבוע (clicks_trend), והסיבה לפי הנתונים.
+פתח בשורה אחת: מה הדבר הכי חשוב השבוע. אחר כך 2-4 עובדות עם מספרים.
+הצע עד 3 שינויים (propose_change), רק כשהנתונים תומכים בהם בבירור. אם אין מה לשנות — אמור זאת בשורה אחת ואל תמציא הצעות.`;
+
 const TOOLS: Anthropic.Tool[] = [
   {
     name: 'list_campaigns',
@@ -71,7 +84,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'keyword_clicks',
-    description: 'Posts and clicks per keyword for one campaign over the last N days (sent posts only).',
+    description: 'Posts, clicks, attributed orders and commission (ILS) per keyword for one campaign over the last N days (sent posts only). Many clicks with no orders = readers look but do not buy.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -104,7 +117,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'top_searches',
-    description: 'What readers searched for in the search bot, most frequent first, with how many searches found nothing (unmet demand — candidate keywords for a campaign).',
+    description: 'What readers searched for in the search bot, most frequent first, with how many searches found nothing (unmet demand — candidate keywords for a campaign). english_search = the English search that found results when the reader\'s own words did not; it is a ready AliExpress keyword.',
     input_schema: {
       type: 'object' as const,
       properties: { days: { type: 'number', description: '1-30, default 7' } },
@@ -166,6 +179,17 @@ export class ManagerAgentService {
     private readonly agentClient: AgentClient,
     private readonly memory: PersistentValueStore,
   ) {}
+
+  // ── The weekly review ─────────────────────────────────────────────────────
+
+  /**
+   * The manager, unasked: once a week it reads the data and brings at most three proposals,
+   * each waiting for the owner's tap like any other. A conversation of its own, so a review
+   * never becomes the context of the owner's next question.
+   */
+  async weeklyReview(userId: string): Promise<ManagerAnswer> {
+    return this.ask(userId, WEEKLY_REVIEW_QUESTION, `weekly:${userId}`);
+  }
 
   // ── Asking ────────────────────────────────────────────────────────────────
 
@@ -341,12 +365,22 @@ export class ManagerAgentService {
         const c = await this.ownCampaign(userId, input.campaign_id);
         const days = clampInt(input.days, 1, 30, 7);
         const rows: any[] = await this.campaigns.query(
-          `SELECT coalesce(lower(trim(keyword)), '(ללא)') AS keyword, count(*)::int AS posts,
-                  coalesce(sum(clicks_count), 0)::int AS clicks
-           FROM posts
-           WHERE campaign_id = $1 AND user_id = $2 AND status = 'sent'
-             AND sent_at > now() - ($3 || ' days')::interval
-           GROUP BY 1 ORDER BY clicks DESC, posts DESC LIMIT 40`,
+          `SELECT p.keyword, p.posts, p.clicks, coalesce(e.orders, 0)::int AS orders,
+                  coalesce(e.commission_ils, 0)::float AS commission_ils
+           FROM (SELECT coalesce(lower(trim(keyword)), '(ללא)') AS keyword, count(*)::int AS posts,
+                        coalesce(sum(clicks_count), 0)::int AS clicks
+                 FROM posts
+                 WHERE campaign_id::text = $1::text AND user_id::text = $2::text AND status = 'sent'
+                   AND sent_at > now() - ($3 || ' days')::interval
+                 GROUP BY 1) p
+           LEFT JOIN (SELECT coalesce(lower(trim(keyword)), '(ללא)') AS keyword, count(*) AS orders,
+                             sum(commission_ils) AS commission_ils
+                      FROM earnings
+                      -- earnings.campaign_id is varchar, posts.campaign_id uuid: compare as text
+                      WHERE campaign_id::text = $1::text AND user_id::text = $2::text AND status <> 'cancelled'
+                        AND order_date > now() - ($3 || ' days')::interval
+                      GROUP BY 1) e ON e.keyword = p.keyword
+           ORDER BY p.clicks DESC, p.posts DESC LIMIT 40`,
           [c.id, userId, String(days)],
         );
         return {
@@ -354,6 +388,7 @@ export class ManagerAgentService {
           keywords: rows.map((r) => ({
             keyword: r.keyword, posts: r.posts, clicks: r.clicks,
             clicks_per_post: r.posts ? +(r.clicks / r.posts).toFixed(2) : 0,
+            orders: r.orders, commission_ils: +Number(r.commission_ils).toFixed(2),
           })),
         };
       }
@@ -403,14 +438,21 @@ export class ManagerAgentService {
       case 'top_searches': {
         const days = clampInt(input.days, 1, 30, 7);
         const rows: any[] = await this.campaigns.query(
-          `SELECT keyword, count(*)::int AS searches, count(*) FILTER (WHERE results = 0)::int AS found_nothing
+          `SELECT keyword, count(*)::int AS searches, count(*) FILTER (WHERE results = 0)::int AS found_nothing,
+                  max(rewrite) AS english_search
            FROM shopper_searches
            WHERE user_id = $1 AND created_at > now() - ($2 || ' days')::interval
            GROUP BY keyword ORDER BY searches DESC LIMIT 30`,
           [userId, String(days)],
         );
         // Readers' words — third-party text like a product title.
-        return { days, searches: rows.map((r) => ({ ...r, keyword: fenceUntrusted(r.keyword, 80) })) };
+        return {
+          days,
+          searches: rows.map((r) => ({
+            ...r, keyword: fenceUntrusted(r.keyword, 80),
+            english_search: r.english_search ? fenceUntrusted(r.english_search, 80) : null,
+          })),
+        };
       }
 
       case 'propose_change': {
