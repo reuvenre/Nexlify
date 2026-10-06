@@ -187,6 +187,14 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
   - Searches are rate-limited per member and per day.
   - In a private chat, «עוד מוצרים» (a reply-keyboard button, or the words) shows the next three results of the reader's last search. The session is kept in memory for 30 minutes, since a reader can simply search again, and a new API page is fetched when the ranked list runs out.
   - Kill switch: set `SHOPPER_BOT_DISABLED=1`.
+  - **Price-drop alerts** (`price-alerts.ts`, table `price_alerts`): in a private chat every AliExpress result carries «🔔 תודיע לי כשהמחיר יורד».
+    - A tap stores the price the reader saw (one row per chat + product, at most `MAX_ALERTS_PER_READER` = 20 active). 🔕 on the same message, `/stop` or «בטל התראות» switch them off.
+    - `checkPriceAlerts` (09:25/13:25/17:25/21:25 Asia/Jerusalem) re-prices them through `refreshPricesBatch`, 20 per call. A drop must be both ≥ 5 % and ≥ ₪2 (`isPriceDrop`) — an alert on noise teaches the reader to ignore the next one.
+    - The alert is a private photo card with the buy link (short link, `kind = 'alert'`) and the 🔔 again; it fires once and the row goes inactive.
+    - A product missing from the answer counts a miss (4 in a row drop it), but **an API failure or an empty answer counts nothing**: that is the keys or the quota, not every product delisted at once. Alerts also end after 60 days, and every alert of a reader who blocked the bot goes.
+    - Unlike `shopper_searches` this is not anonymous — it must message the reader back — so it keeps the private chat id and nothing else about them.
+    - The search bot registers `callback_query` for the button (`setupSearchBot`). `/searches` ends with the 🔔 line: watched, sent, clicks.
+    - Kill switch: `PRICE_ALERTS_DISABLED=1`.
   - Every reader search is logged anonymously to `shopper_searches`: the normalised words and the result count, never who searched, and never the owner's own tests (his `/find`, and him writing to the readers' bot, recognised by his Telegram id). The owner reads it through `/searches` and the manager's `top_searches` tool. `/resetsearches <word>` clears the log except the first search containing that word; `/resetsearches הכל` clears all of it. Both commands work in either bot when the owner writes them. Bare `/resetsearches` in the owner's bot offers buttons (`rs:<id>` keep that search's first time, `rs:all`), since tapping a command in a message sends it without its argument. Zero-result searches are unmet demand.
 - **A dedicated search bot** (`search-bot.ts`, optional): set `SEARCH_BOT_TOKEN` to a second BotFather bot and the readers move to it.
   - It has its own webhook (`/telegram/search-webhook`) and secret, and its replies go out through it via `AsyncLocalStorage` (`replyVia`).

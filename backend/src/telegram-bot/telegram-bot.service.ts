@@ -10,6 +10,11 @@ import { normaliseSearch, searchesReport } from './search-stats';
 import { User } from '../users/user.entity';
 import { Post } from '../posts/post.entity';
 import { ChannelMessage } from './channel-message.entity';
+import { PriceAlert } from './price-alert.entity';
+import {
+  ALERT_MAX_MISSES, ALERT_TTL_DAYS, MAX_ALERTS_PER_READER, isPriceDrop, isStopAlerts, parseAlertCallback, priceDropCaption,
+  watchButton, watchable, watchingText,
+} from './price-alerts';
 import {
   ChannelRef, buyLink, channelPostRef, channelPostUrl, forwardedChannelRef, isOwnChannel, messageLinks, messageText, parsePostLink,
 } from './channel-capture';
@@ -99,6 +104,7 @@ export class TelegramBotService implements OnModuleInit {
     @InjectRepository(ShopperSearch) private readonly searches: Repository<ShopperSearch>,
     @InjectRepository(Post) private readonly postsRepo: Repository<Post>,
     @InjectRepository(ChannelMessage) private readonly channelMessages: Repository<ChannelMessage>,
+    @InjectRepository(PriceAlert) private readonly alerts: Repository<PriceAlert>,
     private readonly products: ProductsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
@@ -160,6 +166,11 @@ export class TelegramBotService implements OnModuleInit {
   /** An update delivered to the search bot's own webhook: every sender is a reader. */
   async handleSearchBotUpdate(update: any): Promise<void> {
     const token = searchBotToken();
+    // The 🔔 under a result — the only buttons this bot sends.
+    if (token && update?.callback_query) {
+      await this.replyVia.run({ token }, () => this.onAlertTap(update.callback_query));
+      return;
+    }
     const msg = update?.message;
     const text = String(msg?.text || '').trim();
     // The owner may forward channel posts here too — save them, never search their text.
@@ -331,6 +342,11 @@ export class TelegramBotService implements OnModuleInit {
     const chatId = String(cq?.message?.chat?.id ?? '');
     const messageId = cq?.message?.message_id;
     const cbId = String(cq?.id || '');
+    // A reader's 🔔 under a search result (when the readers use this bot) — any reader may tap it.
+    if (parseAlertCallback(String(cq?.data || ''))) {
+      await this.onAlertTap(cq);
+      return;
+    }
     if (!chatId || !this.isOwner(chatId)) {
       await this.answer(cbId);
       return;
@@ -469,6 +485,16 @@ export class TelegramBotService implements OnModuleInit {
     const isPrivate = chat.type === 'private';
     const isGroup = chat.type === 'group' || chat.type === 'supergroup';
     if (!isPrivate && !isGroup) return;
+
+    // «בטל התראות» / /stop — every price alert of this reader goes.
+    if (isPrivate && isStopAlerts(text)) {
+      const res: any = await this.alerts.query(
+        `UPDATE price_alerts SET active = false WHERE chat_id = $1 AND active RETURNING id`, [chatId],
+      ).catch(() => [[]]);
+      const n = Array.isArray(res?.[0]) ? res[0].length : Array.isArray(res) ? res.length : 0;
+      await this.send(chatId, n > 1 ? `🔕 ביטלתי ${n} התראות מחיר.` : n ? '🔕 ביטלתי את התראת המחיר.' : 'אין לך התראות מחיר פעילות.');
+      return;
+    }
 
     let query = text;
     if (text.startsWith('/')) {
@@ -895,8 +921,12 @@ export class TelegramBotService implements OnModuleInit {
         });
         continue;
       }
+      // 🔔 under every AliExpress product: «תודיע לי כשהמחיר יורד».
+      const bell = watchable(picks[i]);
+      if (bell) this.rememberForAlert(picks[i]);
       const sent = await this.call('sendPhoto', {
         chat_id: chatId, photo: picks[i].image_url!, caption, parse_mode: 'HTML',
+        ...(bell ? { reply_markup: { inline_keyboard: [[watchButton(picks[i].product_id)]] } } : {}),
       });
       if (!sent) await this.sendHtml(chatId, caption);
     }
@@ -919,6 +949,181 @@ export class TelegramBotService implements OnModuleInit {
     if (chat.username) ids.add(`@${String(chat.username).toLowerCase()}`);
     const groups = await this.telegramChannels(userId).catch(() => [] as Channel[]);
     return groups.some((g) => ids.has(String(g.channel_id).trim().toLowerCase()) || ids.has(String(g.channel_id).trim()));
+  }
+
+  // ── Price-drop alerts (price-alerts.ts) ───────────────────────────────────
+
+  /** Products just shown to readers, so a 🔔 tap knows the price they saw without an API call. */
+  private readonly alertProducts = new Map<string, { product: BotProduct; at: number }>();
+
+  private rememberForAlert(p: BotProduct): void {
+    this.alertProducts.set(p.product_id, { product: p, at: Date.now() });
+    if (this.alertProducts.size > 5000) this.alertProducts.delete(this.alertProducts.keys().next().value as string);
+  }
+
+  /** A tap on 🔔 / 🔕 under a result. Private chats only — an alert is a private message. */
+  private async onAlertTap(cq: any): Promise<void> {
+    const cbId = String(cq?.id || '');
+    const tap = parseAlertCallback(String(cq?.data || ''));
+    const chatId = String(cq?.message?.chat?.id ?? '');
+    const messageId = cq?.message?.message_id;
+    if (!tap || !chatId || cq?.message?.chat?.type !== 'private') {
+      await this.answer(cbId);
+      return;
+    }
+    const userId = await this.ownerUserId();
+    if (!userId) {
+      await this.answer(cbId);
+      return;
+    }
+    const setButton = (watching: boolean) => this.call('editMessageReplyMarkup', {
+      chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [[watchButton(tap.productId, watching)]] },
+    });
+
+    if (tap.action === 'stop') {
+      await this.alerts.query(`UPDATE price_alerts SET active = false WHERE chat_id = $1 AND product_id = $2`, [chatId, tap.productId])
+        .catch(() => {});
+      await this.answer(cbId, '🔕 המעקב בוטל');
+      await setButton(false);
+      return;
+    }
+
+    const [{ n }] = await this.alerts.query(
+      `SELECT count(*)::int AS n FROM price_alerts WHERE chat_id = $1 AND active AND product_id <> $2`, [chatId, tap.productId],
+    ).catch(() => [{ n: 0 }]);
+    if (n >= MAX_ALERTS_PER_READER) {
+      await this.answer(cbId, `יש לך כבר ${MAX_ALERTS_PER_READER} מוצרים במעקב. כתוב /stop כדי לבטל את כולם.`);
+      return;
+    }
+    const cached = this.alertProducts.get(tap.productId);
+    const product = cached && Date.now() - cached.at < 6 * 3600_000
+      ? cached.product
+      : (await this.products.refreshPricesBatch(userId, [tap.productId]).catch(() => new Map())).get(tap.productId);
+    if (!product || !(Number(product.sale_price) > 0)) {
+      await this.answer(cbId, 'לא הצלחתי לקרוא את המחיר כרגע — נסה שוב בעוד רגע.');
+      return;
+    }
+    await this.alerts.query(
+      `INSERT INTO price_alerts (user_id, chat_id, product_id, title, image_url, price_ils, currency)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (chat_id, product_id) DO UPDATE
+         SET active = true, price_ils = EXCLUDED.price_ils, title = EXCLUDED.title, image_url = EXCLUDED.image_url,
+             currency = EXCLUDED.currency, misses = 0, notified_at = NULL, notified_price = NULL, created_at = now()`,
+      [userId, chatId, tap.productId, String(product.title || '').slice(0, 200), product.image_url || null,
+        Number(product.sale_price), product.currency || 'ILS'],
+    );
+    await this.answer(cbId, watchingText(product.title, Number(product.sale_price), product.currency || 'ILS'));
+    await setButton(true);
+  }
+
+  private alertsRunning = false;
+
+  /**
+   * Four times a day, in waking hours: re-price every watched product (20 per API call) and
+   * message the readers whose price really dropped. An alert fires once; the message carries
+   * the 🔔 again for a reader who wants to keep watching. Off with PRICE_ALERTS_DISABLED=1.
+   */
+  @Cron('0 25 9,13,17,21 * * *', { timeZone: 'Asia/Jerusalem' })
+  async checkPriceAlerts(): Promise<{ checked: number; sent: number }> {
+    const result = { checked: 0, sent: 0 };
+    if (this.alertsRunning || process.env.PRICE_ALERTS_DISABLED === '1') return result;
+    this.alertsRunning = true;
+    try {
+      await this.alerts.query(
+        `UPDATE price_alerts SET active = false WHERE active AND created_at < now() - ($1 || ' days')::interval`,
+        [String(ALERT_TTL_DAYS)],
+      );
+      const rows: PriceAlert[] = await this.alerts.query(
+        `SELECT * FROM price_alerts WHERE active ORDER BY checked_at ASC NULLS FIRST LIMIT 500`,
+      );
+      const token = searchBotToken() || await this.telegramToken();
+      if (!token) return result;
+
+      const byUser = new Map<string, PriceAlert[]>();
+      for (const r of rows) byUser.set(r.user_id, [...(byUser.get(r.user_id) || []), r]);
+      for (const [userId, list] of byUser) {
+        const ids = [...new Set(list.map((a) => a.product_id))];
+        const prices = new Map<string, any>();
+        const unreached = new Set<string>();
+        const blocked = new Set<string>();
+        for (let i = 0; i < ids.length; i += 20) {
+          const chunk = ids.slice(i, i + 20);
+          try {
+            const got = await this.products.refreshPricesBatch(userId, chunk);
+            // Not one product back is the API (keys, quota, an error inside a 200), not a whole
+            // chunk delisted at once — no miss. A lone delisted product still ends at ALERT_TTL_DAYS.
+            if (!got.size) chunk.forEach((id) => unreached.add(id));
+            got.forEach((v, k) => prices.set(k, v));
+          } catch (err: any) {
+            // An API failure says nothing about the products — no miss is counted.
+            this.logger.warn(`price alerts: price check failed: ${err?.message}`);
+            chunk.forEach((id) => unreached.add(id));
+          }
+        }
+        for (const a of list) {
+          if (blocked.has(a.chat_id)) continue;
+          result.checked++;
+          const now = prices.get(a.product_id);
+          if (!now) {
+            if (unreached.has(a.product_id)) continue;
+            await this.alerts.query(
+              `UPDATE price_alerts SET misses = misses + 1, checked_at = now(), active = (misses + 1 < $2) WHERE id = $1`,
+              [a.id, ALERT_MAX_MISSES],
+            );
+            continue;
+          }
+          if (!isPriceDrop(a.price_ils, Number(now.sale_price))) {
+            await this.alerts.query(`UPDATE price_alerts SET misses = 0, checked_at = now() WHERE id = $1`, [a.id]);
+            continue;
+          }
+          const outcome = await this.replyVia.run({ token }, () => this.sendPriceDrop(userId, a, now));
+          if (outcome === 'failed') continue; // try again at the next check
+          if (outcome === 'blocked') {
+            // The reader blocked the bot: nothing of theirs can be delivered any more.
+            blocked.add(a.chat_id);
+            await this.alerts.query(`UPDATE price_alerts SET active = false WHERE chat_id = $1`, [a.chat_id]);
+            continue;
+          }
+          await this.alerts.query(
+            `UPDATE price_alerts SET active = false, notified_at = now(), notified_price = $2, checked_at = now() WHERE id = $1`,
+            [a.id, Number(now.sale_price)],
+          );
+          result.sent++;
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`price alerts run failed: ${err?.message}`);
+    } finally {
+      this.alertsRunning = false;
+    }
+    return result;
+  }
+
+  /** One alert, as a photo card with the buy button and the 🔔 to keep watching. */
+  private async sendPriceDrop(userId: string, a: PriceAlert, now: any): Promise<'sent' | 'blocked' | 'failed'> {
+    const code = await this.links.mintTarget(now.affiliate_url || '', userId, 'alert').catch(() => null);
+    const link = code ? this.links.shortUrl(code) : now.affiliate_url;
+    if (!link) return 'failed';
+    const caption = priceDropCaption(a, now, link);
+    // The 🔔 on this message must set the bar at the price shown here, not the one cached earlier.
+    this.rememberForAlert(now);
+    const token = this.replyVia.getStore()?.token;
+    const base = `https://api.telegram.org/bot${token}`;
+    const markup = { inline_keyboard: [[watchButton(a.product_id)]] };
+    try {
+      const photo = now.image_url || a.image_url;
+      if (photo) {
+        await axios.post(`${base}/sendPhoto`, { chat_id: a.chat_id, photo, caption, parse_mode: 'HTML', reply_markup: markup }, { timeout: 15000 });
+      } else {
+        await axios.post(`${base}/sendMessage`, { chat_id: a.chat_id, text: caption, parse_mode: 'HTML', reply_markup: markup }, { timeout: 15000 });
+      }
+      return 'sent';
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const desc = String(err?.response?.data?.description || err?.message || '');
+      this.logger.warn(`price alert to ${a.chat_id} failed: ${desc}`);
+      return status === 403 || /blocked|deactivated|chat not found/i.test(desc) ? 'blocked' : 'failed';
+    }
   }
 
   // ── The channel as it really is ────────────────────────────────────────────
@@ -1074,8 +1279,11 @@ export class TelegramBotService implements OnModuleInit {
       const current = String(info?.url || '');
       if (current && current !== url) {
         this.logger.warn(`search bot already has a webhook (${current}) — not overwriting`);
-      } else if (current !== url || !(info?.allowed_updates || []).includes('message')) {
-        const ok = await this.call('setWebhook', { url, secret_token: searchWebhookSecret(), allowed_updates: ['message'] });
+      } else if (current !== url || !['message', 'callback_query'].every((u) => (info?.allowed_updates || []).includes(u))) {
+        // callback_query: the 🔔 price-alert buttons under the results (price-alerts.ts).
+        const ok = await this.call('setWebhook', {
+          url, secret_token: searchWebhookSecret(), allowed_updates: ['message', 'callback_query'],
+        });
         if (ok) this.logger.log('Search bot webhook registered');
       }
       const find = { command: 'find', description: 'חיפוש מוצר באלי אקספרס' };
@@ -1146,7 +1354,19 @@ export class TelegramBotService implements OnModuleInit {
        GROUP BY keyword ORDER BY searches DESC, keyword LIMIT 10`,
       [userId, String(days)],
     ).catch(() => []);
-    await this.sendLong(chatId, searchesReport(rows, days, total, rescued));
+    const [alerts] = await this.alerts.query(
+      `SELECT count(*) FILTER (WHERE active)::int AS active,
+              count(*) FILTER (WHERE notified_at > now() - ($2 || ' days')::interval)::int AS sent
+       FROM price_alerts WHERE user_id = $1`,
+      [userId, String(days)],
+    ).catch(() => [null]);
+    const [alertClicks] = await this.searches.query(
+      `SELECT coalesce(sum(clicks), 0)::int AS clicks FROM link_targets WHERE user_id = $1 AND kind = 'alert'`, [userId],
+    ).catch(() => [null]);
+    const alertLine = alerts && (alerts.active || alerts.sent)
+      ? `\n\n🔔 התראות מחיר: ${alerts.active} במעקב · ${alerts.sent} נשלחו ב-${days} ימים · ${alertClicks?.clicks ?? 0} קליקים מהתראות`
+      : '';
+    await this.sendLong(chatId, searchesReport(rows, days, total, rescued) + alertLine);
   }
 
   /**
