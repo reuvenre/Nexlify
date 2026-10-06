@@ -872,6 +872,10 @@ export class OptimizerService {
           // Nothing to write: the standing row IS the mute (the recycler reads the log
           // directly), so the undone_at stamp below is the entire inverse.
           break;
+        case 'copy_angles':
+          await q(`UPDATE campaigns SET copy_angles = $1::jsonb WHERE id = $2 AND user_id = $3`,
+            [JSON.stringify(plan.angles), plan.campaignId, userId]);
+          break;
       }
     } catch (err: any) {
       this.logger.warn(`undo ${actionId} failed: ${err?.message}`);

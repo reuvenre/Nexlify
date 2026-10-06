@@ -53,3 +53,27 @@ describe('proposalText', () => {
     expect(s.ok && proposalText(s.draft)).toBe('[קמפיין Pinterest] מילים עונתיות: כבוי ← פעיל');
   });
 });
+
+describe('copy angle proposals', () => {
+  const { validateProposal, proposalText } = require('./manager-proposal');
+  const camp = (angles: any[] = []) => ({ id: 'c1', name: 'טקטי', status: 'active', posts_per_run: 2, seasonal_keywords: false, learn_from_orders: false, keywords: ['x'], copy_angles: angles });
+  const reason = 'ב-5 הפוסטים עם הכי הרבה קליקים הפתיחה היא המחיר';
+
+  it('adds one Hebrew instruction, never a link, at most three per campaign', () => {
+    const ok = validateProposal({ kind: 'add_copy_angle', value: 'זווית כתיבה: פתח/י במחיר מול המחיר בחנות', reason }, camp());
+    expect(ok.ok).toBe(true);
+    expect(proposalText(ok.draft)).toBe('[טקטי] זווית כתיבה חדשה לנסות: "זווית כתיבה: פתח/י במחיר מול המחיר בחנות"');
+    expect(validateProposal({ kind: 'add_copy_angle', value: 'קצר', reason }, camp()).ok).toBe(false);
+    expect(validateProposal({ kind: 'add_copy_angle', value: 'פתח עם קישור https://x.com לכל פוסט', reason }, camp()).ok).toBe(false);
+    const three = [1, 2, 3].map((i) => ({ id: `c-${i}`, label: `l${i}`, hint: `h${i}` }));
+    expect(validateProposal({ kind: 'add_copy_angle', value: 'זווית כתיבה: פתח/י בשאלה על הבעיה', reason }, camp(three)).ok).toBe(false);
+  });
+
+  it('removes only a custom angle, by id', () => {
+    const angles = [{ id: 'c-1', label: 'מותאם: פתח במחיר', hint: 'h' }];
+    const ok = validateProposal({ kind: 'remove_copy_angle', value: 'c-1', reason }, camp(angles));
+    expect(ok.ok).toBe(true);
+    expect(proposalText(ok.draft)).toBe('[טקטי] להפסיק לכתוב בזווית "מותאם: פתח במחיר"');
+    expect(validateProposal({ kind: 'remove_copy_angle', value: 'value', reason }, camp(angles)).ok).toBe(false);
+  });
+});

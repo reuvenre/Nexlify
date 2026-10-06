@@ -35,7 +35,8 @@ export type UndoPlan =
   | { kind: 'seasonal_keywords'; campaignId: string; value: boolean }
   // A mute has no side table: the standing, un-undone row IS the mute, which the recycler
   // reads. Stamping undone_at is therefore the whole inverse — nothing else to write.
-  | { kind: 'product_mute'; productId: string };
+  | { kind: 'product_mute'; productId: string }
+  | { kind: 'copy_angles'; campaignId: string; angles: unknown[] };
 
 interface KeywordsPayload { keywords?: unknown; retired?: unknown }
 
@@ -98,6 +99,15 @@ export function actionLabel(row: ActionRow): string {
         : `${where}כיביתי מילים עונתיות`;
     case 'product_mute':
       return `${where}הפסקתי לפרסם מחדש את "${row.target_label}" — קליקים בלי מכירה`;
+    case 'copy_angles': {
+      const before = parse<Array<{ id: string; label: string }>>(row.before) || [];
+      const after = parse<Array<{ id: string; label: string }>>(row.after) || [];
+      const added = after.filter((a) => !before.some((b) => b.id === a.id));
+      const removed = before.filter((b) => !after.some((a) => a.id === b.id));
+      if (added.length) return `${where}הוספתי זווית כתיבה: ${added.map((a) => a.label).join(', ')}`;
+      if (removed.length) return `${where}הפסקתי זווית כתיבה: ${removed.map((a) => a.label).join(', ')}`;
+      return `${where}עדכנתי את זוויות הכתיבה`;
+    }
     default:
       return `${where}${row.reason || row.kind}`;
   }
@@ -149,6 +159,11 @@ export function undoPlan(row: ActionRow): UndoPlan | null {
     case 'product_mute': {
       if (!row.target_id) return null;
       return { kind: 'product_mute', productId: row.target_id };
+    }
+    case 'copy_angles': {
+      const before = parse<unknown[]>(row.before);
+      if (!campaignId || !Array.isArray(before)) return null;
+      return { kind: 'copy_angles', campaignId, angles: before };
     }
     default:
       // golden_hours and anything unknown: the row is a record of a recomputation, not a

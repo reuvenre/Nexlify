@@ -1,4 +1,5 @@
 import { MAX_POSTS_PER_RUN, MIN_POSTS_PER_RUN } from '../optimizer/manager-rules';
+import { CustomCopyAngle, MAX_CUSTOM_ANGLES } from '../posts/copy-variants';
 
 /**
  * A change the manager agent wants to make, waiting for the owner's tap.
@@ -16,6 +17,7 @@ import { MAX_POSTS_PER_RUN, MIN_POSTS_PER_RUN } from '../optimizer/manager-rules
 
 export const PROPOSAL_KINDS = [
   'posts_per_run', 'campaign_status', 'seasonal_keywords', 'learn_from_orders', 'add_keyword', 'remove_keyword',
+  'add_copy_angle', 'remove_copy_angle',
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
@@ -28,6 +30,8 @@ export interface ProposalCampaign {
   seasonal_keywords: boolean;
   learn_from_orders: boolean;
   keywords: string[];
+  /** The owner's approved copy angles (campaigns.copy_angles). */
+  copy_angles?: CustomCopyAngle[];
 }
 
 export interface ProposalDraft {
@@ -111,6 +115,24 @@ export function validateProposal(
       }
       return { ok: true, draft: { ...base, value: kw, current: campaign.keywords.length } };
     }
+    case 'add_copy_angle': {
+      // An instruction to the copywriter, in the owner's words once he approves it.
+      const hint = cleanKeyword(input.value).slice(0, 240);
+      if (hint.length < 15) return { ok: false, error: 'add_copy_angle: describe the angle in one Hebrew sentence (15-240 characters)' };
+      if (/https?:|www\.|[<>{}]/i.test(hint)) return { ok: false, error: 'a copy angle cannot carry a link or markup' };
+      const angles = campaign.copy_angles || [];
+      if (angles.length >= MAX_CUSTOM_ANGLES) {
+        return { ok: false, error: `the campaign already has ${MAX_CUSTOM_ANGLES} custom angles; propose remove_copy_angle for the weakest first` };
+      }
+      if (angles.some((a) => a.hint.trim() === hint)) return { ok: false, error: 'this angle is already in the pool' };
+      return { ok: true, draft: { ...base, value: hint, current: angles.length } };
+    }
+    case 'remove_copy_angle': {
+      const id = String(input.value ?? '').trim();
+      const hit = (campaign.copy_angles || []).find((a) => a.id === id);
+      if (!hit) return { ok: false, error: `"${id}" is not a custom angle of this campaign (only custom angles can be removed; use the id from copy_angles)` };
+      return { ok: true, draft: { ...base, value: hit.id, current: hit.label } };
+    }
     case 'remove_keyword': {
       const kw = cleanKeyword(input.value);
       const hit = campaign.keywords.find((k) => k.trim().toLowerCase() === kw.toLowerCase());
@@ -136,5 +158,7 @@ export function proposalText(p: ProposalDraft): string {
     case 'learn_from_orders': return `${where} למידה ממכירות: ${onOff(p.current)} ← ${onOff(p.value)}`;
     case 'add_keyword': return `${where} להוסיף לרוטציה את "${p.value}"`;
     case 'remove_keyword': return `${where} להוציא מהרוטציה את "${p.value}"`;
+    case 'add_copy_angle': return `${where} זווית כתיבה חדשה לנסות: "${p.value}"`;
+    case 'remove_copy_angle': return `${where} להפסיק לכתוב בזווית "${p.current}"`;
   }
 }

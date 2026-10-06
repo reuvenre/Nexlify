@@ -124,3 +124,15 @@ describe('seasonal_keywords — a change the owner approved from the manager', (
     expect(undoPlan(row({ undone_at: new Date() }))).toBeNull();
   });
 });
+
+describe('copy angle changes', () => {
+  const { actionLabel, undoPlan } = require('./action-undo');
+  const row = (before: any[], after: any[]) => ({ id: 'a', kind: 'copy_angles', target_id: 'c1', target_label: 'טקטי', before: JSON.stringify(before), after: JSON.stringify(after), reason: 'r', undone_at: null });
+  const a = { id: 'c-1', label: 'מותאם: פתח במחיר', hint: 'h' };
+
+  it('names the angle added or removed, and undo restores the list before', () => {
+    expect(actionLabel(row([], [a]))).toBe('[טקטי] הוספתי זווית כתיבה: מותאם: פתח במחיר');
+    expect(actionLabel(row([a], []))).toBe('[טקטי] הפסקתי זווית כתיבה: מותאם: פתח במחיר');
+    expect(undoPlan(row([], [a]))).toEqual({ kind: 'copy_angles', campaignId: 'c1', angles: [] });
+  });
+});

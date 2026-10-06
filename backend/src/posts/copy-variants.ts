@@ -209,7 +209,41 @@ export function variantHint(variant: CopyVariant, language: string): string {
  * it is an older style instead.
  */
 export function variantLabel(id: string): string {
-  return variantById(id)?.label || 'סגנון קודם';
+  return variantById(id)?.label || (isCustomAngleId(id) ? 'סגנון מותאם' : 'סגנון קודם');
+}
+
+// ── Angles the owner approved ────────────────────────────────────────────────
+//
+// The bandit can only choose among angles someone wrote down. A new one comes from the
+// manager: it reads which openings drew clicks in this group, proposes an angle in words,
+// and the owner approves it. From then on the angle sits in that campaign's pool like any
+// other — tried first (it is under-sampled), then kept or starved by its own clicks.
+
+/** An angle stored on a campaign (campaigns.copy_angles). */
+export interface CustomCopyAngle {
+  id: string;
+  label: string;
+  /** The nudge handed to the copywriter, in the owner's language. */
+  hint: string;
+  created_at?: string;
+}
+
+/** Custom angles per campaign — more would dilute the airtime each needs to be measured. */
+export const MAX_CUSTOM_ANGLES = 3;
+export const CUSTOM_ANGLE_PREFIX = 'c-';
+export const isCustomAngleId = (id: string | null | undefined) => String(id || '').startsWith(CUSTOM_ANGLE_PREFIX);
+
+/** The campaign's own angles as bandit options. The one hint serves every language. */
+export function customVariants(angles: CustomCopyAngle[] | null | undefined): CopyVariant[] {
+  return (Array.isArray(angles) ? angles : [])
+    .filter((a) => a && isCustomAngleId(a.id) && a.hint)
+    .map((a) => ({ id: a.id, label: a.label, hint: { he: a.hint, en: a.hint, ar: a.hint } }));
+}
+
+/** A short Hebrew label from the angle's own words — what the digest and the undo list show. */
+export function customAngleLabel(hint: string): string {
+  const words = String(hint || '').replace(/^זווית כתיבה:\s*/, '').split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
+  return `מותאם: ${words}`.slice(0, 40);
 }
 
 export function variantById(id: string | null | undefined): CopyVariant | null {

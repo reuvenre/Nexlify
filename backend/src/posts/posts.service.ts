@@ -42,7 +42,7 @@ import { ImportRowInput, composeImportText, extractAliProductId, extractAliProdu
 import { PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdict, buildProductFitPrompt, parseProductFitVerdicts } from './product-relevance';
 import { hotHours } from '../optimizer/hot-hours';
 import { PriceBand, preferInBand, soldPriceBand } from '../optimizer/sold-price-band';
-import { VariantStat, pickVariant, variantHint } from './copy-variants';
+import { COPY_VARIANTS, VariantStat, customVariants, pickVariant, variantHint } from './copy-variants';
 import {
   igFetchHeaders, igMediaRejectedMessage, isIgFittableHost, isOwnUploadedUrl, unwrapOwnProxy,
 } from './instagram-image';
@@ -3143,7 +3143,8 @@ export class PostsService {
         const parts = this.priceParts(product, rate);
         // The copy angle this post is written in. Picked per post, not per run, so the
         // explore share is spread across the campaign instead of landing in one burst.
-        const variant = pickVariant(variantStats, Math.random());
+        // The owner's approved angles for this campaign join the built-in ones.
+        const variant = pickVariant(variantStats, Math.random(), [...COPY_VARIANTS, ...customVariants(campaign.copy_angles)]);
         // A bonus-pool product gets an HONEST angle on top of the copy variant: a real
         // discount is leaned on hard; without one it is "the week's pick" — never a
         // whispered "special price", because the bonus commission is the owner's, not

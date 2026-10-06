@@ -49,6 +49,11 @@ export class Campaign {
   @Column('text', { array: true, default: '{}' })
   retired_keywords: string[];
 
+  /** Copy angles the owner approved for this campaign (manager proposals) — they join the
+   *  bandit's pool beside the built-in ones (posts/copy-variants.ts). */
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  copy_angles: Array<{ id: string; label: string; hint: string; created_at?: string }>;
+
   /**
    * Round-robin pointer into `keywords`: each run uses keywords[cursor % len] then advances,
    * so every keyword gets equal airtime and consecutive runs differ. Replaces the old random

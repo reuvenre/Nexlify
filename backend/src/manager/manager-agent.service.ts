@@ -9,6 +9,9 @@ import { anthropicInputTokens, EPHEMERAL } from '../ai/anthropic-cache';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted } from '../common/untrusted';
 import { ActionRow, actionLabel } from '../optimizer/action-undo';
+import {
+  CUSTOM_ANGLE_PREFIX, FLYLINK_VARIANTS, customAngleLabel, customVariants, scoreVariants, variantLabel,
+} from '../posts/copy-variants';
 import { seasonalLedgerKey, seasonalLedgerLine, sumSeasonalRuns, SeasonalLedgerEntry } from '../posts/seasonal-ledger';
 import {
   PROPOSAL_KINDS, PROPOSAL_TTL_MS, ProposalCampaign, ProposalDraft, StoredProposal, proposalKey, proposalText, validateProposal,
@@ -51,6 +54,7 @@ export const WEEKLY_REVIEW_QUESTION = `סקירה שבועית יזומה (אף 
 1. מילת מפתח שמביאה קליקים בלי הזמנות (keyword_clicks של כל קמפיין פעיל) — קוראים נכנסים ולא קונים.
 2. ביקוש בלי מענה: חיפושים שחוזרים בבוט החיפוש (top_searches) ואין להם מילה בשום קמפיין. כשיש english_search — זו המילה להציע.
 3. קמפיין שהקליקים שלו ירדו שבוע מול שבוע (clicks_trend), והסיבה לפי הנתונים.
+4. זוויות הכתיבה (copy_angles של כל קמפיין פעיל): אם לפתיחות של הפוסטים שהביאו הכי הרבה קליקים יש מכנה משותף שאף זווית קיימת לא מתארת — הצע זווית חדשה (add_copy_angle). זווית מותאמת עם 15+ פוסטים ואפס קליקים — הצע להסיר (remove_copy_angle).
 פתח בשורה אחת: מה הדבר הכי חשוב השבוע. אחר כך 2-4 עובדות עם מספרים.
 הצע עד 3 שינויים (propose_change), רק כשהנתונים תומכים בהם בבירור. אם אין מה לשנות — אמור זאת בשורה אחת ואל תמציא הצעות.`;
 
@@ -124,11 +128,23 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'copy_angles',
+    description: 'How each copy angle (the writing angle a post is written in) performs in one campaign: posts, clicks and clicks per post per angle, '
+      + 'which angles are custom (owner-approved, removable by id), and the opening lines of recent posts that drew the most clicks and of posts that drew none. '
+      + 'Use it to spot what the winning openings share, and to propose a new angle (add_copy_angle) or drop a custom one that does not work (remove_copy_angle).',
+    input_schema: {
+      type: 'object' as const,
+      properties: { campaign_id: { type: 'string' } },
+      required: ['campaign_id'],
+    },
+  },
+  {
     name: 'propose_change',
     description: 'Propose ONE change for the owner to approve. Nothing changes until he taps approve. '
       + 'kinds: posts_per_run (integer 1-5), campaign_status ("active"|"paused"), seasonal_keywords (true|false), '
       + 'learn_from_orders (true|false), add_keyword (a search keyword, as the campaign spells its others), '
-      + 'remove_keyword (an existing keyword). The reason must cite the data.',
+      + 'remove_keyword (an existing keyword), add_copy_angle (one Hebrew sentence instructing the copywriter, like "זווית כתיבה: פתח/י במחיר מול המחיר בחנות"), '
+      + 'remove_copy_angle (the id of a custom angle from copy_angles). The reason must cite the data.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -455,6 +471,41 @@ export class ManagerAgentService {
         };
       }
 
+      case 'copy_angles': {
+        const c = await this.ownCampaign(userId, input.campaign_id);
+        const stats: any[] = await this.campaigns.query(
+          `SELECT copy_variant AS variant, count(*)::int AS posts, coalesce(sum(clicks_count), 0)::int AS clicks
+           FROM posts
+           WHERE campaign_id::text = $1::text AND user_id::text = $2::text AND status = 'sent' AND copy_variant IS NOT NULL
+           GROUP BY copy_variant`,
+          [c.id, userId],
+        );
+        const custom = Array.isArray(c.copy_angles) ? c.copy_angles : [];
+        // Everything still written somewhere (the FLYLINK pool is the shared one plus 'trust').
+        const pool = [...FLYLINK_VARIANTS, ...customVariants(custom)];
+        const label = (id: string) => custom.find((a) => a.id === id)?.label || variantLabel(id);
+        // Openings, not whole posts: the first line is what a reader decides on.
+        const opening = (t: string) => fenceUntrusted(String(t || '').replace(/<[^>]*>/g, ' ').split('\n').map((l) => l.trim()).find(Boolean) || '', 140);
+        const sample = async (order: string, cond: string) => (await this.campaigns.query(
+          `SELECT generated_text, clicks_count, copy_variant FROM posts
+           WHERE campaign_id::text = $1::text AND user_id::text = $2::text AND status = 'sent'
+             AND sent_at > now() - interval '30 days' AND ${cond}
+           ORDER BY ${order} LIMIT 5`,
+          [c.id, userId],
+        )).map((r: any) => ({ opening: opening(r.generated_text), clicks: r.clicks_count, angle: r.copy_variant ? label(r.copy_variant) : null }));
+        return {
+          campaign: c.name,
+          angles: scoreVariants(stats.map((r) => ({ variant: String(r.variant), posts: r.posts, clicks: r.clicks }))).map((v) => ({
+            id: v.variant, label: label(v.variant), posts: v.posts, clicks: v.clicks, clicks_per_post: v.clicksPerPost,
+            custom: v.variant.startsWith(CUSTOM_ANGLE_PREFIX), in_use: pool.some((p) => p.id === v.variant),
+          })),
+          custom_angles: custom.map((a) => ({ id: a.id, label: a.label, instruction: a.hint })),
+          most_clicked_openings: await sample('clicks_count DESC, sent_at DESC', 'clicks_count > 0'),
+          zero_click_openings: await sample('sent_at DESC', 'clicks_count = 0'),
+          note: 'An angle needs about 8 posts before its rate means anything; a new angle is tried first automatically.',
+        };
+      }
+
       case 'propose_change': {
         if (proposals.length >= MAX_PROPOSALS) return { error: `at most ${MAX_PROPOSALS} proposals per answer` };
         const c = await this.ownCampaign(userId, input.campaign_id);
@@ -476,6 +527,7 @@ export class ManagerAgentService {
       id: c.id, name: c.name, status: c.status, posts_per_run: c.posts_per_run,
       seasonal_keywords: !!c.seasonal_keywords, learn_from_orders: !!c.learn_from_orders,
       keywords: c.keywords || [],
+      copy_angles: Array.isArray(c.copy_angles) ? c.copy_angles : [],
     };
   }
 
@@ -525,6 +577,17 @@ export class ManagerAgentService {
     );
 
     switch (d.kind) {
+      case 'add_copy_angle':
+      case 'remove_copy_angle': {
+        const before = Array.isArray(c.copy_angles) ? c.copy_angles : [];
+        const hint = String(d.value);
+        const after = d.kind === 'add_copy_angle'
+          ? [...before, { id: `${CUSTOM_ANGLE_PREFIX}${randomUUID().slice(0, 8)}`, label: customAngleLabel(hint), hint, created_at: new Date().toISOString() }]
+          : before.filter((a) => a.id !== hint);
+        await q(`UPDATE campaigns SET copy_angles = $1::jsonb WHERE id = $2 AND user_id = $3`, [JSON.stringify(after), c.id, userId]);
+        await log('copy_angles', JSON.stringify(before), JSON.stringify(after));
+        return;
+      }
       case 'posts_per_run':
         await q(`UPDATE campaigns SET posts_per_run = $1 WHERE id = $2 AND user_id = $3`, [d.value, c.id, userId]);
         await log('posts_per_run', String(d.current), String(d.value));

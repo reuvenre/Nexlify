@@ -16,7 +16,7 @@ import { codeFromResolvedUrl, codesFromTitle, parseBulkLinks, titleFromHtml } fr
 import { EMPTY_ENRICHMENT, Enrichment, hasAnything, parseEnrichment } from './store-enrich-parse';
 import { CATEGORY_LIST_PROMPT } from '../storefront/store-categories';
 import { PostsService, CampaignRunResult } from '../posts/posts.service';
-import { FLYLINK_VARIANTS, pickVariant, variantHint } from '../posts/copy-variants';
+import { FLYLINK_VARIANTS, customVariants, pickVariant, variantHint } from '../posts/copy-variants';
 import { Campaign } from '../campaigns/campaign.entity';
 import { AiService, GenerateImage } from '../ai/ai.service';
 import { CredentialsService, DecryptedCredentials } from '../credentials/credentials.service';
@@ -1040,7 +1040,7 @@ export class SupplierProductsService {
           // so clicks per angle teach the bandit; the hint itself is suppressed under a
           // group template, whose wording is the owner's (same contract as AliExpress).
           const stats = await this.posts.variantStats(campaign.id).catch(() => []);
-          const variant = pickVariant(stats, Math.random(), FLYLINK_VARIANTS);
+          const variant = pickVariant(stats, Math.random(), [...FLYLINK_VARIANTS, ...customVariants(campaign.copy_angles)]);
           const preview = await this.preview(userId, p.id, {
             language: 'he', template: template || undefined, vision: true,
             copyHint: variantHint(variant, 'he'),

@@ -157,6 +157,13 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
     - a campaign whose clicks fell week on week.
     - The cron (`weeklyManagerReview`, Asia/Jerusalem, every 20 min 09:00–13:40) retries until one gets through. Delivery is remembered in `persistent_values` (`manager_weekly:<date>`), so a deploy neither loses it nor sends it twice. A refused key is reported once, not retried.
     - `/weekly` runs it now. Off with `MANAGER_WEEKLY_DISABLED=1`.
+  - **New copy angles** (`posts/copy-variants.ts`):
+    - Each campaign post is written in a copy angle picked by a bandit on clicks per post. Built-in: תועלת, מחיר, and ביטחון for FLYLINK.
+    - The bandit cannot invent an angle, so the manager proposes one. Its `copy_angles` tool shows each angle's posts, clicks and clicks per post, plus the openings of the most-clicked and zero-click posts (fenced).
+    - `add_copy_angle` (one Hebrew instruction, no links, at most `MAX_CUSTOM_ANGLES` = 3 per campaign) and `remove_copy_angle` (custom ids only) go through the usual approval.
+    - An approved angle is stored in `campaigns.copy_angles` (jsonb, `c-<id>`) and joins that campaign's pool (`customVariants`). Being under-sampled, it is tried first, then kept or starved by its own clicks.
+    - Logged as `copy_angles` in `manager_actions`; undo restores the previous list. Reports label a custom id «סגנון מותאם».
+    - The weekly review checks angles too.
 - **Anyone else** gets the members' product search (`shopper.ts`):
   - In a private chat any text is a search. In a group only `/find` or `/search` is, and only in the owner's own groups.
   - No model picks products. Results come from a strict search (never mock data) and are ranked by a fixed formula.

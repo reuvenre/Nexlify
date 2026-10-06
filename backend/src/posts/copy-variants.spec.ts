@@ -221,3 +221,26 @@ describe('the angles themselves', () => {
     expect(MIN_CLICKS_TO_PICK_WINNER).toBeGreaterThan(MIN_POSTS_PER_VARIANT / 2);
   });
 });
+
+describe('angles the owner approved', () => {
+  const { customVariants, customAngleLabel, variantLabel, pickVariant, COPY_VARIANTS } = require('./copy-variants');
+  const angle = { id: 'c-1a2b3c4d', label: 'מותאם: פתח במחיר מול', hint: 'זווית כתיבה: פתח/י במחיר מול המחיר בחנות' };
+
+  it('join the pool as bandit options, one hint for every language', () => {
+    const [v] = customVariants([angle, { id: 'bad', label: 'x', hint: 'y' }, null]);
+    expect(v).toEqual({ id: 'c-1a2b3c4d', label: angle.label, hint: { he: angle.hint, en: angle.hint, ar: angle.hint } });
+    expect(customVariants(null)).toEqual([]);
+  });
+
+  it('a new angle is tried first — it is under-sampled', () => {
+    const stats = COPY_VARIANTS.map((v: any) => ({ variant: v.id, posts: 40, clicks: 10 }));
+    const pool = [...COPY_VARIANTS, ...customVariants([angle])];
+    for (const roll of [0, 0.3, 0.7, 0.99]) expect(pickVariant(stats, roll, pool).id).toBe('c-1a2b3c4d');
+  });
+
+  it('reads as a custom style in reports, and gets a short label from its own words', () => {
+    expect(variantLabel('c-deadbeef')).toBe('סגנון מותאם');
+    expect(variantLabel('unknown')).toBe('סגנון קודם');
+    expect(customAngleLabel('זווית כתיבה: פתח/י במחיר מול המחיר בחנות')).toBe('מותאם: פתח/י במחיר מול המחיר');
+  });
+});
