@@ -201,6 +201,10 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
 - **A dedicated search bot** (`search-bot.ts`, optional): set `SEARCH_BOT_TOKEN` to a second BotFather bot and the readers move to it.
   - It has its own webhook (`/telegram/search-webhook`) and secret, and its replies go out through it via `AsyncLocalStorage` (`replyVia`).
   - The post invite line and the site's `/bot` link (via `GET /telegram/search-bot`) point to it.
+  - **Where readers come in from** (`bot-start.ts`, table `bot_starts`, anonymous like the search log): every link to the bot carries a start code, and a /start is counted by it, once per reader per source per day, never the owner's.
+    - The invite line under a post rotates evenly (`inviteAngleFor(post.id)`, stable on re-send) between the wordings in `SHOPPER_INVITE_ANGLES`, each with its own code (`inv_alert` price drop, `inv_find`, `inv_words`). A tight caption gets a shorter form of the same angle, then the bare bot name.
+    - The site's `/bot?src=pin` (or `news`) passes its code on; a bare `/bot` is `site`, the old bot's forward is `moved`, posts from before this are `post`. An unknown code is counted as `other`, never stored raw.
+    - `/searches` ends with the 🚪 line: entries per source over the window. That is how a wording is kept or dropped — compare them after two weeks.
   - A reader who still reaches the owner's bot is forwarded.
   - The watchdog checks its webhook too.
 

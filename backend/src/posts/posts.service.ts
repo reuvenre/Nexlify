@@ -4817,7 +4817,7 @@ export class PostsService {
     // Not on the owner's own hand-written posts: he writes those himself, and an
     // announcement of the bot would otherwise carry the invite twice.
     if (!String(post.product_id || '').startsWith('custom-')) {
-      caption = withShopperInvite(caption, await this.shopperBotUsername(post.user_id, creds), TG_CAPTION_LIMIT);
+      caption = withShopperInvite(caption, await this.shopperBotUsername(post.user_id, creds), TG_CAPTION_LIMIT, post.id);
     }
 
     let token = creds?.telegram_bot_token;

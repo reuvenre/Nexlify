@@ -11,6 +11,8 @@ import { User } from '../users/user.entity';
 import { Post } from '../posts/post.entity';
 import { ChannelMessage } from './channel-message.entity';
 import { PriceAlert } from './price-alert.entity';
+import { BotStart } from './bot-start.entity';
+import { parseStartSource, startsReport } from './bot-start';
 import {
   ALERT_MAX_MISSES, ALERT_TTL_DAYS, MAX_ALERTS_PER_READER, isPriceDrop, isStopAlerts, parseAlertCallback, priceDropCaption,
   watchButton, watchable, watchingText,
@@ -105,6 +107,7 @@ export class TelegramBotService implements OnModuleInit {
     @InjectRepository(Post) private readonly postsRepo: Repository<Post>,
     @InjectRepository(ChannelMessage) private readonly channelMessages: Repository<ChannelMessage>,
     @InjectRepository(PriceAlert) private readonly alerts: Repository<PriceAlert>,
+    @InjectRepository(BotStart) private readonly starts: Repository<BotStart>,
     private readonly products: ProductsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
@@ -156,7 +159,7 @@ export class TelegramBotService implements OnModuleInit {
     if (searchBotToken() && msg?.chat?.type === 'private') {
       const username = await this.searchBotUsername();
       if (username) {
-        await this.send(chatId, `🔎 החיפוש עבר לבוט החדש שלנו — לחצו כאן: https://t.me/${username}?start=post`);
+        await this.send(chatId, `🔎 החיפוש עבר לבוט החדש שלנו — לחצו כאן: https://t.me/${username}?start=moved`);
         return;
       }
     }
@@ -505,7 +508,10 @@ export class TelegramBotService implements OnModuleInit {
       } else {
         // /start, /help and anything else: explain, but only in private — a group sees
         // other bots' commands all day, and answering them would be noise.
-        if (isPrivate) await this.send(chatId, SHOPPER_WELCOME);
+        if (isPrivate) {
+          await this.send(chatId, SHOPPER_WELCOME);
+          await this.recordStart(text, String(msg?.from?.id ?? chatId));
+        }
         return;
       }
     } else if (isGroup) {
@@ -951,6 +957,26 @@ export class TelegramBotService implements OnModuleInit {
     return groups.some((g) => ids.has(String(g.channel_id).trim().toLowerCase()) || ids.has(String(g.channel_id).trim()));
   }
 
+  // ── Where readers come in from (bot-start.ts) ─────────────────────────────
+
+  /** Readers already counted per source today — a reader tapping the same link twice is one entry. */
+  private readonly startsSeen = new Map<string, number>();
+
+  /** A /start through one of our links, counted anonymously — never the owner's own taps. */
+  private async recordStart(text: string, memberKey: string): Promise<void> {
+    const source = parseStartSource(text);
+    if (!source || memberKey.startsWith('owner:') || this.isOwner(memberKey)) return;
+    const seenKey = `${memberKey}:${source}`;
+    const now = Date.now();
+    if (now - (this.startsSeen.get(seenKey) || 0) < 24 * 3600_000) return;
+    this.startsSeen.set(seenKey, now);
+    if (this.startsSeen.size > 20000) this.startsSeen.delete(this.startsSeen.keys().next().value as string);
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    await this.starts.insert({ user_id: userId, source })
+      .catch((err) => this.logger.warn(`bot start log failed: ${err?.message}`));
+  }
+
   // ── Price-drop alerts (price-alerts.ts) ───────────────────────────────────
 
   /** Products just shown to readers, so a 🔔 tap knows the price they saw without an API call. */
@@ -1366,7 +1392,13 @@ export class TelegramBotService implements OnModuleInit {
     const alertLine = alerts && (alerts.active || alerts.sent)
       ? `\n\n🔔 התראות מחיר: ${alerts.active} במעקב · ${alerts.sent} נשלחו ב-${days} ימים · ${alertClicks?.clicks ?? 0} קליקים מהתראות`
       : '';
-    await this.sendLong(chatId, searchesReport(rows, days, total, rescued) + alertLine);
+    const startRows = await this.starts.query(
+      `SELECT source, count(*)::int AS n FROM bot_starts
+       WHERE user_id = $1 AND created_at > now() - ($2 || ' days')::interval GROUP BY source`,
+      [userId, String(days)],
+    ).catch(() => null);
+    const startLine = startRows ? `\n\n${startsReport(startRows, days)}` : '';
+    await this.sendLong(chatId, searchesReport(rows, days, total, rescued) + alertLine + startLine);
   }
 
   /**
