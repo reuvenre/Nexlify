@@ -467,6 +467,8 @@ export class TelegramBotService implements OnModuleInit {
     // The owner testing the readers' search sees what the channel search did — readers don't.
     // The English search a model wrote when the reader's own words found nothing (query-rewrite.ts).
     let rewrite: string | null = null;
+    // What the rewrite step did, for the owner's 🔧 line — including why it did nothing.
+    let rewriteNote = '';
     const ownerDiag = async () => {
       if (!isPrivate || !(this.isOwner(chatId) || memberKey.startsWith('owner:'))) return;
       const terms = channelSearchTerms(parsed.keyword);
@@ -476,7 +478,7 @@ export class TelegramBotService implements OnModuleInit {
       if (fromChannel.length === 0) {
         line += `\n${await this.channelSearchFunnel(userId, terms).catch((e) => `בדיקה נכשלה: ${e?.message}`)}`;
       }
-      if (rewrite) line += `\n🪄 AliExpress לא הבין את החיפוש — חיפשתי במקומו: ${rewrite}`;
+      if (rewriteNote) line += `\n🪄 ${rewriteNote}`;
       // Which build answered — Render sets RENDER_GIT_COMMIT; tells "not deployed yet" apart from "deployed and missed".
       const build = String(process.env.RENDER_GIT_COMMIT || '').slice(0, 7);
       await this.send(chatId, `🔧 (רק אתה רואה${build ? ` · גרסה ${build}` : ''}) ${line}`);
@@ -498,15 +500,28 @@ export class TelegramBotService implements OnModuleInit {
     // into the English a seller writes, and search again. Its results go first; the originals
     // stay behind them. The model only rewrites the search — it never sees or picks a product.
     const shownFromApi = ranked.slice(0, 3 - fromChannel.length);
-    if (fromChannel.length < 3 && process.env.SHOPPER_REWRITE_DISABLED !== '1'
-      && (!shownFromApi.length || looksUnrelated(parsed.keyword, shownFromApi.map((p) => p.title)))) {
-      const found = await this.rewrittenResults(userId, parsed, seen).catch((err) => {
+    const unrelated = !shownFromApi.length || looksUnrelated(parsed.keyword, shownFromApi.map((p) => p.title));
+    if (fromChannel.length >= 3) {
+      rewriteNote = 'ניסוח חכם: לא נדרש — הערוץ מילא את התוצאות';
+    } else if (process.env.SHOPPER_REWRITE_DISABLED === '1') {
+      rewriteNote = 'ניסוח חכם: כבוי (SHOPPER_REWRITE_DISABLED)';
+    } else if (!unrelated) {
+      rewriteNote = `ניסוח חכם: לא נדרש — ב-${shownFromApi.length} התוצאות של AliExpress יש מילה מהחיפוש`;
+    } else {
+      try {
+        const found = await this.rewrittenResults(userId, parsed, seen);
+        if (found.query) {
+          ranked = [...found.items, ...ranked];
+          rewrite = found.query;
+          rewriteNote = `AliExpress לא הבין את החיפוש — חיפשתי במקומו: ${rewrite}`;
+        } else {
+          rewriteNote = found.queries.length
+            ? `ניסוח חכם: Haiku הציע ${found.queries.join(' · ')} — אבל לא נמצאו מוצרים חדשים`
+            : 'ניסוח חכם: Haiku לא הציע ניסוח לחיפוש הזה';
+        }
+      } catch (err: any) {
         this.logger.warn(`shopper rewrite "${parsed.keyword}" failed: ${err?.message}`);
-        return null;
-      });
-      if (found?.items.length) {
-        ranked = [...found.items, ...ranked];
-        rewrite = found.query;
+        rewriteNote = `ניסוח חכם נכשל: ${String(err?.message || err).slice(0, 160)}`;
       }
     }
 
@@ -650,7 +665,7 @@ export class TelegramBotService implements OnModuleInit {
    */
   private async rewrittenResults(
     userId: string, q: ShopperQuery, seen: Set<string>,
-  ): Promise<{ query: string; items: BotProduct[] } | null> {
+  ): Promise<{ query: string | null; items: BotProduct[]; queries: string[] }> {
     const queries = await this.rewriteQueries(userId, q.keyword);
     let query: string | null = null;
     const items: BotProduct[] = [];
@@ -661,7 +676,7 @@ export class TelegramBotService implements OnModuleInit {
       items.push(...fresh);
       if (items.length >= 3) break;
     }
-    return query ? { query, items } : null;
+    return { query, items, queries };
   }
 
   /**
