@@ -11,6 +11,7 @@ import { ManagerAgentService } from './manager-agent.service';
 @Module({
   imports: [TypeOrmModule.forFeature([Campaign]), CredentialsModule, AiModule],
   providers: [AgentClient, ManagerAgentService],
-  exports: [ManagerAgentService],
+  // AgentClient too: the readers' search bot rewrites searches with it (telegram-bot/query-rewrite.ts).
+  exports: [ManagerAgentService, AgentClient],
 })
 export class ManagerModule {}

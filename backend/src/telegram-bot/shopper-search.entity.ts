@@ -29,6 +29,11 @@ export class ShopperSearch {
   @Column({ type: 'int', default: 0 })
   results: number;
 
+  /** The English search a model wrote when the reader's words found nothing — set only when
+   *  that rewrite is what found the results (query-rewrite.ts). */
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  rewrite: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 }

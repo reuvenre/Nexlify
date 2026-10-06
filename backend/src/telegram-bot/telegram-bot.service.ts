@@ -28,6 +28,11 @@ import {
 import { SEARCH_BOT_UPDATES, WebhookVerdict, webhookVerdict } from '../watchdog/webhook-health';
 import { LinksService } from '../links/links.service';
 import { ManagerAgentService, isAuthError } from '../manager/manager-agent.service';
+import { AgentClient } from '../agents/agent-client.service';
+import { PersistentValueStore } from '../common/persistent-value.store';
+import {
+  REWRITE_EMPTY_TTL_MS, REWRITE_MODEL, REWRITE_SYSTEM, REWRITE_TTL_MS, looksUnrelated, parseRewrites, rewriteKey, rewritePrompt,
+} from './query-rewrite';
 import { managerQuestion } from '../manager/manager-intent';
 import { proposalText } from '../manager/manager-proposal';
 import {
@@ -79,6 +84,8 @@ export class TelegramBotService implements OnModuleInit {
     q: ShopperQuery; ranked: BotProduct[]; shown: number; page: number; done: boolean; at: number;
     /** Every key of every product in `ranked` (shopper.ts sameProductKeys) — no repeats. */
     seen: Set<string>;
+    /** The reader's own words, when `q` is a model's rewrite of them — what the reader is shown. */
+    label?: string;
   }>();
   /** Which bot answers this update. Set while handling the search bot's updates, so every
    *  reply in that flow goes out from the bot the reader wrote to (see search-bot.ts). */
@@ -98,6 +105,9 @@ export class TelegramBotService implements OnModuleInit {
     private readonly optimizer: OptimizerService,
     private readonly manager: ManagerAgentService,
     private readonly links: LinksService,
+    // The readers' search: a small model rewrites a search AliExpress cannot read (query-rewrite.ts).
+    private readonly agentClient: AgentClient,
+    private readonly memory: PersistentValueStore,
   ) {}
 
   // ── Entry point ────────────────────────────────────────────────────────────
@@ -455,6 +465,8 @@ export class TelegramBotService implements OnModuleInit {
     });
     const fromChannel = channel.hits;
     // The owner testing the readers' search sees what the channel search did — readers don't.
+    // The English search a model wrote when the reader's own words found nothing (query-rewrite.ts).
+    let rewrite: string | null = null;
     const ownerDiag = async () => {
       if (!isPrivate || !(this.isOwner(chatId) || memberKey.startsWith('owner:'))) return;
       const terms = channelSearchTerms(parsed.keyword);
@@ -464,6 +476,7 @@ export class TelegramBotService implements OnModuleInit {
       if (fromChannel.length === 0) {
         line += `\n${await this.channelSearchFunnel(userId, terms).catch((e) => `בדיקה נכשלה: ${e?.message}`)}`;
       }
+      if (rewrite) line += `\n🪄 AliExpress לא הבין את החיפוש — חיפשתי במקומו: ${rewrite}`;
       // Which build answered — Render sets RENDER_GIT_COMMIT; tells "not deployed yet" apart from "deployed and missed".
       const build = String(process.env.RENDER_GIT_COMMIT || '').slice(0, 7);
       await this.send(chatId, `🔧 (רק אתה רואה${build ? ` · גרסה ${build}` : ''}) ${line}`);
@@ -481,6 +494,22 @@ export class TelegramBotService implements OnModuleInit {
       }
     }
 
+    // The reader's words found nothing on AliExpress, or nothing related: let a model turn them
+    // into the English a seller writes, and search again. Its results go first; the originals
+    // stay behind them. The model only rewrites the search — it never sees or picks a product.
+    const shownFromApi = ranked.slice(0, 3 - fromChannel.length);
+    if (fromChannel.length < 3 && process.env.SHOPPER_REWRITE_DISABLED !== '1'
+      && (!shownFromApi.length || looksUnrelated(parsed.keyword, shownFromApi.map((p) => p.title)))) {
+      const found = await this.rewrittenResults(userId, parsed, seen).catch((err) => {
+        this.logger.warn(`shopper rewrite "${parsed.keyword}" failed: ${err?.message}`);
+        return null;
+      });
+      if (found?.items.length) {
+        ranked = [...found.items, ...ranked];
+        rewrite = found.query;
+      }
+    }
+
     // Three in all, as promised: the channel's own posts first, the API fills the rest.
     const picks = ranked.slice(0, 3 - fromChannel.length);
     const total = fromChannel.length + picks.length;
@@ -489,7 +518,7 @@ export class TelegramBotService implements OnModuleInit {
     if (!memberKey.startsWith('owner:') && !this.isOwner(memberKey)) {
       void this.searches.insert({
         user_id: userId, keyword: normaliseSearch(parsed.keyword),
-        max_price: parsed.maxPrice ?? null, results: total,
+        max_price: parsed.maxPrice ?? null, results: total, rewrite,
       }).catch((err) => this.logger.warn(`search log failed: ${err?.message}`));
     }
     if (!total) {
@@ -499,7 +528,9 @@ export class TelegramBotService implements OnModuleInit {
       return;
     }
     if (isPrivate) {
-      this.shopperSessions.set(chatId, { q: parsed, ranked, shown: picks.length, page: 1, done: false, at: Date.now(), seen });
+      // «עוד מוצרים» pages on with the search that worked — the rewrite, when there was one.
+      const q = rewrite ? { ...parsed, keyword: rewrite } : parsed;
+      this.shopperSessions.set(chatId, { q, ranked, shown: picks.length, page: 1, done: false, at: Date.now(), seen, label: parsed.keyword });
       if (this.shopperSessions.size > 2000) this.shopperSessions.delete(this.shopperSessions.keys().next().value as string);
     }
 
@@ -613,6 +644,58 @@ export class TelegramBotService implements OnModuleInit {
       + `\nשמורים מהערוץ עצמו: ${cm?.saved ?? 0}, תואמים ${cm?.matching ?? 0}`;
   }
 
+  /**
+   * Search again with the model's English rewrites of the reader's words, until three new
+   * products are found. `query` is the first rewrite that found anything.
+   */
+  private async rewrittenResults(
+    userId: string, q: ShopperQuery, seen: Set<string>,
+  ): Promise<{ query: string; items: BotProduct[] } | null> {
+    const queries = await this.rewriteQueries(userId, q.keyword);
+    let query: string | null = null;
+    const items: BotProduct[] = [];
+    for (const rq of queries) {
+      const page = await this.shopperPage(userId, { ...q, keyword: rq }, 1).catch(() => [] as BotProduct[]);
+      const fresh = takeUnseen(page, seen);
+      if (fresh.length && !query) query = rq;
+      items.push(...fresh);
+      if (items.length >= 3) break;
+    }
+    return query ? { query, items } : null;
+  }
+
+  /**
+   * The model's rewrites of one search, remembered in persistent_values: the same words from
+   * the next reader cost no model call. A failed call is not remembered — the next search
+   * tries again.
+   */
+  private async rewriteQueries(userId: string, keyword: string): Promise<string[]> {
+    const key = rewriteKey(keyword);
+    const cached = await this.memory.load<string[]>(key);
+    if (Array.isArray(cached)) return cached;
+
+    let { client } = await this.agentClient.for(userId);
+    const request = {
+      model: REWRITE_MODEL, max_tokens: 200,
+      system: REWRITE_SYSTEM,
+      messages: [{ role: 'user' as const, content: rewritePrompt(keyword) }],
+    };
+    let response;
+    try {
+      response = await client.messages.create(request, { timeout: 10_000 });
+    } catch (err: any) {
+      const other = isAuthError(err) ? this.agentClient.fallback(client) : null;
+      if (!other) throw err;
+      client = other;
+      response = await client.messages.create(request, { timeout: 10_000 });
+    }
+    this.agentClient.record(userId, response.usage);
+    const text = response.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('');
+    const queries = parseRewrites(text, keyword);
+    await this.memory.save(key, queries, queries.length ? REWRITE_TTL_MS : REWRITE_EMPTY_TTL_MS);
+    return queries;
+  }
+
   /** One page of the API, ranked, links only. Throws on an API failure (strict search). */
   private async shopperPage(userId: string, q: ShopperQuery, page: number): Promise<BotProduct[]> {
     const res = await this.products.search(userId, {
@@ -655,12 +738,12 @@ export class TelegramBotService implements OnModuleInit {
     }
     const picks = session.ranked.slice(session.shown, session.shown + 3);
     if (!picks.length) {
-      await this.send(chatId, `זה כל מה שמצאתי ל«${session.q.keyword}» 🙂 נסו ניסוח אחר או מוצר אחר.`);
+      await this.send(chatId, `זה כל מה שמצאתי ל«${session.label ?? session.q.keyword}» 🙂 נסו ניסוח אחר או מוצר אחר.`);
       return;
     }
     const from = session.shown + 1;
     session.shown += picks.length;
-    const header = `🔄 עוד ${picks.length} ל«${escapeHtml(session.q.keyword)}»:`;
+    const header = `🔄 עוד ${picks.length} ל«${escapeHtml(session.label ?? session.q.keyword)}»:`;
     await this.showShopperResults(chatId, userId, header, picks, from, false);
   }
 
@@ -958,7 +1041,14 @@ export class TelegramBotService implements OnModuleInit {
       [userId, String(days)],
     ).catch(() => []);
     const total = rows.reduce((n, r) => n + r.searches, 0);
-    await this.sendLong(chatId, searchesReport(rows, days, total));
+    const rescued: Array<{ keyword: string; rewrite: string; searches: number }> = await this.searches.query(
+      `SELECT keyword, max(rewrite) AS rewrite, count(*)::int AS searches
+       FROM shopper_searches
+       WHERE user_id = $1 AND rewrite IS NOT NULL AND created_at > now() - ($2 || ' days')::interval
+       GROUP BY keyword ORDER BY searches DESC, keyword LIMIT 10`,
+      [userId, String(days)],
+    ).catch(() => []);
+    await this.sendLong(chatId, searchesReport(rows, days, total, rescued));
   }
 
   /**

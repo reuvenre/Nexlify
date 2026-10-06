@@ -14,7 +14,14 @@ export function normaliseSearch(keyword: string): string {
   return String(keyword || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
 }
 
-export function searchesReport(rows: SearchCountRow[], days: number, total: number): string {
+/** A search that found results only through a model's rewrite (query-rewrite.ts). */
+export interface RescuedSearchRow {
+  keyword: string;
+  rewrite: string;
+  searches: number;
+}
+
+export function searchesReport(rows: SearchCountRow[], days: number, total: number, rescued: RescuedSearchRow[] = []): string {
   if (!total) return `🔎 עוד אין חיפושים בבוט ב-${days} הימים האחרונים.`;
   const lines = [`🔎 מה מחפשים בבוט — ${days} ימים אחרונים (${total} חיפושים):`, ''];
   rows.slice(0, 10).forEach((r, i) => {
@@ -24,6 +31,11 @@ export function searchesReport(rows: SearchCountRow[], days: number, total: numb
   const unmet = rows.filter((r) => r.empty === r.searches).slice(0, 5);
   if (unmet.length) {
     lines.push('', `⚠️ ביקוש בלי מענה: ${unmet.map((r) => r.keyword).join(', ')}`);
+  }
+  if (rescued.length) {
+    const n = rescued.reduce((sum, r) => sum + r.searches, 0);
+    lines.push('', `🪄 ${n} חיפושים נמצאו רק בזכות ניסוח חכם:`);
+    rescued.slice(0, 5).forEach((r) => lines.push(`• ${r.keyword} ← ${r.rewrite}${r.searches > 1 ? ` (${r.searches})` : ''}`));
   }
   lines.push('', '💡 מילה שחוזרת הרבה — מועמדת טובה לרוטציה של קמפיין.');
   return lines.join('\n');
