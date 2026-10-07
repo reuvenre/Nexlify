@@ -1,3 +1,4 @@
+import { VideosModule } from './videos/videos.module';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -109,6 +110,8 @@ import { HealthController } from './health.controller';
     CampaignsModule,
     ProductsModule,
     PostsModule,
+    // Product Reels rendered on GitHub Actions (videos/).
+    VideosModule,
     EarningsModule,
     RatesModule,
     SchedulerModule,

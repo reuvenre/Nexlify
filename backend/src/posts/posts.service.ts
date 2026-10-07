@@ -5339,6 +5339,106 @@ export class PostsService {
   }
 
   /**
+   * A finished Reel (videos/, rendered on GitHub Actions) published for an already-sent post:
+   * to the Instagram account and the Facebook Page that post's group publishes to — the same
+   * routing a normal post uses. `videoUrl` must be publicly fetchable; Meta pulls the file.
+   * Each platform is tried on its own; the answer says what landed and what did not.
+   */
+  async publishReel(postId: string, videoUrl: string): Promise<{ instagram?: string; facebook?: string; errors: string[] }> {
+    const post = await this.repo.findOne({ where: { id: postId } });
+    if (!post) throw new Error('post not found');
+    const creds = await this.credentials.getRaw(post.user_id);
+    if (!creds) throw new Error('no credentials');
+    const out: { instagram?: string; facebook?: string; errors: string[] } = { errors: [] };
+    const targets = this.resolveTargets(post);
+
+    const ig = await this.instagramTargetFor(post.user_id, targets, creds);
+    if (ig) {
+      try {
+        const body = await this.buildPostBody(post, creds, ig.target, 'instagram');
+        out.instagram = await this.publishInstagramReel(post, creds, videoUrl, this.instagramCaption(tagShortLinks(body, 'ig'), post), ig.target);
+      } catch (err: any) {
+        out.errors.push(`Instagram: ${err?.response?.data?.error?.message || err?.message}`);
+      }
+    }
+    const pages = await this.resolvePages(post.user_id, targets, creds);
+    for (const [pageId, target] of pages) {
+      try {
+        const { token } = await this.resolveFacebookPageToken(post.user_id, target, creds);
+        if (!token) throw new Error('אין Page Access Token לדף');
+        const body = await this.buildPostBody(post, creds, target, 'facebook');
+        const description = tagShortLinks(body, 'fb').replace(/<\/?[^>]+>/g, '');
+        out.facebook = await this.publishFacebookReel(pageId, token, videoUrl, description);
+      } catch (err: any) {
+        out.errors.push(`Facebook: ${err?.response?.data?.error?.message || err?.message}`);
+      }
+    }
+    if (!ig && !pages.size) out.errors.push('לקבוצה של הפוסט אין חשבון אינסטגרם או דף פייסבוק מחוברים');
+    return out;
+  }
+
+  /** Instagram Reels: a REELS container from the video URL, wait for processing, publish. */
+  private async publishInstagramReel(post: Post, creds: DecryptedCredentials, videoUrl: string, caption: string, target?: string): Promise<string> {
+    let igId = creds?.instagram_business_id;
+    let token = creds?.facebook_page_token;
+    if (target) {
+      const ownIg = await this.channels.getInstagramBusinessId(post.user_id, target).catch(() => null);
+      if (ownIg) {
+        const ownToken = await this.channels.getFacebookPageToken(post.user_id, target).catch(() => null);
+        if (!ownToken) throw new Error('לקבוצה הוגדר אינסטגרם משלה בלי טוקן לדף הפייסבוק שלה');
+        igId = ownIg;
+        token = ownToken;
+      }
+    }
+    if (!igId || !token) throw new Error('Missing Instagram credentials');
+    const base = `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`;
+    const create = await axios.post(`${base}/media`, new URLSearchParams({
+      media_type: 'REELS', video_url: videoUrl, caption, share_to_feed: 'true', access_token: token,
+    }).toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 45_000 });
+    if (create.data?.error) throw metaGraphError(create.data.error);
+    const creationId = create.data?.id;
+    if (!creationId) throw new Error('Instagram did not create a Reel container');
+    // A video takes far longer than a photo to process: up to five minutes before giving up.
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const st = await axios.get(`https://graph.facebook.com/${GRAPH_VERSION}/${creationId}`, {
+        params: { fields: 'status_code,status', access_token: token }, timeout: 10_000, validateStatus: () => true,
+      }).catch(() => null);
+      const code = st?.data?.status_code;
+      if (code === 'FINISHED') break;
+      if (code === 'ERROR' || code === 'EXPIRED') throw new Error(`אינסטגרם דחה את הסרטון (${st?.data?.status || code})`);
+      if (i === 59) throw new Error('אינסטגרם לא סיים לעבד את הסרטון תוך 5 דקות');
+    }
+    const pub = await axios.post(`${base}/media_publish`, new URLSearchParams({ creation_id: creationId, access_token: token }).toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30_000 });
+    if (pub.data?.error) throw metaGraphError(pub.data.error);
+    if (!pub.data?.id) throw new Error('Instagram did not return a media id');
+    return String(pub.data.id);
+  }
+
+  /** Facebook Page Reels: start an upload, hand Meta the hosted file, publish it. */
+  private async publishFacebookReel(pageId: string, token: string, videoUrl: string, description: string): Promise<string> {
+    const base = `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`;
+    const form = (o: Record<string, string>) => new URLSearchParams({ ...o, access_token: token }).toString();
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    const start = await axios.post(base, form({ upload_phase: 'start' }), { headers, timeout: 30_000 });
+    if (start.data?.error) throw metaGraphError(start.data.error);
+    const videoId = start.data?.video_id;
+    const uploadUrl = start.data?.upload_url;
+    if (!videoId || !uploadUrl) throw new Error('Facebook did not open a Reel upload');
+    const up = await axios.post(uploadUrl, null, {
+      headers: { Authorization: `OAuth ${token}`, file_url: videoUrl }, timeout: 120_000,
+    });
+    if (up.data?.success === false || up.data?.error) throw new Error(`Facebook upload failed: ${JSON.stringify(up.data).slice(0, 200)}`);
+    const finish = await axios.post(base, form({
+      upload_phase: 'finish', video_id: String(videoId), video_state: 'PUBLISHED', description: description.slice(0, 2200),
+    }), { headers, timeout: 60_000 });
+    if (finish.data?.error) throw metaGraphError(finish.data.error);
+    if (finish.data?.success === false) throw new Error('Facebook did not publish the Reel');
+    return String(videoId);
+  }
+
+  /**
    * Publish to the Instagram Business account for this post's group, falling back to the
    * account's global one. An Instagram account is reached through the Facebook Page it is
    * linked to, so a group that brings its own Instagram must bring that page's token too —

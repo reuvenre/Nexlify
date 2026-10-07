@@ -18,6 +18,7 @@ import {
   isNewStage, isTrackHelp, parcelCard, parseParcelCallback, parseTrackingNumber, readTrackInfo,
 } from './parcel-tracking';
 import { parcelInfo, parcelQuota, registerParcel, seventeenTrackKey } from './seventeen-track';
+import { VideosService } from '../videos/videos.service';
 import { parseStartSource, startsReport } from './bot-start';
 import {
   ALERT_MAX_MISSES, ALERT_TTL_DAYS, MAX_ALERTS_PER_READER, isPriceDrop, isStopAlerts, parseAlertCallback, priceDropCaption,
@@ -125,6 +126,7 @@ export class TelegramBotService implements OnModuleInit {
     // The readers' search: a small model rewrites a search AliExpress cannot read (query-rewrite.ts).
     private readonly agentClient: AgentClient,
     private readonly memory: PersistentValueStore,
+    private readonly videos: VideosService,
   ) {}
 
   // ── Entry point ────────────────────────────────────────────────────────────
@@ -257,6 +259,20 @@ export class TelegramBotService implements OnModuleInit {
     }
     if (/^\/groups(@\S+)?$/i.test(text)) {
       await this.reportGroups(chatId);
+      return;
+    }
+    // A product Reel of the best post of the last two days, now (videos/).
+    if (/^\/reel(@\S+)?$/i.test(text)) {
+      const userId = await this.ownerUserId();
+      const best = userId ? await this.videos.bestRecentPost(userId) : null;
+      if (!best) {
+        await this.send(chatId, '🎬 אין פוסט מהיומיים האחרונים שעוד אין לו סרטון (צריך פוסט שנשלח, עם תמונה ומחיר).');
+        return;
+      }
+      const { error } = await this.videos.requestReel(best.id, 'owner');
+      await this.send(chatId, error
+        ? `🎬 לא הצלחתי להתחיל את הסרטון: ${error}`
+        : '🎬 מכין Reel מהפוסט הכי נקלק ביומיים האחרונים. הרינדור לוקח כמה דקות — אעדכן כשהוא עולה לאינסטגרם ולפייסבוק.');
       return;
     }
     // The owner tapping the link at the foot of his own post (/start post) sees what his
@@ -1530,6 +1546,7 @@ export class TelegramBotService implements OnModuleInit {
         { command: 'search', description: 'חיפוש מוצר ופרסום לקבוצה' },
         { command: 'searches', description: 'מה הקוראים מחפשים בבוט' },
         { command: 'groups', description: 'בדיקת /find בכל קבוצה' },
+        { command: 'reel', description: 'סרטון Reel מהפוסט הכי נקלק' },
         { command: 'status', description: 'מצב המערכת' },
       ],
       scope: { type: 'chat', chat_id: process.env.WATCHDOG_TELEGRAM_CHAT_ID },

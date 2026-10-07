@@ -1,0 +1,15 @@
+{
+  "name": "nexlify-video-renderer",
+  "private": true,
+  "type": "module",
+  "description": "Renders product Reels (HyperFrames) for the Nexlify backend — run by .github/workflows/render-video.yml",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "hyperframes": "0.8.140"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,61 @@
+# Renders one product Reel for the backend (backend/src/videos/) and posts the MP4 back.
+#
+# The free Render instance cannot run headless Chrome + FFmpeg next to every scheduled job,
+# so the backend dispatches here (repository_dispatch "render-video") with two links that
+# carry the job's own token: where to read the spec, and where to send the result.
+# The links are masked in the log, and they are passed through env — never interpolated
+# into a script — so nothing in the payload can run as a command.
+name: Render product Reel
+
+on:
+  repository_dispatch:
+    types: [render-video]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-video-${{ github.event.client_payload.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SPEC_URL: ${{ github.event.client_payload.spec_url }}
+      RESULT_URL: ${{ github.event.client_payload.result_url }}
+    steps:
+      - name: Mask the job's links
+        run: |
+          echo "::add-mask::${SPEC_URL}"
+          echo "::add-mask::${RESULT_URL}"
+          echo "::add-mask::${RESULT_URL##*t=}"
+
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: video-renderer
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: video-renderer/package-lock.json
+
+      - name: FFmpeg and the emoji font
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-color-emoji
+
+      - name: Install HyperFrames
+        working-directory: video-renderer
+        run: |
+          npm ci --no-audit --no-fund
+          npx --no-install hyperframes browser ensure
+        env:
+          HYPERFRAMES_SKIP_SKILLS: '1'
+          DO_NOT_TRACK: '1'
+
+      - name: Render and deliver
+        working-directory: video-renderer
+        run: node render.mjs
+        env:
+          WORK_DIR: work
