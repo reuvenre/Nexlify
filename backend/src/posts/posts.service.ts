@@ -13,6 +13,7 @@ import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-p
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 import { withShopperInvite } from './shopper-invite';
 import { PublishedProducts } from './product-similarity';
+import { AI_CAPTION_NOTE } from '../videos/ai-clip';
 import { choosePool } from './pool-tiers';
 import { SEARCH_BOT_UPDATES, webhookVerdict } from '../watchdog/webhook-health';
 import { searchBotToken, searchWebhookUrl } from '../telegram-bot/search-bot';
@@ -5344,7 +5345,12 @@ export class PostsService {
    * routing a normal post uses. `videoUrl` must be publicly fetchable; Meta pulls the file.
    * Each platform is tried on its own; the answer says what landed and what did not.
    */
-  async publishReel(postId: string, videoUrl: string): Promise<{ instagram?: string; facebook?: string; errors: string[] }> {
+  async publishReel(
+    postId: string, videoUrl: string, opts: { aiClip?: boolean } = {},
+  ): Promise<{ instagram?: string; facebook?: string; errors: string[] }> {
+    // A Reel that opens with an AI clip says so in its caption too (Meta requires realistic
+    // AI content to be disclosed, and a reader must never take it for a customer's video).
+    const withNote = (text: string) => (opts.aiClip ? `${text}\n\n${AI_CAPTION_NOTE}` : text);
     const post = await this.repo.findOne({ where: { id: postId } });
     if (!post) throw new Error('post not found');
     const creds = await this.credentials.getRaw(post.user_id);
@@ -5356,7 +5362,7 @@ export class PostsService {
     if (ig) {
       try {
         const body = await this.buildPostBody(post, creds, ig.target, 'instagram');
-        out.instagram = await this.publishInstagramReel(post, creds, videoUrl, this.instagramCaption(tagShortLinks(body, 'ig'), post), ig.target);
+        out.instagram = await this.publishInstagramReel(post, creds, videoUrl, withNote(this.instagramCaption(tagShortLinks(body, 'ig'), post)), ig.target);
       } catch (err: any) {
         out.errors.push(`Instagram: ${err?.response?.data?.error?.message || err?.message}`);
       }
@@ -5368,7 +5374,7 @@ export class PostsService {
         if (!token) throw new Error('אין Page Access Token לדף');
         const body = await this.buildPostBody(post, creds, target, 'facebook');
         const description = tagShortLinks(body, 'fb').replace(/<\/?[^>]+>/g, '');
-        out.facebook = await this.publishFacebookReel(pageId, token, videoUrl, description);
+        out.facebook = await this.publishFacebookReel(pageId, token, videoUrl, withNote(description));
       } catch (err: any) {
         out.errors.push(`Facebook: ${err?.response?.data?.error?.message || err?.message}`);
       }

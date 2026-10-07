@@ -58,3 +58,9 @@ it('reelImages: JPEG instead of the WebP variant, no duplicates, at most three',
   expect(reelImages({ product_image: 'https://a/kf/S1.jpg_.webp', gallery_json: '["https://a/kf/S1.jpg","https://a/2.png","https://a/3.jpg","https://a/4.jpg"]' }))
     .toEqual(['https://a/kf/S1.jpg', 'https://a/2.png', 'https://a/3.jpg']);
 });
+
+it("the seller's own video opens the Reel when there is one", () => {
+  expect(buildReelSpec({ ...post, product_video: 'https://video.aliexpress-media.com/play/u/ae_sg_item/1.mp4' })!.video)
+    .toBe('https://video.aliexpress-media.com/play/u/ae_sg_item/1.mp4');
+  expect(buildReelSpec({ ...post, product_video: 'javascript:alert(1)' })!.video).toBeUndefined();
+});

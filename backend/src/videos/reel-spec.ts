@@ -17,6 +17,10 @@ export interface ReelSpec {
   cta: string;
   brand?: string;
   images: string[];
+  /** The opening clip: the seller's own product video, or the backend's AI clip. */
+  video?: string;
+  /** The clip is AI-generated — labelled on screen and in the caption. */
+  ai?: boolean;
 }
 
 export interface ReelPostLike {
@@ -27,6 +31,7 @@ export interface ReelPostLike {
   price_ils?: number | string | null;
   sale_price_usd?: number | string | null;
   original_price_usd?: number | string | null;
+  product_video?: string | null;
 }
 
 /** Instagram and Facebook captions carry no live link — the video sends viewers to the bio. */
@@ -87,5 +92,7 @@ export function buildReelSpec(post: ReelPostLike, brand?: string | null): ReelSp
     cta: REEL_CTA,
     brand: brand ? cut(plainLine(brand), 24) : undefined,
     images,
+    // The seller's own video comes first: real footage of the real product.
+    video: /^https?:\/\//i.test(String(post.product_video || '')) ? String(post.product_video) : undefined,
   };
 }

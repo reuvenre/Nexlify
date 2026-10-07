@@ -21,7 +21,7 @@ export class VideoJob {
   @Column({ type: 'uuid' })
   post_id: string;
 
-  /** queued → rendering → ready → published | failed */
+  /** queued → (generating: the AI clip) → rendering → ready → published | failed */
   @Column({ type: 'varchar', length: 16, default: 'queued' })
   status: string;
 
@@ -43,6 +43,14 @@ export class VideoJob {
 
   @Column({ type: 'bytea', nullable: true, select: false })
   video: Buffer | null;
+
+  /** The AI opening clip (ai-clip.ts), held until the renderer has fetched it. */
+  @Column({ type: 'bytea', nullable: true, select: false })
+  clip: Buffer | null;
+
+  /** What the Reel opened with, as the renderer reports it: seller | ai | none. */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  clip_source: string | null;
 
   @Column({ type: 'int', nullable: true })
   video_size: number | null;

@@ -12,7 +12,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { buildComposition } from './composition.mjs';
+import { CLIP_END, buildComposition } from './composition.mjs';
 
 const { SPEC_URL, RESULT_URL } = process.env;
 const WORK = path.resolve(process.env.WORK_DIR || 'work');
@@ -33,6 +33,27 @@ async function download(url, file) {
   return `assets/${name}`;
 }
 
+/**
+ * The opening clip (the seller's video, or the backend's AI clip): downloaded, cut to the
+ * part the Reel shows, scaled, silent, H.264 — so the render never seeks a 60 s seller video
+ * or chokes on an odd codec. Any failure means a photo-only Reel, never no Reel.
+ */
+async function prepareClip(url) {
+  try {
+    const res = await fetchOk(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Nexlify reel renderer)' } });
+    const raw = path.join(WORK, 'clip-source');
+    await fs.writeFile(raw, Buffer.from(await res.arrayBuffer()));
+    await run('ffmpeg', ['-v', 'error', '-y', '-i', raw, '-t', String(CLIP_END + 0.3), '-an',
+      '-vf', "scale='min(1080,iw)':-2", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
+      path.join(WORK, 'assets', 'clip.mp4')]);
+    await fs.rm(raw, { force: true });
+    return 'assets/clip.mp4';
+  } catch (e) {
+    console.warn(`clip skipped, photos only: ${e.message}`);
+    return null;
+  }
+}
+
 function run(cmd, args, opts) {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, { stdio: 'inherit', ...opts });
@@ -49,14 +70,20 @@ async function main() {
     try { images.push(await download(url, `p${i + 1}`)); } catch (e) { console.warn(`image ${i + 1} skipped: ${e.message}`); }
   }
   if (!images.length) throw new Error('none of the product photos could be downloaded');
-  await fs.writeFile(path.join(WORK, 'index.html'), buildComposition({ ...spec, images }));
+  const video = spec.video ? await prepareClip(spec.video) : null;
+  await fs.writeFile(path.join(WORK, 'index.html'), buildComposition({ ...spec, images, video: video || undefined, ai: !!(video && spec.ai) }));
   await fs.writeFile(path.join(WORK, 'hyperframes.json'), JSON.stringify({ paths: { assets: 'assets' } }));
-  await run('npx', ['--no-install', 'hyperframes', 'render', '--output', 'out.mp4', '--quality', 'looks'], {
+  await run('npx', ['--no-install', 'hyperframes', 'render', '--output', 'out.mp4', '--quality', 'looks', '--crf', '23'], {
     cwd: WORK, env: { ...process.env, HYPERFRAMES_SKIP_SKILLS: '1', DO_NOT_TRACK: '1' },
   });
-  const video = await fs.readFile(path.join(WORK, 'out.mp4'));
-  console.log(`rendered ${(video.length / 1048576).toFixed(1)} MB — sending back`);
-  await fetchOk(RESULT_URL, { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: video });
+  const out = await fs.readFile(path.join(WORK, 'out.mp4'));
+  console.log(`rendered ${(out.length / 1048576).toFixed(1)} MB${video ? ' with the clip' : ''} — sending back`);
+  // The backend must know whether the clip made it: an AI label in the caption for a Reel
+  // that fell back to photos would be a false statement.
+  const sep = RESULT_URL.includes('?') ? '&' : '?';
+  await fetchOk(`${RESULT_URL}${sep}clip=${video ? (spec.ai ? 'ai' : 'seller') : 'none'}`, {
+    method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: out,
+  });
   console.log('delivered');
 }
 
