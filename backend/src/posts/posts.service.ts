@@ -12,6 +12,8 @@ import { copyDefect } from './copy-guard';
 import { WORD_POLICY_BRIEF, applyWordPolicy, violatesWordPolicy } from './word-policy';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 import { withShopperInvite } from './shopper-invite';
+import { PublishedProducts } from './product-similarity';
+import { choosePool } from './pool-tiers';
 import { SEARCH_BOT_UPDATES, webhookVerdict } from '../watchdog/webhook-health';
 import { searchBotToken, searchWebhookUrl } from '../telegram-bot/search-bot';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
@@ -151,6 +153,15 @@ export interface CampaignRunResult {
 const NON_LATIN_RE = /[\u0590-\u05FF\u0600-\u06FF]/;
 /** A product may repeat in a campaign, but not within this many days (cooldown). */
 const PRODUCT_REPEAT_COOLDOWN_DAYS = 14;
+/**
+ * Even a keyword whose results are all used up never re-posts a product sooner than this.
+ * The recycle tiers used to take the OLDEST post inside the 14-day cooldown — and for a
+ * keyword with a dozen on-spec results that was a product from three days earlier, so the
+ * group saw the same items go round every few days.
+ */
+const RECYCLE_MIN_GAP_DAYS = 7;
+/** Extra (sort, page) slices a keyword searches before it settles for a repeat. */
+const EXTRA_SLICES_BEFORE_REPEAT = 2;
 /** How many extra keywords a run may try when its own slot keyword(s) return nothing.
  *  Bounded so one dead run can't turn into a long chain of affiliate-API calls. */
 const KEYWORD_FALLBACK_ATTEMPTS = 5;
@@ -2083,6 +2094,30 @@ export class PostsService {
    * complaint. Includes queued/scheduled/pending too, so when campaigns run back-to-back in
    * one tick the second sees what the first just queued.
    */
+  async recentlyPublished(userId: string, since: Date): Promise<PublishedProducts & { postedAt(id: string): number | undefined }> {
+    const rows: Array<{ product_id: string; product_title: string | null; product_image: string | null; at: Date }> =
+      await this.repo.createQueryBuilder('p')
+        .select(['p.product_id AS product_id', 'p.product_title AS product_title', 'p.product_image AS product_image',
+          'p.created_at AS at'])
+        .where('p.user_id = :userId', { userId })
+        .andWhere(new Brackets((w) => {
+          w.where('p.created_at > :since', { since })
+            .orWhere(`p.status IN ('queued','scheduled','pending')`);
+        }))
+        .andWhere(`p.status <> 'failed'`)
+        .orderBy('p.created_at', 'DESC')
+        .limit(2000)
+        .getRawMany()
+        .catch(() => []);
+    const set = new PublishedProducts(rows.map((r) => ({ product_id: r.product_id, title: r.product_title, image_url: r.product_image })));
+    const at = new Map<string, number>();
+    for (const r of rows) {
+      const id = String(r.product_id);
+      if (!at.has(id)) at.set(id, new Date(r.at).getTime());
+    }
+    return Object.assign(set, { postedAt: (id: string) => at.get(id) });
+  }
+
   async postedProductIdsToChannels(channelIds: string[], since: Date): Promise<Set<string>> {
     const ids = (channelIds || []).filter((c) => typeof c === 'string' && c.trim());
     if (!ids.length) return new Set();
@@ -2812,6 +2847,18 @@ export class PostsService {
       const id = String(r.product_id);
       if (ms > (postedAtMs.get(id) ?? 0)) postedAtMs.set(id, ms);
     }
+    // THE SAME ITEM UNDER ANOTHER ID: AliExpress lists one product once per store, so the id
+    // check above lets a second store's listing of yesterday's product straight through —
+    // the same photo and title, a different link (product-similarity.ts). Everything this
+    // account published in the cooldown, any campaign or group, is matched by photo and title.
+    const recentPublished = await this.recentlyPublished(userId, cooldownCutoff);
+    // A listing that repeats a recent post counts as posted when that post was (its own id
+    // was never posted, so it has no date of its own — without this it would sort as the
+    // OLDEST and be recycled first).
+    const repeatOfMs = (p: any): number | undefined => {
+      const of = recentPublished.match(p);
+      return of ? (postedAtMs.get(of) ?? recentPublished.postedAt(of) ?? Date.now()) : undefined;
+    };
     const postedPerKeyword = new Map<string, number>();
     for (const r of postedRows) {
       const k = (r.keyword || '').trim();
@@ -2850,8 +2897,8 @@ export class PostsService {
         const SORTS = ['LAST_VOLUME_DESC', 'LAST_VOLUME_ASC', 'SALE_PRICE_DESC'];
         const postedForKw = postedPerKeyword.get(kw) || 0;
         const block = Math.floor(postedForKw / pageSize);
-        const sort = SORTS[block % SORTS.length];
-        const page = Math.min(10, Math.floor(block / SORTS.length) + 1);
+        const slice = (b: number) => ({ sort: SORTS[b % SORTS.length], page: Math.min(10, Math.floor(b / SORTS.length) + 1) });
+        const { sort, page } = slice(block);
         const query = {
           keyword: searched, category_id: campaign.category_id,
           min_price: campaign.min_price, max_price: campaign.max_price,
@@ -2862,41 +2909,44 @@ export class PostsService {
         // (out of range); that's caught, not fatal.
         const seenIds = new Set<string>();
         const found: any[] = [];
-        for (const pg of (page === 1 ? [1] : [page, 1])) {
-          const batch = await this.searchProducts({ ...query, page: pg }, creds).catch(() => []);
-          for (const p of batch) {
-            const id = String(p.product_id);
-            if (!seenIds.has(id)) { seenIds.add(id); found.push(p); }
+        const gather = async (q: Record<string, unknown>, pages: number[]) => {
+          for (const pg of pages) {
+            const batch = await this.searchProducts({ ...q, page: pg } as any, creds).catch(() => []);
+            for (const p of batch) {
+              const id = String(p.product_id);
+              if (!seenIds.has(id)) { seenIds.add(id); found.push(p); }
+            }
           }
-        }
-        const qualified = found.filter((p) =>
+        };
+        await gather(query, page === 1 ? [1] : [page, 1]);
+        const isQualified = (p: any) =>
           (minRating <= 0 || (p.rating || 0) >= minRating) &&
-          (minDiscount <= 0 || (p.discount_percent || 0) >= minDiscount),
-        );
-        // Self-healing, tiered selection — a campaign must NOT go silent while its keyword
-        // still returns products. Tiers are tried top-down; each is used only when the one
-        // above is empty. Recycled/relaxed picks are ordered OLDEST-posted-first so the same
-        // item is never posted two days running (respects the repeat cooldown's INTENT even
-        // when the pool is exhausted). This is what kept a strict campaign (rating≥4.5) alive
-        // once its on-spec fresh stock aged into the 14-day cooldown mid-day.
-        //   T1: on-spec + fresh (novel, meets filters)          — the ideal
-        //   T2: on-spec, recycle oldest (meets filters, repeat)  — quality over novelty
-        //   T3: relax filters, fresh (novel, lower rating)       — novelty over strictness
-        //   T4: relax filters, recycle oldest (anything at all)  — last resort, never silent
-        const fresh = (arr: any[]) => arr.filter((p) => !postedIds.has(String(p.product_id)));
-        const oldestFirst = (arr: any[]) => [...arr].sort(
-          (a, b) => (postedAtMs.get(String(a.product_id)) ?? 0) - (postedAtMs.get(String(b.product_id)) ?? 0),
-        );
-        let pool = fresh(qualified);
-        let tier = 1;
-        if (!pool.length && qualified.length) { pool = oldestFirst(qualified); tier = 2; }
-        if (!pool.length) {
-          const novel = fresh(found);
-          if (novel.length) { pool = novel; tier = 3; }
-          else if (found.length) { pool = oldestFirst(found); tier = 4; }
+          (minDiscount <= 0 || (p.discount_percent || 0) >= minDiscount);
+        // Fresh = neither this id nor the same item under another store's id went out in the
+        // cooldown (repeatOfMs covers both, and the cross-campaign sets via postedIds).
+        const fresh = (arr: any[]) => arr.filter((p) => !postedIds.has(String(p.product_id)) && repeatOfMs(p) === undefined);
+        // The rotation only moves on after a full page of posts under the keyword, and the
+        // affiliate API often returns far fewer — so a keyword sat on the same dozen items
+        // and repeated them. Before settling for a repeat, look at the next slices.
+        for (let extra = 1; extra <= EXTRA_SLICES_BEFORE_REPEAT && !fresh(found.filter(isQualified)).length; extra++) {
+          const next = slice(block + extra);
+          await gather({ ...query, sort: next.sort }, [next.page]);
         }
+        // Self-healing, tiered selection (pool-tiers.ts) — a campaign must NOT go silent while
+        // its keyword still returns products it has not just published, and must not repeat
+        // one it has: a recycled product is at least RECYCLE_MIN_GAP_DAYS old. When nothing
+        // qualifies, the keyword is dry for this run and its slot borrows from another one.
+        const { pool, tier } = choosePool(found, {
+          qualified: isQualified,
+          fresh: (p) => fresh([p]).length > 0,
+          lastPostedMs: (p) => postedAtMs.get(String(p.product_id)) ?? repeatOfMs(p) ?? 0,
+          now: Date.now(),
+          minGapMs: RECYCLE_MIN_GAP_DAYS * 86_400_000,
+        });
         if (!pool.length) {
-          kwErrors.push(`"${kw}": החיפוש לא החזיר מוצרים כלל`);
+          kwErrors.push(found.length
+            ? `"${kw}": כל ${found.length} המוצרים שהחיפוש מצא פורסמו ב-${RECYCLE_MIN_GAP_DAYS} הימים האחרונים — המקום עבר למילה אחרת`
+            : `"${kw}": החיפוש לא החזיר מוצרים כלל`);
           return null;
         }
         if (tier > 1) {
@@ -2950,16 +3000,18 @@ export class PostsService {
     // Fill each slot from ITS keyword's pool; a dry slot borrows from any other pool so
     // one dead keyword never shrinks the run. No product repeats within the run.
     const poolCursor = new Map<string, number>();
-    const usedIds = new Set<string>();
+    // Picked this run — by id, photo and title, so two stores' listings of one item cannot
+    // both go out in the same run either.
+    const usedThisRun = new PublishedProducts();
     const takeFrom = (kw: string): any | null => {
       const pool = poolBy.get(kw);
       if (!pool) return null;
       let i = poolCursor.get(kw) ?? 0;
       while (i < pool.length) {
         const p = pool[i++];
-        if (!usedIds.has(String(p.product_id))) {
+        if (!usedThisRun.has(p)) {
           poolCursor.set(kw, i);
-          usedIds.add(String(p.product_id));
+          usedThisRun.add(p);
           return p;
         }
       }
@@ -3369,6 +3421,7 @@ export class PostsService {
       currency: string;
       generated_text: string;
       rate: number;
+      keyword?: string | null;
     },
     creds: DecryptedCredentials,
   ): Promise<Post> {
@@ -3393,6 +3446,7 @@ export class PostsService {
       sale_price_usd: parts.saleUsd,
       price_ils: parts.priceIls,
       generated_text: data.generated_text,
+      keyword: data.keyword || null,
       status: 'pending',
       pending_at: new Date(),
     });
@@ -3405,6 +3459,14 @@ export class PostsService {
     if (agentTargets.length) this.applyChannels(post, agentTargets);
 
     await this.repo.save(post);
+    // The durable de-dup memory the plain runner and the optimizer read — an agent post
+    // never wrote it, so a campaign switched off agents started from a blank history.
+    await this.postedRepo.query(
+      `INSERT INTO campaign_posted_products (campaign_id, product_id, keyword, created_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (campaign_id, product_id) DO UPDATE SET created_at = now(), keyword = EXCLUDED.keyword`,
+      [campaignId, String(data.product_id), data.keyword || null],
+    ).catch(() => {});
     await this.sendToTelegram(post, creds);
     return post;
   }

@@ -78,7 +78,11 @@ export class OrchestratorAgent {
       const soldBand = await this.posts.soldPriceBandFor(userId).catch(() => null);
       this.logger.log(`[Orchestrator] Finding products for campaign "${campaign.name}"`
         + (soldBand ? ` (sales profile: $${soldBand.low}–$${soldBand.high})` : ''));
-      const { products, tokens: productTokens } = await this.productAgent.findBestProducts(
+      // What this account published in the last two weeks — any campaign, any group, matched
+      // by id, photo and title — is hidden from the agent, and nothing it returns may repeat
+      // another pick of this run. This path used to have no de-dup at all.
+      const published = await this.posts.recentlyPublished(userId, new Date(Date.now() - 14 * 86_400_000));
+      const { products: picked, tokens: productTokens } = await this.productAgent.findBestProducts(
         userId,
         // This run's slot keywords, not the raw campaign list: the agent searches only the
         // first few it is given, so handing it the full list would bury a seasonal term at
@@ -92,7 +96,13 @@ export class OrchestratorAgent {
         },
         plan.perPost,
         soldBand,
+        (p) => published.has(p),
       );
+      const products = picked.filter((p) => {
+        if (published.has(p)) return false;
+        published.add(p);
+        return true;
+      });
       totalTokens += productTokens;
       this.logger.log(`[Orchestrator] Found ${products.length} products`);
 
@@ -139,6 +149,7 @@ export class OrchestratorAgent {
             currency: product.currency,
             generated_text: text,
             rate,
+            keyword: product.keyword || null,
           }, creds);
 
           postsCreated++;

@@ -45,6 +45,13 @@ export class ProductAgent {
     /** The account's proven price band (from real orders) — steers ranking toward what
      *  this audience demonstrably BUYS, not just what looks shiny. */
     soldBand?: { low: number; high: number; median: number; orders: number } | null,
+    /**
+     * Products the account published recently (by id, photo or title — product-similarity.ts).
+     * They are taken out of the search results before the model sees them: the search and
+     * the score are the same every run, so without this the model picked the same top items
+     * run after run, and the same product went out again and again.
+     */
+    alreadyPublished?: (p: any) => boolean,
   ): Promise<{ products: RankedProduct[]; tokens: number }> {
     const tools: Anthropic.Tool[] = [
       {
@@ -128,13 +135,19 @@ Only ids that search_products returned are accepted; every other field is read f
               min_price: filters.min_price ?? input.min_price,
               max_price: filters.max_price ?? input.max_price,
               min_discount: filters.min_discount ?? input.min_discount,
-              limit: Math.min(input.limit || 10, 20),
+              // Ask for the widest page when some results are about to be filtered out.
+              limit: alreadyPublished ? 20 : Math.min(input.limit || 10, 20),
             });
-            recordSearch(ledger, input.keyword, result.data);
+            const all = Array.isArray(result.data) ? result.data : [];
+            const offered = alreadyPublished ? all.filter((p: any) => !alreadyPublished(p)) : all;
+            if (offered.length < all.length) {
+              this.logger.log(`ProductAgent: "${input.keyword}" — ${all.length - offered.length} of ${all.length} results already published, hidden`);
+            }
+            recordSearch(ledger, input.keyword, offered);
             toolResults.push({
               type: 'tool_result',
               tool_use_id: block.id,
-              content: JSON.stringify(result.data),
+              content: JSON.stringify(offered),
             });
           } catch (err: any) {
             toolResults.push({

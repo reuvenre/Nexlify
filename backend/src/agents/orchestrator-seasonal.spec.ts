@@ -1,4 +1,5 @@
 import { OrchestratorAgent } from './orchestrator.agent';
+import { PublishedProducts } from '../posts/product-similarity';
 
 /**
  * The gap this closes: a campaign with `use_agents` on routes through the orchestrator, and
@@ -30,7 +31,7 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
 
   /** The orchestrator with every collaborator stubbed. `products` is what the ProductAgent
    *  reports back, which decides whether the content step runs at all. */
-  function build(plan: any = PLAN, products: any[] = [{ product_id: 'p1', title: 'פנס טקטי' }]) {
+  function build(plan: any = PLAN, products: any[] = [{ product_id: 'p1', title: 'פנס טקטי' }], published: any[] = []) {
     const findBestProducts = jest.fn(async (..._a: any[]) => ({ products, tokens: 0 }));
     const generateOptimizedContent = jest.fn(async (..._a: any[]) => ({ text: 'טקסט', language: 'he', tokens: 0 }));
     const createAgentPost = jest.fn(async (..._a: any[]) => undefined);
@@ -39,7 +40,10 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
       { findBestProducts } as any,
       { generateOptimizedContent } as any,
       { evaluateAndOptimize: async () => ({ status: 'healthy', tokens: 0 }) } as any,
-      { campaignKeywordPlan, soldPriceBandFor: async () => null, createAgentPost } as any,
+      {
+        campaignKeywordPlan, soldPriceBandFor: async () => null, createAgentPost,
+        recentlyPublished: async () => new PublishedProducts(published),
+      } as any,
       { getRate: async () => 3.7 } as any,
       { getRaw: async () => ({ currency_pair: 'USD_ILS' }) } as any,
       { create: (r: any) => ({ ...r, id: 'run1' }), save: async (r: any) => r } as any,
@@ -127,5 +131,33 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
     expect(res.posts_created).toBe(0);
     expect(res.errors).toEqual([]);
     expect(generateOptimizedContent).not.toHaveBeenCalled();
+  });
+
+  describe('never the same product twice', () => {
+    const belt = { product_id: '1005001', title: 'Tactical Belt Quick Release Buckle Nylon Molle Outdoor' };
+    const sameBeltOtherStore = { product_id: '1005002', title: 'Hot Sale Tactical Belt Quick Release Buckle Nylon Molle Outdoor' };
+    const sling = { product_id: '1005003', title: 'Rifle Sling Two Point Adjustable Quick Detach Strap' };
+
+    it('hands the agent a filter that hides what the account already published', async () => {
+      const { agent, findBestProducts } = build(PLAN, [sling], [belt]);
+      await agent.run(campaign, USER);
+      const hide = (findBestProducts.mock.calls[0] as any[])[5];
+      expect(hide(sameBeltOtherStore)).toBe(true);
+      // (the sling was picked by this run, so it is in the set by now — check another item)
+      expect(hide({ product_id: '1005009', title: 'Night Vision Monocular Infrared Digital Camera' })).toBe(false);
+    });
+
+    it('drops a pick that repeats a published product, or another pick of this run', async () => {
+      const { agent, createAgentPost } = build(PLAN, [belt, sling, { ...sling, product_id: '1005004' }], [sameBeltOtherStore]);
+      await agent.run(campaign, USER);
+      const posted = createAgentPost.mock.calls.map((c: any[]) => c[2].product_id);
+      expect(posted).toEqual(['1005003']);
+    });
+
+    it('records the keyword that found the product on the post', async () => {
+      const { agent, createAgentPost } = build(PLAN, [{ ...sling, keyword: 'tactical flashlight' }]);
+      await agent.run(campaign, USER);
+      expect((createAgentPost.mock.calls[0] as any[])[2].keyword).toBe('tactical flashlight');
+    });
   });
 });
