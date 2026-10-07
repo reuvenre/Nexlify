@@ -13,6 +13,7 @@ import { ShopperSearch } from './shopper-search.entity';
 import { ChannelMessage } from './channel-message.entity';
 import { PriceAlert } from './price-alert.entity';
 import { BotStart } from './bot-start.entity';
+import { ParcelTrack } from './parcel-track.entity';
 import { TelegramBotService } from './telegram-bot.service';
 
 // Channel/User are registered as REPOSITORIES rather than pulling in ChannelsModule +
@@ -26,7 +27,7 @@ import { TelegramBotService } from './telegram-bot.service';
   imports: [
     // Post / ChannelMessage: the members' search also looks through what the channel
     // already published — as the system sent it, and as the channel shows it.
-    TypeOrmModule.forFeature([Channel, User, ShopperSearch, Post, ChannelMessage, PriceAlert, BotStart]),
+    TypeOrmModule.forFeature([Channel, User, ShopperSearch, Post, ChannelMessage, PriceAlert, BotStart, ParcelTrack]),
     ProductsModule, PostsModule, CredentialsModule, OptimizerModule,
     // The manager agent (owner questions) and short links for the members' search.
     // Neither reaches UsersModule or WatchdogModule.

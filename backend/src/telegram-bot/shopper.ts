@@ -296,6 +296,7 @@ export const SHOPPER_WELCOME = [
   '',
   'לא מצאתם? כתבו «עוד מוצרים» ואביא עוד אפשרויות 🔄',
   'מחכים למחיר טוב יותר? לחצו 🔔 ליד מוצר ואעדכן כשהמחיר יורד.',
+  '📦 הזמנתם? שלחו לי את מספר המעקב ואגיד לכם איפה החבילה.',
 ].join('\n');
 
 /** A message that could not be read as a search — short, it is not the first contact. */

@@ -12,6 +12,12 @@ import { Post } from '../posts/post.entity';
 import { ChannelMessage } from './channel-message.entity';
 import { PriceAlert } from './price-alert.entity';
 import { BotStart } from './bot-start.entity';
+import { ParcelTrack } from './parcel-track.entity';
+import {
+  DEFAULT_DAILY_REGISTRATIONS, MAX_PARCELS_PER_READER, PARCEL_HELP, PARCEL_TTL_DAYS, ParcelState, followButton, isFinal,
+  isNewStage, isTrackHelp, parcelCard, parseParcelCallback, parseTrackingNumber, readTrackInfo,
+} from './parcel-tracking';
+import { parcelInfo, parcelQuota, registerParcel, seventeenTrackKey } from './seventeen-track';
 import { parseStartSource, startsReport } from './bot-start';
 import {
   ALERT_MAX_MISSES, ALERT_TTL_DAYS, MAX_ALERTS_PER_READER, isPriceDrop, isStopAlerts, parseAlertCallback, priceDropCaption,
@@ -108,6 +114,7 @@ export class TelegramBotService implements OnModuleInit {
     @InjectRepository(ChannelMessage) private readonly channelMessages: Repository<ChannelMessage>,
     @InjectRepository(PriceAlert) private readonly alerts: Repository<PriceAlert>,
     @InjectRepository(BotStart) private readonly starts: Repository<BotStart>,
+    @InjectRepository(ParcelTrack) private readonly parcels: Repository<ParcelTrack>,
     private readonly products: ProductsService,
     private readonly posts: PostsService,
     private readonly credentials: CredentialsService,
@@ -171,7 +178,7 @@ export class TelegramBotService implements OnModuleInit {
     const token = searchBotToken();
     // The 🔔 under a result — the only buttons this bot sends.
     if (token && update?.callback_query) {
-      await this.replyVia.run({ token }, () => this.onAlertTap(update.callback_query));
+      await this.replyVia.run({ token }, () => this.onReaderTap(update.callback_query));
       return;
     }
     const msg = update?.message;
@@ -346,8 +353,8 @@ export class TelegramBotService implements OnModuleInit {
     const messageId = cq?.message?.message_id;
     const cbId = String(cq?.id || '');
     // A reader's 🔔 under a search result (when the readers use this bot) — any reader may tap it.
-    if (parseAlertCallback(String(cq?.data || ''))) {
-      await this.onAlertTap(cq);
+    if (parseAlertCallback(String(cq?.data || '')) || parseParcelCallback(String(cq?.data || ''))) {
+      await this.onReaderTap(cq);
       return;
     }
     if (!chatId || !this.isOwner(chatId)) {
@@ -496,6 +503,12 @@ export class TelegramBotService implements OnModuleInit {
       ).catch(() => [[]]);
       const n = Array.isArray(res?.[0]) ? res[0].length : Array.isArray(res) ? res.length : 0;
       await this.send(chatId, n > 1 ? `🔕 ביטלתי ${n} התראות מחיר.` : n ? '🔕 ביטלתי את התראת המחיר.' : 'אין לך התראות מחיר פעילות.');
+      return;
+    }
+
+    // «איפה החבילה שלי?» — a tracking number, /track, or /parcels (parcel-tracking.ts).
+    if (isPrivate && (parseTrackingNumber(text) || isTrackHelp(text))) {
+      await this.handleParcelMessage(chatId, text);
       return;
     }
 
@@ -977,6 +990,168 @@ export class TelegramBotService implements OnModuleInit {
       .catch((err) => this.logger.warn(`bot start log failed: ${err?.message}`));
   }
 
+  // ── Parcel tracking (parcel-tracking.ts, seventeen-track.ts) ─────────────
+
+  /** A tap under a reader's result or parcel card: price alert or parcel follow. */
+  private async onReaderTap(cq: any): Promise<void> {
+    if (parseParcelCallback(String(cq?.data || ''))) await this.onParcelTap(cq);
+    else await this.onAlertTap(cq);
+  }
+
+  /** A tracking number (the free page at once, 🔔 when the API is set up), or the reader's list. */
+  private async handleParcelMessage(chatId: string, text: string): Promise<void> {
+    const number = parseTrackingNumber(text);
+    const mine: ParcelTrack[] = await this.parcels.find({ where: { chat_id: chatId, active: true }, order: { created_at: 'DESC' } })
+      .catch(() => []);
+    if (!number) {
+      const list = mine.map((p) => parcelCard(p.number, { status: p.status, subStatus: p.sub_status, eventTime: null, eventText: null, eventLocation: null }));
+      await this.sendHtml(chatId, list.length ? [`📦 החבילות שאני עוקב אחריהן בשבילך:`, ...list].join('\n\n') : PARCEL_HELP);
+      return;
+    }
+    const followed = mine.find((p) => p.number === number);
+    let state: ParcelState | null = null;
+    if (followed && seventeenTrackKey()) {
+      state = await parcelInfo([number]).then((m) => (m.has(number) ? readTrackInfo(m.get(number)) : null)).catch(() => null);
+    }
+    const button = seventeenTrackKey() ? [[followButton(number, !!followed)]] : undefined;
+    await this.call('sendMessage', {
+      chat_id: chatId, text: parcelCard(number, state), parse_mode: 'HTML', link_preview_options: { is_disabled: true },
+      ...(button ? { reply_markup: { inline_keyboard: button } } : {}),
+    });
+  }
+
+  /** 🔔 / 🔕 under a parcel card. Following registers the number with 17TRACK (one unit of quota). */
+  private async onParcelTap(cq: any): Promise<void> {
+    const cbId = String(cq?.id || '');
+    const tap = parseParcelCallback(String(cq?.data || ''));
+    const chatId = String(cq?.message?.chat?.id ?? '');
+    if (!tap || !chatId || cq?.message?.chat?.type !== 'private' || !seventeenTrackKey()) {
+      await this.answer(cbId);
+      return;
+    }
+    const setButton = (following: boolean) => this.call('editMessageReplyMarkup', {
+      chat_id: chatId, message_id: cq?.message?.message_id, reply_markup: { inline_keyboard: [[followButton(tap.number, following)]] },
+    });
+    if (tap.action === 'stop') {
+      await this.parcels.query(`UPDATE parcel_tracks SET active = false WHERE chat_id = $1 AND number = $2`, [chatId, tap.number]).catch(() => {});
+      await this.answer(cbId, '🔕 המעקב בוטל');
+      await setButton(false);
+      return;
+    }
+    const userId = await this.ownerUserId();
+    if (!userId) { await this.answer(cbId); return; }
+    const [{ n }] = await this.parcels.query(
+      `SELECT count(*)::int AS n FROM parcel_tracks WHERE chat_id = $1 AND active AND number <> $2`, [chatId, tap.number],
+    ).catch(() => [{ n: 0 }]);
+    if (n >= MAX_PARCELS_PER_READER) {
+      await this.answer(cbId, `אני כבר עוקב אחרי ${MAX_PARCELS_PER_READER} חבילות שלך. כשאחת תגיע, אפשר להוסיף עוד.`);
+      return;
+    }
+    // The quota does not refill — a daily cap keeps one busy day from spending it all.
+    const cap = Number(process.env.PARCEL_DAILY_REGISTRATIONS) || DEFAULT_DAILY_REGISTRATIONS;
+    const [{ today }] = await this.parcels.query(
+      `SELECT count(*)::int AS today FROM parcel_tracks WHERE created_at > now() - interval '1 day'`,
+    ).catch(() => [{ today: 0 }]);
+    const existing = await this.parcels.findOne({ where: { chat_id: chatId, number: tap.number } }).catch(() => null);
+    if (!existing && today >= cap) {
+      await this.answer(cbId, 'המעקב האוטומטי מלא להיום — נסו מחר. הקישור למעקב עובד בינתיים.');
+      return;
+    }
+    const reg = await registerParcel(tap.number);
+    if (!reg.ok) {
+      this.logger.warn(`parcel register ${tap.number} failed: ${reg.error}`);
+      await this.answer(cbId, reg.quotaOut
+        ? 'המעקב האוטומטי לא זמין כרגע. הקישור למעקב עובד — אפשר לבדוק בו בכל רגע.'
+        : 'לא הצלחתי לרשום את המספר למעקב. כדאי לבדוק שהוא נכון ולנסות שוב.');
+      return;
+    }
+    await this.parcels.query(
+      `INSERT INTO parcel_tracks (user_id, chat_id, number) VALUES ($1, $2, $3)
+       ON CONFLICT (chat_id, number) DO UPDATE SET active = true, checked_at = NULL`,
+      [userId, chatId, tap.number],
+    );
+    await this.answer(cbId, '🔔 אעדכן אותך בכל שלב, עד שהחבילה מגיעה.');
+    await setButton(true);
+  }
+
+  private parcelsRunning = false;
+
+  /**
+   * Every two hours in waking hours: read every followed parcel from 17TRACK (40 per call,
+   * no quota) and tell the reader when it reaches a new stage. A delivered parcel is
+   * announced once and dropped. Off with PARCEL_TRACKING_DISABLED=1, or without a key.
+   */
+  @Cron('0 10 8-22/2 * * *', { timeZone: 'Asia/Jerusalem' })
+  async checkParcels(): Promise<{ checked: number; sent: number }> {
+    const result = { checked: 0, sent: 0 };
+    if (this.parcelsRunning || process.env.PARCEL_TRACKING_DISABLED === '1' || !seventeenTrackKey()) return result;
+    this.parcelsRunning = true;
+    try {
+      await this.parcels.query(
+        `UPDATE parcel_tracks SET active = false WHERE active AND created_at < now() - ($1 || ' days')::interval`,
+        [String(PARCEL_TTL_DAYS)],
+      );
+      // A tracking number is the reader's data too — gone a month after following ends.
+      await this.parcels.query(`DELETE FROM parcel_tracks WHERE NOT active AND created_at < now() - interval '30 days'`);
+      const rows: ParcelTrack[] = await this.parcels.query(`SELECT * FROM parcel_tracks WHERE active ORDER BY checked_at ASC NULLS FIRST LIMIT 400`);
+      if (!rows.length) return result;
+      const token = searchBotToken() || await this.telegramToken();
+      if (!token) return result;
+      const infos = await parcelInfo([...new Set(rows.map((r) => r.number))]).catch((err) => {
+        this.logger.warn(`parcels: 17TRACK read failed: ${err?.message}`);
+        return null;
+      });
+      if (!infos) return result;
+      const blocked = new Set<string>();
+      for (const r of rows) {
+        if (blocked.has(r.chat_id)) continue;
+        result.checked++;
+        const info = infos.get(r.number);
+        if (!info) continue;
+        const state = readTrackInfo(info);
+        const final = isFinal(state.status, state.subStatus);
+        if (isNewStage({ status: r.status, subStatus: r.sub_status }, state)) {
+          const outcome = await this.replyVia.run({ token }, () => this.sendToReader('sendMessage', {
+            chat_id: r.chat_id, text: parcelCard(r.number, state, { update: true }), parse_mode: 'HTML',
+            link_preview_options: { is_disabled: true },
+            ...(final ? {} : { reply_markup: { inline_keyboard: [[followButton(r.number, true)]] } }),
+          }));
+          if (outcome === 'blocked') {
+            blocked.add(r.chat_id);
+            await this.parcels.query(`UPDATE parcel_tracks SET active = false WHERE chat_id = $1`, [r.chat_id]);
+            continue;
+          }
+          if (outcome === 'failed') continue; // the stage is told again next time
+          result.sent++;
+        }
+        await this.parcels.query(
+          `UPDATE parcel_tracks SET status = $2, sub_status = $3, event_time = $4, checked_at = now(),
+             notified_at = CASE WHEN $5 THEN now() ELSE notified_at END, active = NOT $6 WHERE id = $1`,
+          [r.id, state.status, state.subStatus, state.eventTime, isNewStage({ status: r.status, subStatus: r.sub_status }, state), final],
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`parcel run failed: ${err?.message}`);
+    } finally {
+      this.parcelsRunning = false;
+    }
+    return result;
+  }
+
+  /** One message to a reader, telling a blocked bot apart from a passing failure. */
+  private async sendToReader(method: string, body: Record<string, unknown>): Promise<'sent' | 'blocked' | 'failed'> {
+    const token = this.replyVia.getStore()?.token;
+    try {
+      await axios.post(`https://api.telegram.org/bot${token}/${method}`, body, { timeout: 15000 });
+      return 'sent';
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const desc = String(err?.response?.data?.description || err?.message || '');
+      this.logger.warn(`reader message to ${body.chat_id} failed: ${desc}`);
+      return status === 403 || /blocked|deactivated|chat not found/i.test(desc) ? 'blocked' : 'failed';
+    }
+  }
+
   // ── Price-drop alerts (price-alerts.ts) ───────────────────────────────────
 
   /** Products just shown to readers, so a 🔔 tap knows the price they saw without an API call. */
@@ -1313,7 +1488,8 @@ export class TelegramBotService implements OnModuleInit {
         if (ok) this.logger.log('Search bot webhook registered');
       }
       const find = { command: 'find', description: 'חיפוש מוצר באלי אקספרס' };
-      await this.call('setMyCommands', { commands: [find], scope: { type: 'default' } });
+      const track = { command: 'track', description: 'מעקב משלוח לפי מספר מעקב' };
+      await this.call('setMyCommands', { commands: [find, track], scope: { type: 'default' } });
       // Only when it differs: Telegram rate-limits renames.
       const named = await this.get('getMyName', {});
       if (named?.name !== SEARCH_BOT_NAME) await this.call('setMyName', { name: SEARCH_BOT_NAME });
@@ -1398,7 +1574,17 @@ export class TelegramBotService implements OnModuleInit {
       [userId, String(days)],
     ).catch(() => null);
     const startLine = startRows ? `\n\n${startsReport(startRows, days)}` : '';
-    await this.sendLong(chatId, searchesReport(rows, days, total, rescued) + alertLine + startLine);
+    const [parcelRow] = await this.parcels.query(
+      `SELECT count(*) FILTER (WHERE active)::int AS active,
+              count(*) FILTER (WHERE created_at > now() - ($1 || ' days')::interval)::int AS added
+       FROM parcel_tracks`, [String(days)],
+    ).catch(() => [null]);
+    const quota = seventeenTrackKey() ? await parcelQuota() : null;
+    const parcelLine = parcelRow && (parcelRow.active || parcelRow.added || quota)
+      ? `\n\n📦 מעקב חבילות: ${parcelRow.active} פעילות · ${parcelRow.added} נוספו ב-${days} ימים`
+        + (quota ? ` · מכסת 17TRACK: נותרו ${quota.remain} מתוך ${quota.total}` : '')
+      : '';
+    await this.sendLong(chatId, searchesReport(rows, days, total, rescued) + alertLine + startLine + parcelLine);
   }
 
   /**
