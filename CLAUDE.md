@@ -130,6 +130,13 @@ The owner saw the same product go out again and again. Three causes, all closed:
 - **Recycling inside the cooldown.** The tiers recycled the *oldest* post inside the 14 days, which for a keyword with a dozen on-spec results was three days ago. Now `choosePool` recycles only products last posted ≥ 7 days ago, prefers a new lower-rated product to a recent repeat, and otherwise reports the keyword dry. Before settling for any repeat, a keyword searches `EXTRA_SLICES_BEFORE_REPEAT` (2) more (sort, page) slices: the rotation moves only after a full page of posts, and the affiliate API often returns far fewer.
 - **The agents path had no de-dup at all.** Same search and same score every run gave the same top products. The orchestrator now hides recently published products from the ProductAgent's search results (`alreadyPublished`), drops any pick that repeats one, and `createAgentPost` records the post's keyword and writes `campaign_posted_products`.
 
+### Never two posts in one chat at once (`posts/chat-collision.ts`)
+A group is fed by two clocks that fire in the same second: `sendScheduledPosts` releases campaign posts by `scheduled_at`, and `processQueue` drips the manual queue by the group's `schedule_last_sent_at`. Neither sees the other's send until it has finished. On an ordinary slot the few seconds a send takes kept them apart by accident. When the group's clock is old, as at the 09:00 window opening after a quiet night, both were due at once and the group got two posts together. A fan-out post or a default channel that is also a saved group met a group post the same way.
+- Both paths now claim through `claimPacedSend`. Under a per-account `pg_advisory_xact_lock`, it refuses the claim when another post reached one of the same Telegram chats within `chatGapMinutes` (half the group's interval, at most 15 min).
+- A held campaign post moves to the blocker's time + interval.
+- A held queue post stays queued for the next free slot.
+- Manual "send now" is not paced and does not go through it.
+
 ### How the season reaches the rotation
 Seasonal keywords are **not** weights inside `weightedRotation`. They get a fixed share: `interleaveSeasonal` weaves one in after every `SEASONAL_EVERY - 1` (= 4) positions of the campaign's own rotation. As a weight they were a fixed number of copies per cycle, so their share shrank as the keyword list grew and they clustered into two bursts per cycle. With the cursor stepping one position per run, a long list went 52 runs without a single seasonal slot (#99).
 

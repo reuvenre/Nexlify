@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { Repository, LessThan, MoreThan, In, Brackets } from 'typeorm';
+import { Repository, LessThan, MoreThan, In, Brackets, EntityManager } from 'typeorm';
 import axios from 'axios';
 // CommonJS module (no .default) — import-require avoids the `.default is not a
 // constructor` trap under this tsconfig (no esModuleInterop). See collage.service.ts.
@@ -30,6 +30,7 @@ import { toWhatsAppText } from './whatsapp-format';
 import { AUTO_RETRY_MARK, NET_SAFE_TAG, isRetryableNetworkPartial } from './network-partial';
 import { soloCampaignSlot } from './solo-campaign-slot';
 import { manualQueueTurn } from './queue-fairness';
+import { chatCollision, chatGapMinutes, postChats } from './chat-collision';
 import { notReadyVerdict, publishTimeoutVerdict } from './ig-container-status';
 import { bonusCopyHint } from './bonus-copy';
 import { compactHiddenProductNotice, flylinkTrustBlock, isFlylinkPost, PostPlatform } from './flylink-trust';
@@ -1247,12 +1248,11 @@ export class PostsService {
 
     // Atomically CLAIM the post: flip queued → pending in one statement. If another
     // worker (or a re-entrant tick) already took it, affected = 0 → skip, so the same
-    // post can't be published and charged twice.
-    const claim = await this.repo.createQueryBuilder()
-      .update(Post).set({ status: 'pending', pending_at: () => 'NOW()' })
-      .where('id = :id AND status = :queued', { id: next.id, queued: 'queued' })
-      .execute();
-    if (!claim.affected) return { sent: false };
+    // post can't be published and charged twice. A campaign post that just went to the
+    // same chat holds it for the next tick (see chat-collision.ts).
+    const claim = await this.claimPacedSend(next, 'queued', creds);
+    if (claim.blockedAt) return { sent: false, deferred: true, chats };
+    if (!claim.claimed) return { sent: false };
     next.status = 'pending';
     // Route to the post's target group if set (supplier products / per-catalog channel).
     await this.sendToTelegram(next, creds, next.channel_override || undefined);
@@ -1917,6 +1917,57 @@ export class PostsService {
   }
 
   /**
+   * Claim a paced post (scheduled or queued → pending) — unless another post reached one
+   * of its Telegram chats within the last few minutes (see chat-collision.ts). The check
+   * and the claim run under a per-account advisory lock, so the campaign release and the
+   * queue drip, firing in the same second, cannot both pass it.
+   */
+  private async claimPacedSend(
+    post: Post,
+    from: 'scheduled' | 'queued',
+    creds: any,
+  ): Promise<{ claimed: boolean; blockedAt?: Date; intervalMinutes: number }> {
+    const groupId = this.resolveTargets(post).find((t): t is string => !!t);
+    const intervalMinutes = (groupId
+      ? await this.channels.getIntervalMinutes(post.user_id, groupId).catch(() => null)
+      : null) ?? creds?.schedule_interval_minutes ?? 60;
+    const claim = (m: EntityManager) => m.createQueryBuilder()
+      .update(Post).set({ status: 'pending', pending_at: () => 'NOW()' })
+      .where('id = :id AND status = :from', { id: post.id, from })
+      .execute();
+
+    // An Instagram-only post does not enter the group's Telegram chat.
+    const only = await this.postPlatformFilter(post).catch(() => null);
+    if (only && !only.has('telegram')) {
+      const r = await claim(this.repo.manager);
+      return { claimed: !!r.affected, intervalMinutes };
+    }
+
+    const chats = postChats(this.resolveTargets(post), creds?.telegram_channel_id);
+    const gap = chatGapMinutes(intervalMinutes);
+    return this.repo.manager.transaction(async (m) => {
+      await m.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`paced-send:${post.user_id}`]);
+      const since = new Date(Date.now() - gap * 60_000);
+      const rows = await m.getRepository(Post).createQueryBuilder('p')
+        .where('p.user_id = :u', { u: post.user_id })
+        .andWhere("p.status IN ('pending', 'sent')")
+        .andWhere('p.id != :id', { id: post.id })
+        .andWhere('COALESCE(p.sent_at, p.pending_at) > :since', { since })
+        .getMany();
+      const recent: { chats: string[]; at: Date }[] = [];
+      for (const r of rows) {
+        const f = await this.postPlatformFilter(r).catch(() => null);
+        if (f && !f.has('telegram')) continue;
+        recent.push({ chats: postChats(this.resolveTargets(r), creds?.telegram_channel_id), at: r.sent_at || r.pending_at });
+      }
+      const blockedAt = chatCollision(chats, recent, new Date(), gap);
+      if (blockedAt) return { claimed: false, blockedAt, intervalMinutes };
+      const r = await claim(m);
+      return { claimed: !!r.affected, intervalMinutes };
+    });
+  }
+
+  /**
    * Does the manual queue own this group's current slot? True only when posts are actually
    * waiting in the group's bucket, the drip that would send them is enabled (user + group
    * toggles), and the group's last sent post was a CAMPAIGN's — see queue-fairness.ts.
@@ -1958,12 +2009,17 @@ export class PostsService {
   async sendScheduled(post: Post) {
     const creds = await this.credentials.getRaw(post.user_id);
     // Atomically claim the scheduled post (scheduled → pending). If another instance's
-    // cron already picked the same due head this tick, affected = 0 → skip.
-    const claim = await this.repo.createQueryBuilder()
-      .update(Post).set({ status: 'pending', pending_at: () => 'NOW()' })
-      .where('id = :id AND status = :scheduled', { id: post.id, scheduled: 'scheduled' })
-      .execute();
-    if (!claim.affected) return;
+    // cron already picked the same due head this tick, affected = 0 → skip. If another
+    // post reached the same chat moments ago (the queue drip in this same minute), this
+    // one moves to that post's next slot instead of landing on top of it.
+    const claim = await this.claimPacedSend(post, 'scheduled', creds);
+    if (claim.blockedAt) {
+      const next = new Date(claim.blockedAt.getTime() + claim.intervalMinutes * 60_000);
+      await this.repo.update({ id: post.id, status: 'scheduled' }, { scheduled_at: next }).catch(() => {});
+      this.logger.log(`Scheduled post ${post.id} held: its chat got a post at ${claim.blockedAt.toISOString()} — moved to ${next.toISOString()}`);
+      return;
+    }
+    if (!claim.claimed) return;
     post.status = 'pending';
     await this.sendToTelegram(post, creds, post.channel_override || undefined);
     // Share ONE clock per group. Scheduled (campaign) posts and the manual auto-send queue
