@@ -3,7 +3,7 @@
 # Uses the existing free Supabase Postgres for the database and an in-memory
 # cache (no Redis needed). Only one free web service is created.
 #
-# In Render: New → Blueprint → repo reuvenre/AliBot-PRO → branch `main`.
+# In Render: New → Blueprint → repo reuvenre/Nexlify → branch `main`.
 # After the first apply, fill the secrets marked `sync: false` in the dashboard.
 #
 # Note: the free instance spins down after ~15 min of inactivity (cold start on
