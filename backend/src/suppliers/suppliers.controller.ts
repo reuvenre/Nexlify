@@ -29,6 +29,17 @@ export class SuppliersController {
     return this.catalogs.probeStore(store, password);
   }
 
+  /** Search the catalogs' Yupoo stores by album title — one catalog, or all of them. */
+  @Get('catalogs/search')
+  search(
+    @Req() req: Request,
+    @Query('q') q: string,
+    @Query('catalog_id') catalogId?: string,
+    @Query('page') page = '1',
+  ) {
+    return this.catalogs.search(this.uid(req), q, { catalogId: catalogId || undefined, page: +page || 1 });
+  }
+
   /** Browse a catalog's Yupoo store from inside the app (categories + paginated albums). */
   @Get('catalogs/:id/browse')
   browse(

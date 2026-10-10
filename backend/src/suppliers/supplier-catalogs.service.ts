@@ -2,11 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SupplierCatalog, SkuMatchMode } from './entities/supplier-catalog.entity';
+import { SupplierProduct } from './entities/supplier-product.entity';
 import { YupooService } from './yupoo.service';
 import { suggestSkuMode } from './sku-match.util';
 import { RatesService } from '../rates/rates.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { encrypt, decrypt } from '../common/crypto';
+import { albumIdOf, isHebrewQuery, normalizeCatalogQuery } from './catalog-search';
 
 const EDITABLE = [
   'name', 'source_type', 'source_store', 'affiliate_network',
@@ -26,6 +28,7 @@ function toStoreSlug(input?: string): string {
 export class SupplierCatalogsService {
   constructor(
     @InjectRepository(SupplierCatalog) private readonly repo: Repository<SupplierCatalog>,
+    @InjectRepository(SupplierProduct) private readonly products: Repository<SupplierProduct>,
     private readonly yupoo: YupooService,
     private readonly rates: RatesService,
     private readonly credentials: CredentialsService,
@@ -104,6 +107,65 @@ export class SupplierCatalogsService {
       suggested_mode: sample ? suggestSkuMode(sample.code) : 'exact',
       samples: items.slice(0, 5),
     };
+  }
+
+  /**
+   * Search the owner's catalogs for a product by the words in its album title — one
+   * catalog, or every catalog with a Yupoo store. Each catalog is searched on its own, so
+   * one blocked or locked store reports its error without hiding the others' results.
+   * A result whose album is already linked carries `linked_product_id`.
+   */
+  async search(userId: string, rawQuery: string, opts: { catalogId?: string; page?: number } = {}) {
+    const q = normalizeCatalogQuery(rawQuery);
+    if (!q) throw new BadRequestException('כתוב לפחות 2 תווים לחיפוש');
+    const cats = opts.catalogId
+      ? [await this.get(userId, opts.catalogId)]
+      : (await this.repo.find({ where: { user_id: userId }, order: { created_at: 'DESC' } }))
+          .filter((c) => c.enabled !== false);
+    const searchable = cats.filter((c) => c.source_store);
+    if (!searchable.length) throw new BadRequestException('לא הוגדרה חנות Yupoo לאף קטלוג');
+
+    const [creds, linkedRows] = await Promise.all([
+      this.credentials.getRaw(userId),
+      this.products.createQueryBuilder('p')
+        .select(['p.id', 'p.yupoo_url'])
+        .where('p.user_id = :u', { u: userId })
+        .andWhere('p.yupoo_url IS NOT NULL')
+        .getMany(),
+    ]);
+    const linked = new Map<string, string>();
+    for (const r of linkedRows) {
+      const id = albumIdOf(r.yupoo_url);
+      if (id) linked.set(id, r.id);
+    }
+    const pair = creds?.currency_pair || 'USD_ILS';
+    const rate = (await this.rates.getRate(pair)) || 1;
+    const currency = pair.split('_')[1] || 'ILS';
+
+    const results = await Promise.all(searchable.map(async (cat) => {
+      try {
+        const page = await this.yupoo.searchStore(cat.source_store!, q, {
+          page: opts.page, password: this.catalogPassword(cat),
+        });
+        return {
+          catalog_id: cat.id,
+          catalog_name: cat.name,
+          hasMore: page.hasMore,
+          items: page.items.map((it) => ({
+            ...it,
+            price: +((it.price || 0) * rate).toFixed(2),
+            currency,
+            linked_product_id: linked.get(albumIdOf(it.album_url) || '') || null,
+          })),
+        };
+      } catch (e: any) {
+        return {
+          catalog_id: cat.id, catalog_name: cat.name, hasMore: false, items: [],
+          error: e?.response?.message || e?.message || 'החיפוש נכשל',
+        };
+      }
+    }));
+    return { query: q, hebrew: isHebrewQuery(q), results };
   }
 
   /** Browse a catalog's store from inside the app (categories + paginated albums). */

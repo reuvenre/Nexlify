@@ -364,7 +364,14 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
   onRefresh: () => void;
 }) {
   const [catalogId, setCatalogId] = useState(catalogs[0]?.id || '');
-  const [opened, setOpened] = useState<string | null>(null); // album_url of the product modal
+  // The product modal: its album, and the catalog it belongs to (a search across all
+  // catalogs opens a result in ITS catalog, not the one picked in the dropdown).
+  const [opened, setOpened] = useState<{ albumUrl: string; catalogId: string } | null>(null);
+  // Manual search. Empty `query` = browsing; otherwise the grid shows search results.
+  const [searchInput, setSearchInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [searchAll, setSearchAll] = useState(false);
+  const [results, setResults] = useState<Awaited<ReturnType<typeof suppliersApi.searchCatalogs>> | null>(null);
   const [categories, setCategories] = useState<Array<{ id: string; name: string; isSubCate: boolean }>>([]);
   const [category, setCategory] = useState('');
   const [catIsSub, setCatIsSub] = useState(false); // is the current category a Yupoo sub-category?
@@ -389,6 +396,35 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
 
   useEffect(() => { if (catalogId) { setCategory(''); load(1, '', true); } }, [catalogId, load]);
 
+  const runSearch = useCallback(async (q: string, p: number, all: boolean) => {
+    setLoading(true); setError('');
+    try {
+      const r = await suppliersApi.searchCatalogs(q, { page: p, ...(all ? {} : { catalog_id: catalogId }) });
+      setResults(r); setPage(p); setQuery(q);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'החיפוש נכשל — ייתכן חסימת Yupoo מהשרת');
+      setResults(null);
+    } finally { setLoading(false); }
+  }, [catalogId]);
+
+  const submitSearch = () => {
+    const q = searchInput.trim();
+    if (q.length < 2) { setError('כתוב לפחות 2 תווים לחיפוש'); return; }
+    runSearch(q, 1, searchAll);
+  };
+
+  const clearSearch = () => {
+    setSearchInput(''); setQuery(''); setResults(null); setError('');
+    load(1, category, false, catIsSub);
+  };
+
+  // A new catalog in the dropdown ends a single-catalog search (its results belong to the old one).
+  useEffect(() => { if (!searchAll) { setQuery(''); setResults(null); } }, [catalogId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const searching = !!query && !!results;
+  const searchHasMore = !!results?.results.some((r) => r.hasMore);
+  const searchCount = results?.results.reduce((n, r) => n + r.items.length, 0) || 0;
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -411,34 +447,72 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
         )}
       </div>
 
+      <form onSubmit={(e) => { e.preventDefault(); submitSearch(); }} className="flex items-center gap-2 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30" />
+          <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} dir="auto"
+            placeholder="חיפוש מוצר לפי קוד, מותג או מילה (למשל LUN1526)"
+            className="w-full bg-surface-secondary border border-edge-hover rounded-xl pr-9 pl-3 py-2 text-sm text-white/80 outline-none focus:border-blue-500/50" />
+        </div>
+        {catalogs.length > 1 && (
+          <label className="flex items-center gap-1.5 text-xs text-white/50 cursor-pointer select-none">
+            <input type="checkbox" checked={searchAll} onChange={(e) => setSearchAll(e.target.checked)} className="accent-blue-500" />
+            בכל הקטלוגים
+          </label>
+        )}
+        <button type="submit" disabled={loading}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded-xl">חפש</button>
+        {query && (
+          <button type="button" onClick={clearSearch}
+            className="px-3 py-2 bg-white/5 hover:bg-white/10 text-white/60 text-sm rounded-xl flex items-center gap-1"><X size={14} /> חזרה לקטלוג</button>
+        )}
+      </form>
+
       {error && <div className="bg-red-500/10 border border-red-500/25 text-red-300 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-blue-400" /></div>
+      ) : searching && results ? (
+        <>
+          <p className="text-xs text-white/40 mb-3">
+            {searchCount ? `${searchCount} תוצאות ל-"${results.query}"` : `לא נמצאו מוצרים ל-"${results.query}"`}
+            {page > 1 ? ` · עמוד ${page}` : ''}
+          </p>
+          {results.hebrew && !searchCount && (
+            <div className="bg-amber-500/10 border border-amber-500/25 text-amber-400 text-sm rounded-xl px-4 py-3 mb-4">
+              שמות האלבומים אצל הספק כתובים בקוד, באנגלית או בסינית — חפש לפי קוד המוצר (למשל LUN1526) או לפי מותג.
+              מוצרים ששמרת כבר אפשר לחפש בעברית בלשונית &quot;המוצרים שלי&quot;.
+            </div>
+          )}
+          {results.results.map((r) => (
+            <div key={r.catalog_id} className="mb-6">
+              {(results.results.length > 1 || r.error) && (
+                <h3 className="text-sm text-white/60 mb-2">{r.catalog_name} <span className="text-white/30">({r.items.length})</span></h3>
+              )}
+              {r.error && <p className="text-xs text-red-300/80 mb-2">{r.error}</p>}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {r.items.map((it) => (
+                  <AlbumCard key={it.album_url} item={it} linked={!!it.linked_product_id}
+                    onOpen={() => setOpened({ albumUrl: it.album_url, catalogId: r.catalog_id })} />
+                ))}
+              </div>
+            </div>
+          ))}
+          {(page > 1 || searchHasMore) && (
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button disabled={page <= 1} onClick={() => runSearch(query, page - 1, searchAll)}
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הקודם</button>
+              <span className="text-xs text-white/40">עמוד {page}</span>
+              <button disabled={!searchHasMore} onClick={() => runSearch(query, page + 1, searchAll)}
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-white/60 text-sm rounded-xl">הבא</button>
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {items.map((it) => (
-              <button key={it.album_url} onClick={() => setOpened(it.album_url)}
-                className="text-right bg-surface-secondary border border-edge rounded-xl overflow-hidden hover:border-blue-500/40 hover:-translate-y-0.5 transition-all group">
-                <div className="relative aspect-square bg-white/[0.04]">
-                  {it.thumb
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    ? <img src={yupooImg(it.thumb)} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    : <div className="w-full h-full flex items-center justify-center"><Package size={32} className="text-white/15" /></div>}
-                  <span className="absolute bottom-2 left-2 bg-black/60 text-white/90 text-xs rounded-full px-2.5 py-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Images size={12} /> פתח
-                  </span>
-                </div>
-                <div className="p-3">
-                  <p className="text-sm text-white/80 truncate min-h-[1.25rem]" dir="ltr" title={it.description}>{it.description || '—'}</p>
-                  <p className="text-xs text-white/40 truncate mt-0.5" dir="ltr">#{it.code}</p>
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-base font-bold text-white">{priceSym(it.currency || 'ILS')}{it.price}</span>
-                    <span className="text-xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><Wand2 size={12} /> צור פוסט</span>
-                  </div>
-                </div>
-              </button>
+              <AlbumCard key={it.album_url} item={it} onOpen={() => setOpened({ albumUrl: it.album_url, catalogId })} />
             ))}
           </div>
           {items.length === 0 && <p className="text-center text-sm text-white/30 py-12">לא נמצאו מוצרים</p>}
@@ -456,10 +530,10 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
 
       {opened && (
         <BrowseProductModal
-          catalogId={catalogId}
-          albumUrl={opened}
+          catalogId={opened.catalogId}
+          albumUrl={opened.albumUrl}
           channels={channels}
-          defaultChannel={catalogs.find((c) => c.id === catalogId)?.target_channel_id || ''}
+          defaultChannel={catalogs.find((c) => c.id === opened.catalogId)?.target_channel_id || ''}
           onClose={() => setOpened(null)}
           onLinked={onRefresh}
           // Stay in "עיין בקטלוג" after posting so the user can keep posting more
@@ -468,6 +542,42 @@ function StoreBrowser({ catalogs, channels, onRefresh }: {
         />
       )}
     </div>
+  );
+}
+
+/** One album in the store browser or the search results. */
+function AlbumCard({ item: it, linked, onOpen }: {
+  item: { code: string; price: number; currency?: string; description: string; album_url: string; thumb?: string };
+  /** The album is already linked as one of the owner's products. */
+  linked?: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <button onClick={onOpen}
+      className="text-right bg-surface-secondary border border-edge rounded-xl overflow-hidden hover:border-blue-500/40 hover:-translate-y-0.5 transition-all group">
+      <div className="relative aspect-square bg-white/[0.04]">
+        {it.thumb
+          /* eslint-disable-next-line @next/next/no-img-element */
+          ? <img src={yupooImg(it.thumb)} alt="" className="w-full h-full object-cover" loading="lazy" />
+          : <div className="w-full h-full flex items-center justify-center"><Package size={32} className="text-white/15" /></div>}
+        {linked && (
+          <span className="absolute top-2 right-2 bg-emerald-600/90 text-white text-[11px] rounded-full px-2 py-0.5 flex items-center gap-1">
+            <Check size={11} /> כבר במוצרים שלך
+          </span>
+        )}
+        <span className="absolute bottom-2 left-2 bg-black/60 text-white/90 text-xs rounded-full px-2.5 py-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Images size={12} /> פתח
+        </span>
+      </div>
+      <div className="p-3">
+        <p className="text-sm text-white/80 truncate min-h-[1.25rem]" dir="ltr" title={it.description}>{it.description || '—'}</p>
+        <p className="text-xs text-white/40 truncate mt-0.5" dir="ltr">#{it.code}</p>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-base font-bold text-white">{priceSym(it.currency || 'ILS')}{it.price}</span>
+          <span className="text-xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><Wand2 size={12} /> צור פוסט</span>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -985,7 +1095,11 @@ function SupplierDashboard({ products, catalogs, catName, onCompose, reload, onM
     if (postFilter === 'none' && p.has_post) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      if (!((p.title || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q))) return false;
+      // The store name/brand/category are the Hebrew names the enrichment agent wrote —
+      // the album title is the supplier's code, which a Hebrew search never finds.
+      const hay = [p.title, p.sku, p.store_name, p.store_brand, p.store_category, p.description]
+        .map((v) => (v || '').toLowerCase());
+      if (!hay.some((v) => v.includes(q))) return false;
     }
     return true;
   });

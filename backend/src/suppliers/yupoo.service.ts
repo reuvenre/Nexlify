@@ -222,6 +222,35 @@ export class YupooService {
     if (this.isLocked(html)) {
       throw new BadRequestException('החנות מוגנת בסיסמה — הגדר/תקן את סיסמת הקטלוג (Yupoo).');
     }
+    return this.parseAlbumCards(html, base);
+  }
+
+  /**
+   * Search a store's albums by the words in their titles — Yupoo's own store search
+   * (`/search/album?q=`), the same box a visitor uses on the site. Titles are what the
+   * supplier wrote: product codes, English, and Chinese, so a Hebrew word finds nothing.
+   * Results are ranked by Yupoo (an exact code first) and paged 120 at a time, in the
+   * same album-card markup as the store listing.
+   */
+  async searchStore(
+    store: string,
+    query: string,
+    opts: { page?: number; password?: string } = {},
+  ): Promise<{ items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>; hasMore: boolean }> {
+    const q = (query || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!q) return { items: [], hasMore: false };
+    const base = this.storeBase(store);
+    const page = Math.max(1, opts.page || 1);
+    const params = new URLSearchParams({ uid: '1', sort: '', q, page: String(page) });
+    const html = await this.get(`${base}/search/album?${params.toString()}`, base + '/', opts.password);
+    if (this.isLocked(html)) {
+      throw new BadRequestException('החנות מוגנת בסיסמה — הגדר/תקן את סיסמת הקטלוג (Yupoo).');
+    }
+    return this.parseAlbumCards(html, base);
+  }
+
+  /** The album cards of a listing page (store, category or search results). */
+  private parseAlbumCards(html: string, base: string): { items: Array<{ code: string; price: number; description: string; album_url: string; thumb?: string }>; hasMore: boolean } {
     const $ = cheerio.load(html);
     // Each album card has TWO <a> to the same /albums/<id>: an IMAGE link (real
     // photo.yupoo.com src, no title) and a TITLE link (the title, but a lazy 1x1
@@ -254,7 +283,7 @@ export class YupooService {
           if (u.startsWith('//')) u = 'https:' + u;
           // Only a REAL product photo — skip the lazy 1x1 data: placeholder and site assets.
           if (/photo\.yupoo\.com/i.test(u)) {
-            row.thumb = u.replace(/\/(small|thumb)\.jpg/i, '/medium.jpg'); // sharper card
+            row.thumb = u.replace(/\/(small|thumb)\.(jpe?g)/i, '/medium.$2'); // sharper card
           }
         });
       }
@@ -263,6 +292,9 @@ export class YupooService {
     });
     const items = [...byAlbum.values()].filter((r) => r.code);
     // A full page (Yupoo returns ~120) implies there's likely a next page.
-    return { items, hasMore: items.length >= 100 };
+    // The pager's "next" button carries an href only when there is a next page (共29页);
+    // a full page (Yupoo returns ~120) is the fallback signal for markup without it.
+    const next = $('a.pagination__button[title="后一页"]').attr('href');
+    return { items, hasMore: !!next || items.length >= 100 };
   }
 }

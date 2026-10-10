@@ -1069,6 +1069,20 @@ export const suppliersApi = {
       categories?: Array<{ id: string; name: string; isSubCate: boolean }>;
     }>(`/suppliers/catalogs/${catalogId}/browse`, { params, timeout: 30_000 }).then(extract),
 
+  /** Search the catalogs' Yupoo stores by album title — one catalog, or all of them. */
+  searchCatalogs: (q: string, params: { catalog_id?: string; page?: number } = {}) =>
+    http.get<{
+      query: string;
+      hebrew: boolean;
+      results: Array<{
+        catalog_id: string;
+        catalog_name: string;
+        hasMore: boolean;
+        error?: string;
+        items: Array<{ code: string; price: number; currency?: string; description: string; album_url: string; thumb?: string; linked_product_id?: string | null }>;
+      }>;
+    }>('/suppliers/catalogs/search', { params: { q, ...params }, timeout: 60_000 }).then(extract),
+
   // Products
   listProducts: (catalogId?: string) =>
     http.get<SupplierProduct[]>('/suppliers/products', { params: catalogId ? { catalog_id: catalogId } : undefined }).then(extract),

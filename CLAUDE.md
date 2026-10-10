@@ -130,6 +130,14 @@ The owner saw the same product go out again and again. Three causes, all closed:
 - **Recycling inside the cooldown.** The tiers recycled the *oldest* post inside the 14 days, which for a keyword with a dozen on-spec results was three days ago. Now `choosePool` recycles only products last posted ≥ 7 days ago, prefers a new lower-rated product to a recent repeat, and otherwise reports the keyword dry. Before settling for any repeat, a keyword searches `EXTRA_SLICES_BEFORE_REPEAT` (2) more (sort, page) slices: the rotation moves only after a full page of posts, and the affiliate API often returns far fewer.
 - **The agents path had no de-dup at all.** Same search and same score every run gave the same top products. The orchestrator now hides recently published products from the ProductAgent's search results (`alreadyPublished`), drops any pick that repeats one, and `createAgentPost` records the post's keyword and writes `campaign_posted_products`.
 
+### Searching the FLYLINK catalogs by hand (`suppliers/catalog-search.ts`)
+"עיין בקטלוג" in the FLYLINK products tab has a search box. `GET /suppliers/catalogs/search?q=&catalog_id=&page=` runs `YupooService.searchStore`, which is Yupoo's own store search (`/search/album?uid=1&q=`, 120 per page, ranked by Yupoo, so an exact code comes first).
+- It searches one catalog, or every enabled catalog with a store when `catalog_id` is omitted («בכל הקטלוגים»).
+- Each catalog is searched on its own. A locked or blocked store returns its `error` next to the other catalogs' results.
+- A result whose album is already linked carries `linked_product_id` (matched by album id in `yupoo_url`) and shows «כבר במוצרים שלך».
+- Album titles are the supplier's codes, English and Chinese, so a Hebrew search finds nothing there. The screen says so and points to "המוצרים שלי", whose filter also matches the Hebrew `store_name` / `store_brand` / `store_category` the enrichment agent wrote.
+- Search pages and listing pages share `parseAlbumCards`. `hasMore` reads the pager's next link (`后一页`).
+
 ### Never two posts in one chat at once (`posts/chat-collision.ts`)
 A group is fed by two clocks that fire in the same second: `sendScheduledPosts` releases campaign posts by `scheduled_at`, and `processQueue` drips the manual queue by the group's `schedule_last_sent_at`. Neither sees the other's send until it has finished. On an ordinary slot the few seconds a send takes kept them apart by accident. When the group's clock is old, as at the 09:00 window opening after a quiet night, both were due at once and the group got two posts together. A fan-out post or a default channel that is also a saved group met a group post the same way.
 - Both paths now claim through `claimPacedSend`. Under a per-account `pg_advisory_xact_lock`, it refuses the claim when another post reached one of the same Telegram chats within `chatGapMinutes` (half the group's interval, at most 15 min).
