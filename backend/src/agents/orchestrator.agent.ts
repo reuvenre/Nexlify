@@ -9,6 +9,7 @@ import { PostsService } from '../posts/posts.service';
 import { RatesService } from '../rates/rates.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { Campaign } from '../campaigns/campaign.entity';
+import { focusLabel } from '../posts/group-focus';
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   ILS: '₪', EUR: '€', GBP: '£', USD: '$',
@@ -82,6 +83,13 @@ export class OrchestratorAgent {
       // by id, photo and title — is hidden from the agent, and nothing it returns may repeat
       // another pick of this run. This path used to have no de-dup at all.
       const published = await this.posts.recentlyPublished(userId, new Date(Date.now() - 14 * 86_400_000));
+      // A group with a declared core focus (group-focus.ts) takes only products clearly
+      // inside it. The agent is asked for twice as many so the check has spares to drop.
+      let targets: string[] = [];
+      try { targets = JSON.parse(campaign.target_channels || '[]'); } catch { targets = []; }
+      targets = targets.filter((t) => typeof t === 'string' && t.trim());
+      const { foci } = await this.posts.groupFocusCheck(userId, creds, targets, []);
+      const want = foci.length ? plan.perPost * 2 : plan.perPost;
       const { products: picked, tokens: productTokens } = await this.productAgent.findBestProducts(
         userId,
         // This run's slot keywords, not the raw campaign list: the agent searches only the
@@ -94,15 +102,26 @@ export class OrchestratorAgent {
           max_price: campaign.max_price,
           min_discount: campaign.min_discount,
         },
-        plan.perPost,
+        want,
         soldBand,
         (p) => published.has(p),
       );
-      const products = picked.filter((p) => {
+      let products = picked.filter((p) => {
         if (published.has(p)) return false;
         published.add(p);
         return true;
       });
+      if (foci.length && products.length) {
+        const { verdicts } = await this.posts.groupFocusCheck(userId, creds, targets, products.map((p) => ({
+          id: String(p.product_id), keyword: String(p.keyword || ''), title: String(p.title || ''),
+          category: (p as any).category,
+        })), campaign.name);
+        const label = focusLabel(foci);
+        products.forEach((p, i) => {
+          if (!verdicts[i].fits) errors.push(`${label}: "${String(p.title || '').slice(0, 50)}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);
+        });
+        products = products.filter((_p, i) => verdicts[i].fits).slice(0, plan.perPost);
+      }
       totalTokens += productTokens;
       this.logger.log(`[Orchestrator] Found ${products.length} products`);
 

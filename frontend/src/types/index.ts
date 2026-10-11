@@ -792,6 +792,8 @@ export interface Channel {
   fb_token_days_left?: number | null;
   /** Opt-in: nudge this group's posts into its learned golden hours. */
   smart_timing?: boolean;
+  /** The group's core focus; '' = none (the lenient relevance guard only). */
+  core_focus?: string;
   /** Per-group send queue. null on any field = inherit the global schedule setting. */
   schedule_enabled: boolean | null;
   schedule_interval_minutes: number | null;
@@ -865,6 +867,8 @@ export interface UpdateChannelInput {
   instagram_business_id?: string;
   /** Opt-in: nudge this group's posts into its learned golden hours. */
   smart_timing?: boolean;
+  /** The group's core focus; '' clears it. */
+  core_focus?: string | null;
   /** Per-group send queue. Send null to clear an override (back to the global schedule). */
   schedule_enabled?: boolean | null;
   schedule_interval_minutes?: number | null;

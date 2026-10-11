@@ -5,6 +5,7 @@ import axios from 'axios';
 import { CredentialsService } from '../credentials/credentials.service';
 import { PostsService, CampaignRunResult } from '../posts/posts.service';
 import { Campaign } from '../campaigns/campaign.entity';
+import { focusLabel } from '../posts/group-focus';
 import { signAmazonPaapi, AMAZON_MARKETPLACES } from '../common/amazon-sign';
 
 /** A normalized Amazon product (from PA-API SearchItems). */
@@ -162,12 +163,29 @@ export class AmazonService {
     // Skip products this campaign already posted (dedup by ASIN), same as the other runners.
     const postedIds = await this.posts.postedProductIds(campaign.id).catch(() => new Set<string>());
     const fresh = found.filter((p) => !postedIds.has(p.asin));
-    const products = (fresh.length ? fresh : found).slice(0, limit);
+    let candidates = fresh.length ? fresh : found;
+
+    // CORE FOCUS (posts/group-focus.ts): a focused group takes only products clearly inside it.
+    const creds = await this.credentials.getRaw(userId);
+    const focusNotes: string[] = [];
+    const { foci, verdicts } = await this.posts.groupFocusCheck(userId, creds, targets, candidates.map((p) => ({
+      id: p.asin, keyword, title: String(p.title || ''),
+    })), campaign.name);
+    if (foci.length) {
+      candidates.forEach((p, i) => {
+        if (!verdicts[i].fits) focusNotes.push(`${focusLabel(foci)}: "${String(p.title || '').slice(0, 50)}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);
+      });
+      candidates = candidates.filter((_p, i) => verdicts[i].fits);
+      if (!candidates.length) {
+        return { queued: 0, failed: 0, keyword, searched: `Amazon: ${keyword}`,
+          errors: [...focusNotes, `אף מוצר שנמצא עבור "${keyword}" לא בתוך מיקוד הקבוצה — דילוג`] };
+      }
+    }
+    const products = candidates.slice(0, limit);
 
     const template = await this.posts.resolveBodyTemplate(userId, targets[0]);
-    const creds = await this.credentials.getRaw(userId);
     const times = this.posts.campaignScheduleTimes(products.length, creds);
-    const result: CampaignRunResult = { queued: 0, failed: 0, keyword, searched: `Amazon: ${keyword}`, errors: [] };
+    const result: CampaignRunResult = { queued: 0, failed: 0, keyword, searched: `Amazon: ${keyword}`, errors: [...focusNotes] };
 
     for (let i = 0; i < products.length; i++) {
       const p = products[i];

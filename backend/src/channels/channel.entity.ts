@@ -109,6 +109,15 @@ export class Channel {
   @Column({ type: 'boolean', default: false })
   smart_timing: boolean;
 
+  /**
+   * The group's core focus, in the owner's words ("ציוד טקטי ואיירסופט: נרתיקים, אפודים…").
+   * Null = no focus: products go through the lenient relevance guard only (reject a clear
+   * misfit). Set = every automatic route into this group publishes ONLY products clearly
+   * inside it — see posts/group-focus.ts.
+   */
+  @Column({ type: 'text', nullable: true })
+  core_focus: string | null;
+
   /** When this group last received a queued post — its own interval clock. */
   @Column({ type: 'timestamp', nullable: true })
   schedule_last_sent_at: Date | null;

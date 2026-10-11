@@ -15,6 +15,7 @@ import {
   canPublish, describeMissingScopes, missingScopes, parseGrantedScopes,
 } from '../pinterest/pinterest-scopes';
 import { daysUntil, resolveMetaTokenExpiry } from '../common/meta-token';
+import { GroupFocus, normalizeFocus } from '../posts/group-focus';
 
 @Injectable()
 export class ChannelsService {
@@ -118,6 +119,7 @@ export class ChannelsService {
       channel.facebook_token_notified_at = null;
     }
     if (dto.smart_timing !== undefined) channel.smart_timing = dto.smart_timing === true;
+    if (dto.core_focus !== undefined) channel.core_focus = normalizeFocus(dto.core_focus);
     // Per-group queue overrides — an explicit null clears the override (back to inherit).
     if (dto.schedule_enabled !== undefined) channel.schedule_enabled = dto.schedule_enabled;
     if (dto.schedule_interval_minutes !== undefined) channel.schedule_interval_minutes = dto.schedule_interval_minutes;
@@ -811,6 +813,19 @@ export class ChannelsService {
     if (stale.length) await this.markSent(userId, stale, now);
   }
 
+  /**
+   * The core focus of each of these groups that has one, with the group's name. Empty when
+   * none of them has a focus — the caller then keeps the lenient guard.
+   */
+  async getFocus(userId: string, channelIds: string[]): Promise<GroupFocus[]> {
+    const ids = Array.from(new Set((channelIds || []).filter(Boolean)));
+    if (!ids.length) return [];
+    const chans = await this.repo.find({ where: { user_id: userId, channel_id: In(ids) } });
+    return chans
+      .filter((c) => !!c.core_focus?.trim())
+      .map((c) => ({ channelId: c.channel_id, name: c.name, focus: c.core_focus!.trim() }));
+  }
+
   /** The saved channel's display name (for multi-group error labels). Null if unknown. */
   async getName(userId: string, channelId: string): Promise<string | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });
@@ -871,6 +886,7 @@ export class ChannelsService {
       fb_token_expires_at: c.facebook_token_expires_at ?? null,
       fb_token_days_left: daysUntil(c.facebook_token_expires_at),
       smart_timing: c.smart_timing === true,
+      core_focus: c.core_focus || '',
       // Per-group queue settings — null means "inherit the global schedule".
       schedule_enabled: c.schedule_enabled ?? null,
       schedule_interval_minutes: c.schedule_interval_minutes ?? null,

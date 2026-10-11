@@ -360,6 +360,7 @@ function EditChannelModal({
   // schedule (הגדרות ← תזמון אוטומטי) — which is the default for every group.
   const [inQueue, setInQueue] = useState(channel.schedule_enabled !== false);
   const [smartTiming, setSmartTiming] = useState(channel.smart_timing === true);
+  const [coreFocus, setCoreFocus] = useState(channel.core_focus || '');
   const [customSched, setCustomSched] = useState(
     channel.schedule_interval_minutes != null ||
     channel.schedule_start_hour != null ||
@@ -398,6 +399,7 @@ function EditChannelModal({
         // group's auto-queue entirely.
         schedule_enabled: inQueue ? null : false,
         smart_timing: smartTiming,
+        core_focus: coreFocus.trim() || null,
         // Only what the user actually typed is stored; an empty field stays null and keeps
         // inheriting the global schedule. Note hour 0 (midnight) is a legitimate value, so
         // the empty-check is on the string — `Number('') || 0` would have stored midnight.
@@ -452,6 +454,20 @@ function EditChannelModal({
             fbTokenDaysLeft={channel.fb_token_days_left ?? null}
             isEdit
           />
+
+          {/* Core focus — only products clearly inside it reach this group automatically */}
+          <div className="border border-edge rounded-xl p-3 space-y-2 bg-white/[0.02]">
+            <label htmlFor="core-focus" className="block text-xs text-white/50 font-medium">🎯 מיקוד ליבה של הקבוצה</label>
+            <textarea id="core-focus" rows={3} maxLength={400} value={coreFocus}
+              onChange={(e) => setCoreFocus(e.target.value)}
+              placeholder="לדוגמה: ציוד טקטי ואיירסופט: נרתיקים, אפודים, מסילות פיקטיני, ידיות, פנסי נשק"
+              className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-blue-500/50 resize-y" />
+            <p className="text-2xs text-white/30 leading-relaxed">
+              {coreFocus.trim()
+                ? 'כל מוצר שנשלח לקבוצה אוטומטית (קמפיינים, FLYLINK, הסוכנים ופוסטי החזרת מכירות) נבדק מול המיקוד. עובר רק מוצר שנמצא בבירור בתוכו, ומוצר גבולי מוחלף באחר. מה שנפסל מופיע בהערת הריצה של הקמפיין. פוסט ששולחים ידנית לא נבדק.'
+                : 'ריק = הבדיקה הרגילה בלבד: נפסל רק מוצר שבבירור לא מתאים לקהל. כתוב כאן במה הקבוצה עוסקת כדי שיעברו רק מוצרים מהתחום.'}
+            </p>
+          </div>
 
           {/* Per-group send queue — this group has its own queue and its own clock */}
           <div className="border border-edge rounded-xl p-3 space-y-3 bg-white/[0.02]">

@@ -31,7 +31,14 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
 
   /** The orchestrator with every collaborator stubbed. `products` is what the ProductAgent
    *  reports back, which decides whether the content step runs at all. */
-  function build(plan: any = PLAN, products: any[] = [{ product_id: 'p1', title: 'פנס טקטי' }], published: any[] = []) {
+  function build(
+    plan: any = PLAN, products: any[] = [{ product_id: 'p1', title: 'פנס טקטי' }], published: any[] = [],
+    focus: { foci: any[]; reject?: Set<string> } = { foci: [] },
+  ) {
+    const groupFocusCheck = jest.fn(async (_u: string, _c: any, _t: string[], items: any[]) => ({
+      foci: focus.foci,
+      verdicts: items.map((it) => (focus.reject?.has(it.id) ? { fits: false, reason: 'פנס רגיל' } : { fits: true, reason: '' })),
+    }));
     const findBestProducts = jest.fn(async (..._a: any[]) => ({ products, tokens: 0 }));
     const generateOptimizedContent = jest.fn(async (..._a: any[]) => ({ text: 'טקסט', language: 'he', tokens: 0 }));
     const createAgentPost = jest.fn(async (..._a: any[]) => undefined);
@@ -42,13 +49,13 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
       { evaluateAndOptimize: async () => ({ status: 'healthy', tokens: 0 }) } as any,
       {
         campaignKeywordPlan, soldPriceBandFor: async () => null, createAgentPost,
-        recentlyPublished: async () => new PublishedProducts(published),
+        recentlyPublished: async () => new PublishedProducts(published), groupFocusCheck,
       } as any,
       { getRate: async () => 3.7 } as any,
       { getRaw: async () => ({ currency_pair: 'USD_ILS' }) } as any,
       { create: (r: any) => ({ ...r, id: 'run1' }), save: async (r: any) => r } as any,
     );
-    return { agent, findBestProducts, generateOptimizedContent, createAgentPost, campaignKeywordPlan };
+    return { agent, findBestProducts, generateOptimizedContent, createAgentPost, campaignKeywordPlan, groupFocusCheck };
   }
 
   it('asks for the plan instead of reading the campaign row directly', async () => {
@@ -158,6 +165,35 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
       const { agent, createAgentPost } = build(PLAN, [{ ...sling, keyword: 'tactical flashlight' }]);
       await agent.run(campaign, USER);
       expect((createAgentPost.mock.calls[0] as any[])[2].keyword).toBe('tactical flashlight');
+    });
+  });
+
+  describe('a group with a core focus', () => {
+    const FOCI = [{ channelId: '-100', name: 'טקטי בקליק', focus: 'ציוד טקטי' }];
+    const focused = { ...campaign, target_channels: JSON.stringify(['-100']) };
+
+    it('asks the agent for spares and publishes only what the focus accepts', async () => {
+      const products = [
+        { product_id: 'a', title: 'פנס רגיל' },
+        { product_id: 'b', title: 'נרתיק לאקדח' },
+        { product_id: 'c', title: 'אפוד טקטי' },
+        { product_id: 'd', title: 'מסילת פיקטיני' },
+      ];
+      const { agent, findBestProducts, createAgentPost, groupFocusCheck } = build(PLAN, products, [], { foci: FOCI, reject: new Set(['a']) });
+      const res = await agent.run(focused, USER);
+      expect((findBestProducts.mock.calls[0] as any[])[3]).toBe(PLAN.perPost * 2);
+      expect((groupFocusCheck.mock.calls[0] as any[])[2]).toEqual(['-100']);
+      // The rejected one is out, and no more than the plan's count go out.
+      expect(createAgentPost.mock.calls.map((c: any[]) => c[2].product_id)).toEqual(['b', 'c']);
+      expect(res.errors.join(' ')).toContain('מיקוד הקבוצה (טקטי בקליק): "פנס רגיל" נפסל (פנס רגיל)');
+    });
+
+    it('without a focus nothing changes: same count asked, nothing judged', async () => {
+      const { agent, findBestProducts, groupFocusCheck } = build();
+      await agent.run(campaign, USER);
+      expect((findBestProducts.mock.calls[0] as any[])[3]).toBe(PLAN.perPost);
+      expect(groupFocusCheck).toHaveBeenCalledTimes(1); // the lookup only, with no items
+      expect((groupFocusCheck.mock.calls[0] as any[])[3]).toEqual([]);
     });
   });
 });

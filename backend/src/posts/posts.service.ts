@@ -44,7 +44,8 @@ import { snapToHotHour } from './smart-timing';
 import { occupiesCurrentInterval, pacingIntervalMinutes } from './group-pacing';
 import { platformFilterSql } from './platform-filter';
 import { ImportRowInput, composeImportText, extractAliProductId, extractAliProductIdFromHtml, validImportRow } from './import-rows';
-import { PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdict, buildProductFitPrompt, parseProductFitVerdicts } from './product-relevance';
+import { GROUP_FOCUS_SYSTEM, PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdict, buildProductFitPrompt, isStrictFit, parseProductFitVerdicts } from './product-relevance';
+import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusLabel, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
 import { hotHours } from '../optimizer/hot-hours';
 import { PriceBand, preferInBand, soldPriceBand } from '../optimizer/sold-price-band';
 import { COPY_VARIANTS, VariantStat, customVariants, pickVariant, variantHint } from './copy-variants';
@@ -3134,15 +3135,23 @@ export class PostsService {
       const groupLabels = (await Promise.all(
         targets.map((t) => this.channels.getName(userId, t).catch(() => null)),
       )).filter((n): n is string => !!n);
-      const fitCtx: ProductFitContext = { campaign: campaign.name, channels: groupLabels, keywords: kwEffective };
-      const verdicts = await this.productFitVerdicts(creds, fitCtx, toPost.map((x) => ({
-        keyword: x.kw, title: String(x.product.title || ''), category: x.product.category,
-      })));
+      // A group with a declared core focus turns the guard strict (group-focus.ts): only a
+      // product clearly inside the focus goes out. No focus → the lenient guard, unchanged.
+      const focusChats = targets.length ? targets : [creds?.telegram_channel_id].filter((c): c is string => !!c);
+      const foci = await this.channels.getFocus(userId, focusChats).catch(() => [] as GroupFocus[]);
+      const strict = foci.length > 0;
+      const guardName = strict ? focusLabel(foci) : 'שומר הרלוונטיות';
+      const fitCtx: ProductFitContext = { campaign: campaign.name, channels: groupLabels, keywords: kwEffective, focus: foci };
+      const fitItem = (p: any, kw: string): ProductFitItem => ({
+        id: p?.product_id ? String(p.product_id) : undefined,
+        keyword: kw, title: String(p?.title || ''), category: p?.category,
+      });
+      const verdicts = await this.productFitVerdicts(creds, fitCtx, toPost.map((x) => fitItem(x.product, x.kw)));
       const kept: Array<{ product: any; kw: string }> = [];
       for (let i = 0; i < toPost.length; i++) {
         if (verdicts[i].fits) { kept.push(toPost[i]); continue; }
         const rejectedTitle = String(toPost[i].product.title || '').slice(0, 50);
-        this.logger.warn(`campaign ${campaign.id}: relevance guard rejected "${rejectedTitle}"`
+        this.logger.warn(`campaign ${campaign.id}: ${strict ? 'core focus' : 'relevance guard'} rejected "${rejectedTitle}"`
           + ` (${verdicts[i].reason || 'no reason'}) for kw "${toPost[i].kw}"`);
         // Replacement draws from THIS keyword's pool first, then from any other keyword's —
         // the same borrowing the dry-slot filler already does. Without the borrow the guard
@@ -3150,13 +3159,23 @@ export class PostsService {
         // off-audience, and a 3-hourly campaign stretched toward 8 hours between posts.
         let replaced = false;
         const donors = [toPost[i].kw, ...Array.from(poolBy.keys()).filter((k) => k !== toPost[i].kw)];
-        for (const donor of donors) {
-          for (let attempt = 0; attempt < 3 && !replaced; attempt++) {
+        for (const donor of strict ? donors.slice(0, FOCUS_MAX_DONORS) : donors) {
+          if (strict) {
+            // A focused group rejects often, so its candidates are judged three at a time
+            // in one call, over a few donors — one call per candidate across every keyword
+            // could reach thirty calls for a single slot.
+            const batch: any[] = [];
+            for (let n = 0; n < 3; n++) { const next = takeFrom(donor); if (!next) break; batch.push(next); }
+            if (batch.length) {
+              const vs = await this.productFitVerdicts(creds, fitCtx, batch.map((p) => fitItem(p, donor)));
+              const at = vs.findIndex((v) => v.fits);
+              if (at >= 0) { kept.push({ product: batch[at], kw: donor }); replaced = true; }
+            }
+          }
+          for (let attempt = 0; !strict && attempt < 3 && !replaced; attempt++) {
             const next = takeFrom(donor);
             if (!next) break;
-            const [v] = await this.productFitVerdicts(creds, fitCtx, [{
-              keyword: donor, title: String(next.title || ''), category: next.category,
-            }]);
+            const [v] = await this.productFitVerdicts(creds, fitCtx, [fitItem(next, donor)]);
             if (v.fits) { kept.push({ product: next, kw: donor }); replaced = true; }
           }
           if (replaced) {
@@ -3168,7 +3187,7 @@ export class PostsService {
             if (wasSeasonal && !seasonalKeywordSet.has(donor.trim().toLowerCase())) {
               seasonalSwapped++;
               result.errors.push(
-                `שומר הרלוונטיות פסל מוצר עונתי "${rejectedTitle}" (${verdicts[i].reason || 'לא מתאים לקהל'}) — הוחלף במוצר של "${donor}"`,
+                `${guardName} פסל מוצר עונתי "${rejectedTitle}" (${verdicts[i].reason || (strict ? 'מחוץ למיקוד' : 'לא מתאים לקהל')}) — הוחלף במוצר של "${donor}"`,
               );
             }
             break;
@@ -3176,7 +3195,7 @@ export class PostsService {
         }
         if (!replaced) {
           result.errors.push(
-            `שומר הרלוונטיות: "${rejectedTitle}" נפסל (${verdicts[i].reason || 'לא מתאים לקהל'}) ולא נמצא תחליף — הפוסט דולג`,
+            `${guardName}: "${rejectedTitle}" נפסל (${verdicts[i].reason || (strict ? 'מחוץ למיקוד' : 'לא מתאים לקהל')}) ולא נמצא תחליף — הפוסט דולג`,
           );
           this.logger.warn(`campaign ${campaign.id}: relevance guard dropped a slot — no on-audience replacement in ${donors.length} pool(s)`);
         }
@@ -6548,17 +6567,63 @@ export class PostsService {
   ): Promise<ProductFitVerdict[]> {
     const accept = items.map(() => ({ fits: true, reason: '' }));
     if (!items.length) return accept;
+    const strict = isStrictFit(ctx);
+    // A focused group: products it already turned down are not asked about again (see
+    // FOCUS_REJECT_TTL_MS). Only keyed items can be remembered.
+    const userId = creds?.user_id;
+    const memKey = strict && userId && this.memory
+      ? focusMemoryKey(userId, (ctx.focus || []).map((f) => ({ channelId: '', ...f })))
+      : null;
+    const stored = memKey ? await this.memory!.load<FocusMemory>(memKey) : null;
+    const known = liveRejections(stored, Date.now());
+    const out: ProductFitVerdict[] = items.map((it) =>
+      it.id && known.has(String(it.id)) ? { fits: false, reason: REMEMBERED_REASON } : { fits: true, reason: '' });
+    const ask = items.map((it, i) => ({ it, i })).filter(({ it }) => !(it.id && known.has(String(it.id))));
+    if (!ask.length) return out;
     try {
       const res = await this.ai.generate(creds, {
-        system: PRODUCT_FIT_SYSTEM,
-        prompt: buildProductFitPrompt(ctx, items),
-        maxTokens: 60 + items.length * 60,
+        system: strict ? GROUP_FOCUS_SYSTEM : PRODUCT_FIT_SYSTEM,
+        prompt: buildProductFitPrompt(ctx, ask.map((a) => a.it)),
+        maxTokens: 60 + ask.length * 60,
         temperature: 0,
       });
-      return res?.text ? parseProductFitVerdicts(res.text, items.length) : accept;
+      if (!res?.text) return out;
+      const verdicts = parseProductFitVerdicts(res.text, ask.length, strict);
+      ask.forEach((a, j) => { out[a.i] = verdicts[j]; });
+      const rejected = ask.filter((a, j) => !verdicts[j].fits && a.it.id).map((a) => String(a.it.id));
+      if (memKey && rejected.length) {
+        await this.memory!.save(memKey, mergeRejections(stored, rejected, Date.now()), FOCUS_REJECT_TTL_MS);
+      }
+      return out;
     } catch {
-      return accept;
+      return out;
     }
+  }
+
+  /**
+   * The core-focus check for routes that have no relevance guard of their own: FLYLINK, the
+   * agents and sales recovery. When none of `targets` has a focus nothing is asked and every
+   * product passes, which is how these routes behaved before. Fail-open like the guard: no
+   * AI key or a failed judge accepts.
+   */
+  async groupFocusCheck(
+    userId: string,
+    creds: DecryptedCredentials | null | undefined,
+    targets: string[],
+    items: ProductFitItem[],
+    campaignName = '',
+  ): Promise<{ foci: GroupFocus[]; verdicts: ProductFitVerdict[] }> {
+    const accept = items.map(() => ({ fits: true, reason: '' }));
+    const chats = targets.length ? targets : [creds?.telegram_channel_id].filter((c): c is string => !!c);
+    const foci = await this.channels.getFocus(userId, chats).catch(() => [] as GroupFocus[]);
+    if (!foci.length || !items.length || !creds || !this.ai.hasAnyKey(creds)) return { foci, verdicts: accept };
+    const ctx: ProductFitContext = {
+      campaign: campaignName || foci.map((f) => f.name).join(', '),
+      channels: foci.map((f) => f.name),
+      keywords: [],
+      focus: foci,
+    };
+    return { foci, verdicts: await this.productFitVerdicts(creds, ctx, items) };
   }
 
   private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false, opts?: { currencyPair?: string; style?: 'pinterest'; seasonHint?: string | null; copyHint?: string | null; promo?: { discount?: number | null; endsLabel?: string | null } }): Promise<string> {

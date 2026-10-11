@@ -138,6 +138,18 @@ The owner saw the same product go out again and again. Three causes, all closed:
 - Album titles are the supplier's codes, English and Chinese, so a Hebrew search finds nothing there. The screen says so and points to "המוצרים שלי", whose filter also matches the Hebrew `store_name` / `store_brand` / `store_category` the enrichment agent wrote.
 - Search pages and listing pages share `parseAlbumCards`. `hasMore` reads the pager's next link (`后一页`).
 
+### A group's core focus (`posts/group-focus.ts`, `channels.core_focus`)
+The relevance guard (`product-relevance.ts`) accepts anything plausible and rejects only a clear misfit, so טקטי בקליק still received an ordinary flashlight or general camping gear. A group can now carry a **core focus** in the owner's words (groups screen → edit → «🎯 מיקוד ליבה»). When any target group has one, the question turns strict (`GROUP_FOCUS_SYSTEM`): only a product clearly inside the focus passes, unsure is no, and a parsed reply must say `fits: true` explicitly.
+- **Every automatic route** asks it:
+  - The AliExpress campaign uses its existing guard in strict mode. Replacements are judged three per call over at most `FOCUS_MAX_DONORS` (4) keywords.
+  - FLYLINK, the agents (asked for twice the products, then cut back to the plan's count), sales recovery (up to 3 picks) and Amazon go through `PostsService.groupFocusCheck`.
+  - A campaign with no targets is checked against the account's default chat.
+  - Manual sends are not checked.
+- **FLYLINK** is judged by the enrichment's `store_name` / `store_brand` / `store_category` and the description (`flylinkFitItem`). An item with only a supplier code is not asked about and goes through.
+- **Rejections are remembered** per focus text in `persistent_values` (`group_focus_rejected:<user>:<hash>`, 14 d). This stops a FLYLINK rotation or a repeating search from asking about the same item every run. Rewriting the focus starts fresh.
+- **Fail-open stays:** no AI key, a judge error or an unreadable reply accepts everything. A judge outage must never silence a group.
+- **Run note:** each rejection appears as «מיקוד הקבוצה (<name>): "<title>" נפסל (<reason>)».
+
 ### Never two posts in one chat at once (`posts/chat-collision.ts`)
 A group is fed by two clocks that fire in the same second: `sendScheduledPosts` releases campaign posts by `scheduled_at`, and `processQueue` drips the manual queue by the group's `schedule_last_sent_at`. Neither sees the other's send until it has finished. On an ordinary slot the few seconds a send takes kept them apart by accident. When the group's clock is old, as at the 09:00 window opening after a quiet night, both were due at once and the group got two posts together. A fan-out post or a default channel that is also a saved group met a group post the same way.
 - Both paths now claim through `claimPacedSend`. Under a per-account `pg_advisory_xact_lock`, it refuses the claim when another post reached one of the same Telegram chats within `chatGapMinutes` (half the group's interval, at most 15 min).

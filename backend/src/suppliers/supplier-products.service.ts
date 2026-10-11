@@ -23,6 +23,7 @@ import { CredentialsService, DecryptedCredentials } from '../credentials/credent
 import { SubscriptionService } from '../subscription/subscription.service';
 import { RatesService } from '../rates/rates.service';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
+import { flylinkFitItem, focusLabel } from '../posts/group-focus';
 
 // store_name / store_category / store_brand are here so the owner can overrule the
 // enrichment agent — it proposes, he decides, and the correction stands because
@@ -970,22 +971,50 @@ export class SupplierProductsService {
       const cutoff = Date.now() - FLYLINK_REPEAT_COOLDOWN_MS;
       pool = available.filter((p) => !p.last_posted_at || new Date(p.last_posted_at).getTime() < cutoff);
     }
-    const products = pool.slice(0, limit);
-    if (!products.length) {
+    if (!pool.length) {
       return { queued: 0, failed: 0, keyword: 'מוצרי FLYLINK', searched: 'FLYLINK',
         errors: ['כל מוצרי הקטלוג פורסמו לאחרונה — דילוג עד שהקולדאון יעבור. הוסף מוצרים לקטלוג לפרסום תכוף ומגוון יותר.'] };
+    }
+
+    // CORE FOCUS (posts/group-focus.ts): a group whose owner declared its focus takes only
+    // catalog items clearly inside it — a linked catalog can still hold a brand bag next to
+    // the holsters. Judged from the words the enrichment agent wrote; an item that has none
+    // (a bare supplier code) cannot be judged and goes through as before.
+    const creds = await this.credentials.getRaw(userId);
+    const focusNotes: string[] = [];
+    let products = pool.slice(0, limit);
+    const judgeable = pool.slice(0, limit * 3);
+    const focusItems = judgeable.map((p) => flylinkFitItem(p));
+    if (focusItems.some((it) => it)) {
+      const asked = focusItems.map((it, i) => ({ it, i })).filter((x) => !!x.it);
+      const { foci, verdicts } = await this.posts.groupFocusCheck(
+        userId, creds, targets, asked.map((x) => x.it!), campaign.name,
+      );
+      if (foci.length) {
+        const out = new Set<number>();
+        asked.forEach((x, j) => {
+          if (verdicts[j].fits) return;
+          out.add(x.i);
+          const p = judgeable[x.i];
+          focusNotes.push(`${focusLabel(foci)}: "${(p.store_name || p.title || p.sku || '').slice(0, 50)}" נפסל (${verdicts[j].reason || 'מחוץ למיקוד'})`);
+        });
+        products = judgeable.filter((_p, i) => !out.has(i)).slice(0, limit);
+        if (!products.length) {
+          return { queued: 0, failed: 0, keyword: 'מוצרי FLYLINK', searched: 'FLYLINK',
+            errors: [...focusNotes, 'אף מוצר מהקטלוג שבתור לא נמצא בתוך מיקוד הקבוצה — דילוג'] };
+        }
+      }
     }
 
     // Copy style of the group the campaign posts to (first target) — e.g. the "מאמא מותגים"
     // hidden-product template. Empty → the built-in voice.
     const template = await this.posts.resolveBodyTemplate(userId, targets[0]);
 
-    const result: CampaignRunResult = { queued: 0, failed: 0, keyword: 'מוצרי FLYLINK', searched: 'FLYLINK', errors: [] };
+    const result: CampaignRunResult = { queued: 0, failed: 0, keyword: 'מוצרי FLYLINK', searched: 'FLYLINK', errors: [...focusNotes] };
     const now = new Date();
 
     // Publish times for THIS run — the campaign's cron is the cadence, so a "every 3h"
     // flylink campaign publishes every 3h rather than being re-paced to the queue interval.
-    const creds = await this.credentials.getRaw(userId);
     const times = this.posts.campaignScheduleTimes(products.length, creds);
 
     let skipped = 0;

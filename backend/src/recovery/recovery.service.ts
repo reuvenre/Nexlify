@@ -9,6 +9,10 @@ import { CredentialsService } from '../credentials/credentials.service';
 import { PostsService } from '../posts/posts.service';
 import { ProductsService } from '../products/products.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { focusLabel } from '../posts/group-focus';
+
+/** Picks a focused group may turn down in one tick before recovery waits for the next. */
+const RECOVERY_FOCUS_ATTEMPTS = 3;
 
 /**
  * Sales-recovery auto-push. When a user's attributed orders drop below their configured
@@ -107,14 +111,27 @@ export class RecoveryService {
     //    prefer a bought-but-unposted product whose title matches one, else a keyword-
     //    searched best-seller — both guaranteed on-topic. Only a keyword-less group
     //    (e.g. a brand/FLYLINK channel) falls back to a generic best-seller.
+    //    A group with a declared core focus (posts/group-focus.ts) takes only a product
+    //    clearly inside it: a rejected pick is set aside and the next one tried, a few times.
+    const creds = await this.credentials.getRaw(u.userId).catch(() => null);
     let product: any = null;
-    if (keywords.length) {
-      product = (await this.pickBoughtMatching(u.userId, posted, keywords))
-        || (await this.pickKeywordBestSeller(u.userId, posted, keywords, boostToday));
-    } else {
-      product = (boostToday % 2 === 0)
-        ? (await this.pickBoughtNotPosted(u.userId, posted)) || (await this.pickBestSeller(u.userId, posted))
-        : (await this.pickBestSeller(u.userId, posted)) || (await this.pickBoughtNotPosted(u.userId, posted));
+    for (let attempt = 0; attempt < RECOVERY_FOCUS_ATTEMPTS && !product; attempt++) {
+      let pick: any = null;
+      if (keywords.length) {
+        pick = (await this.pickBoughtMatching(u.userId, posted, keywords))
+          || (await this.pickKeywordBestSeller(u.userId, posted, keywords, boostToday + attempt));
+      } else {
+        pick = (boostToday % 2 === 0)
+          ? (await this.pickBoughtNotPosted(u.userId, posted)) || (await this.pickBestSeller(u.userId, posted))
+          : (await this.pickBestSeller(u.userId, posted)) || (await this.pickBoughtNotPosted(u.userId, posted));
+      }
+      if (!pick) break;
+      const { foci, verdicts } = await this.postsService.groupFocusCheck(u.userId, creds, [group], [{
+        id: String(pick.product_id), keyword: keywords[0] || '', title: String(pick.title || ''), category: pick.category,
+      }]);
+      if (verdicts[0].fits) { product = pick; break; }
+      this.logger.log(`recovery ${u.userId}: ${focusLabel(foci)} rejected ${pick.product_id} (${verdicts[0].reason || 'off focus'})`);
+      posted.add(String(pick.product_id)); // never offered again this tick
     }
     if (!product) { this.logger.log(`recovery ${u.userId}: no fresh on-topic product for group ${group}`); return; }
 

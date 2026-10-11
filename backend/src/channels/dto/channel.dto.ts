@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsIn, IsInt, Min, Max, ValidateIf } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsIn, IsInt, Min, Max, ValidateIf, MaxLength } from 'class-validator';
 
 export class CreateChannelDto {
   @IsString()
@@ -87,6 +87,13 @@ export class UpdateChannelDto {
   @IsOptional()
   @IsBoolean()
   smart_timing?: boolean;
+
+  /** The group's core focus — empty clears it. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @MaxLength(400)
+  core_focus?: string | null;
 
   // ── Per-group send queue (explicit null = inherit the user's global schedule) ──
   @IsOptional()
