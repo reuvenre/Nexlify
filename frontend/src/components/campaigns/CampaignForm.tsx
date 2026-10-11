@@ -96,6 +96,11 @@ function minutesLabel(min: number): string {
  * a field (or a new one) can never drift between "new" and "edit". `mode` only swaps the
  * heading, the button copy, and the icon; the field markup is identical.
  */
+/** Keywords in a typed or pasted string: split on commas, «;» and line breaks, trimmed. */
+function splitKeywords(raw: string): string[] {
+  return raw.split(/[,;\n\r،]+/).map((k) => k.replace(/\s+/g, ' ').trim()).filter(Boolean);
+}
+
 export function CampaignForm({
   mode,
   initial,
@@ -109,6 +114,7 @@ export function CampaignForm({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [kwInput, setKwInput] = useState('');
+  const [kwNote, setKwNote] = useState('');
   const [form, setForm] = useState<CampaignInput>({ source: 'aliexpress', target_channels: [], ...initial });
   const [channels, setChannels] = useState<GroupOption[]>([]);
   // What each group is paced at, and what the account is paced at — the two numbers that
@@ -183,11 +189,28 @@ export function CampaignForm({
       .catch(() => setCatalogs([]));
   }, []);
 
-  const addKeyword = () => {
-    const kw = kwInput.trim();
-    if (kw && !form.keywords.includes(kw)) {
-      setForm((f) => ({ ...f, keywords: [...f.keywords, kw] }));
+  // A pasted list ("a, b, c" or one per line) becomes separate keywords, and a word already
+  // in the rotation is skipped whatever its case. It used to land as ONE keyword holding the
+  // whole list, searched as a single nonsense phrase.
+  const addKeywords = (raw: string) => {
+    const typed = splitKeywords(raw);
+    if (!typed.length) return;
+    const seen = new Set(form.keywords.map((k) => k.trim().toLowerCase()));
+    const fresh: string[] = [];
+    for (const kw of typed) {
+      if (seen.has(kw.toLowerCase())) continue;
+      seen.add(kw.toLowerCase());
+      fresh.push(kw);
     }
+    if (fresh.length) setForm((f) => ({ ...f, keywords: [...f.keywords, ...fresh] }));
+    const skipped = typed.length - fresh.length;
+    setKwNote(typed.length > 1 || skipped
+      ? `נוספו ${fresh.length}${skipped ? ` · דולגו ${skipped} שכבר ברשימה` : ''}`
+      : '');
+  };
+
+  const addKeyword = () => {
+    addKeywords(kwInput);
     setKwInput('');
   };
 
@@ -452,13 +475,24 @@ export function CampaignForm({
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">
           <h2 className="text-sm font-semibold text-white mb-1">מילות מפתח לחיפוש</h2>
           <p className="text-2xs text-white/35 mb-4">
-            אפשר לכתוב בעברית — הקטלוג של AliExpress מאונדקס באנגלית, ולכן המערכת מתרגמת את מילת המפתח לאנגלית לפני החיפוש.
+            הקטלוג של AliExpress מאונדקס באנגלית: מילה בעברית מתורגמת אוטומטית לפני כל חיפוש, ובאנגלית החיפוש מדויק יותר.
+            אפשר להדביק רשימה שלמה (מופרדת בפסיקים או שורה לכל מילה), ומילה שכבר ברשימה מדולגת.
           </p>
           <div className="flex gap-2 mb-3">
             <input
               value={kwInput}
               onChange={(e) => setKwInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
+              onPaste={(e) => {
+                // A single-line input drops the line breaks of a pasted list, so a list is
+                // taken here, before the browser flattens it.
+                const text = e.clipboardData.getData('text');
+                if (splitKeywords(text).length > 1) {
+                  e.preventDefault();
+                  addKeywords(text);
+                  setKwInput('');
+                }
+              }}
               placeholder="הוסף מילת מפתח..."
               className="flex-1 bg-white/5 border border-edge-hover rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/60 transition-colors"
             />
@@ -470,6 +504,7 @@ export function CampaignForm({
               <Plus size={14} />
             </button>
           </div>
+          {kwNote && <p className="text-2xs text-emerald-400/80 -mt-1 mb-3">{kwNote}</p>}
           <div className="flex flex-wrap gap-2">
             {form.keywords.map((kw) => (
               <span key={kw} className="flex items-center gap-1.5 bg-white/8 border border-edge-hover text-white/70 text-xs px-3 py-1.5 rounded-lg">
