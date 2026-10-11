@@ -196,6 +196,10 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
   - Its only write path is `propose_change`. This stores a proposal in `persistent_values` (`manager_proposal:<id>`, 24 h) and shows it with ✅/❌ buttons.
   - On approval the proposal is re-validated against the live campaign, applied, and logged to `manager_actions`, so it shows up in the morning report's undo list.
   - Proposals are single-use. Allowed fields are fixed in `manager-proposal.ts`, within the optimizer's bounds.
+  - **Bulk changes** (the owner asked for keywords and focus "in one go"):
+    - `set_keywords` replaces the whole rotation in one proposal, at most `MAX_KEYWORDS` (30). Words that leave go to `retired_keywords`. It is logged as `keywords`, so the usual undo restores both lists.
+    - `set_group_focus` writes the core focus of the campaign's saved target groups (`campaign_details` → `target_groups` shows the current one). It is logged as `group_focus` with each group's previous focus, and undo puts those back.
+    - An answer with two or more proposals also gets «✅ אשר את כל ה-N» / «❌ דחה הכל» (callbacks `pb`/`pz`, `persistent_values` `manager_bundle:<12 hex>`, 24 h). Each proposal is still approved on its own, in order, with the usual live re-check: one that no longer applies is reported and the rest go through.
   - **The weekly review** (`weeklyReview`, `WEEKLY_REVIEW_QUESTION`): every Sunday morning the manager runs unasked, in a conversation of its own, and brings at most three proposals. It looks for three things:
     - keywords with clicks but no orders (`keyword_clicks` now carries attributed orders and ₪ commission);
     - reader demand no campaign answers (`top_searches` carries `english_search`, the rewrite that found results, as a ready keyword);

@@ -14,7 +14,8 @@ import {
 } from '../posts/copy-variants';
 import { seasonalLedgerKey, seasonalLedgerLine, sumSeasonalRuns, SeasonalLedgerEntry } from '../posts/seasonal-ledger';
 import {
-  PROPOSAL_KINDS, PROPOSAL_TTL_MS, ProposalCampaign, ProposalDraft, StoredProposal, proposalKey, proposalText, validateProposal,
+  CampaignGroup, PROPOSAL_KINDS, PROPOSAL_TTL_MS, ProposalCampaign, ProposalDraft, StoredProposal,
+  bundleKey, newBundleId, parseGroupsBefore, proposalKey, proposalText, validateProposal,
 } from './manager-proposal';
 
 /** Tool turns per question. The last one is forced to answer. */
@@ -39,6 +40,8 @@ What the system's own words mean (from the run notes):
 - "דולגו (הקבוצה תפוסה)" = pacing: the group already had a post booked in that slot. Not an error.
 - Seasonal keywords (when the campaign's seasonal toggle is on and a holiday window is open) take a fixed share: one slot after every 4 of the campaign's own keywords. The "📊 עונתי ב-3 ימים" line is the seasonal ledger: slots handed out, published, skipped by pacing, empty searches, swapped by the relevance guard.
 - The relevance guard ("שומר הרלוונטיות") rejects a product that plainly does not fit the group's audience and swaps in another.
+- A group may have a core focus (campaign_details → target_groups[].core_focus). With one, only products clearly inside it are published, on every automatic route; each rejection is in the run note as "מיקוד הקבוצה (<group>): ... נפסל". A keyword whose products all fall outside the focus wastes the slot, so keep the keywords and the focus consistent.
+- To replace several keywords, propose set_keywords with the whole new list (one approval), not a string of add/remove. When the owner asks to change the keywords and the focus together, propose set_keywords and set_group_focus in the same answer: he can approve all of an answer's proposals with one tap.
 - Clicks are counted on the system's own short links; preview crawlers are excluded. Week-on-week clicks per campaign are the reliable trend signal; one run is not.
 - The optimizer changes things on its own every morning (keywords, posts per run, pauses); recent_changes lists them, and each can be undone.
 
@@ -144,13 +147,16 @@ const TOOLS: Anthropic.Tool[] = [
       + 'kinds: posts_per_run (integer 1-5), campaign_status ("active"|"paused"), seasonal_keywords (true|false), '
       + 'learn_from_orders (true|false), add_keyword (a search keyword, as the campaign spells its others), '
       + 'remove_keyword (an existing keyword), add_copy_angle (one Hebrew sentence instructing the copywriter, like "זווית כתיבה: פתח/י במחיר מול המחיר בחנות"), '
-      + 'remove_copy_angle (the id of a custom angle from copy_angles). The reason must cite the data.',
+      + 'remove_copy_angle (the id of a custom angle from copy_angles), '
+      + 'set_keywords (the FULL new keyword list as an array of strings; it replaces the rotation, removed words go to retired), '
+      + 'set_group_focus (the core focus of the campaign\'s target group: one Hebrew sentence naming the product types that belong, up to 400 characters). '
+      + 'The reason must cite the data, or the owner\'s own request when he asked for the change.',
     input_schema: {
       type: 'object' as const,
       properties: {
         campaign_id: { type: 'string' },
         kind: { type: 'string', enum: [...PROPOSAL_KINDS] },
-        value: { type: ['string', 'number', 'boolean'] as any },
+        value: { type: ['string', 'number', 'boolean', 'array'] as any, items: { type: 'string' } },
         reason: { type: 'string', description: 'Hebrew, one sentence, citing the numbers' },
       },
       required: ['campaign_id', 'kind', 'value', 'reason'],
@@ -174,6 +180,8 @@ export interface ManagerAnswer {
   text: string;
   proposals: StoredProposal[];
   tokens: number;
+  /** Set when the answer carries two or more proposals: approves or rejects them all at once. */
+  bundleId?: string;
 }
 
 /**
@@ -285,7 +293,14 @@ export class ManagerAgentService {
     if (!answer) answer = 'לא הצלחתי לגבש תשובה מהנתונים. נסה לנסח את השאלה אחרת או לשאול על קמפיין מסוים.';
     if (answer.length > ANSWER_MAX_CHARS) answer = `${answer.slice(0, ANSWER_MAX_CHARS)}…`;
     this.remember(conversationKey, question, answer);
-    return { text: answer, proposals, tokens };
+    // Two or more proposals can be approved together ("change the keywords and the focus"),
+    // instead of one tap each.
+    let bundleId: string | undefined;
+    if (proposals.length >= 2) {
+      bundleId = newBundleId();
+      await this.memory.save(bundleKey(bundleId), { userId, ids: proposals.map((p) => p.id) }, PROPOSAL_TTL_MS);
+    }
+    return { text: answer, proposals, tokens, bundleId };
   }
 
   private recentTurns(key: string): Array<{ q: string; a: string }> {
@@ -343,6 +358,7 @@ export class ManagerAgentService {
           last_run_note: (c.last_run_note || '').slice(0, 1500),
           recent_failures: (c.failed_run_log || []).slice(-5),
           seasonal_ledger_3d: seasonalLedgerLine(sumSeasonalRuns(ledger, Date.now())),
+          target_groups: (await this.campaignGroups(userId, c)).map((g) => ({ name: g.name, core_focus: g.focus })),
         };
       }
 
@@ -509,7 +525,7 @@ export class ManagerAgentService {
       case 'propose_change': {
         if (proposals.length >= MAX_PROPOSALS) return { error: `at most ${MAX_PROPOSALS} proposals per answer` };
         const c = await this.ownCampaign(userId, input.campaign_id);
-        const v = validateProposal(input, this.proposalCampaign(c));
+        const v = validateProposal(input, await this.proposalCampaign(userId, c));
         if ('error' in v) return { error: v.error };
         const stored: StoredProposal = { ...v.draft, id: randomUUID(), userId, createdAt: Date.now() };
         await this.memory.save(proposalKey(stored.id), stored, PROPOSAL_TTL_MS);
@@ -522,13 +538,27 @@ export class ManagerAgentService {
     }
   }
 
-  private proposalCampaign(c: Campaign): ProposalCampaign {
+  private async proposalCampaign(userId: string, c: Campaign): Promise<ProposalCampaign> {
     return {
       id: c.id, name: c.name, status: c.status, posts_per_run: c.posts_per_run,
       seasonal_keywords: !!c.seasonal_keywords, learn_from_orders: !!c.learn_from_orders,
       keywords: c.keywords || [],
       copy_angles: Array.isArray(c.copy_angles) ? c.copy_angles : [],
+      groups: await this.campaignGroups(userId, c),
     };
+  }
+
+  /** The owner's saved groups this campaign publishes to, with their core focus. */
+  private async campaignGroups(userId: string, c: Campaign): Promise<CampaignGroup[]> {
+    let targets: string[] = [];
+    try { targets = JSON.parse(c.target_channels || '[]'); } catch { targets = []; }
+    targets = Array.from(new Set(targets.filter((t) => typeof t === 'string' && t.trim())));
+    if (!targets.length) return [];
+    const rows: any[] = await this.campaigns.query(
+      `SELECT channel_id, name, core_focus FROM channels WHERE user_id = $1 AND channel_id = ANY($2::text[]) ORDER BY created_at`,
+      [userId, targets],
+    ).catch(() => []);
+    return rows.map((r) => ({ channelId: String(r.channel_id), name: String(r.name || ''), focus: r.core_focus || null }));
   }
 
   // ── Approving ─────────────────────────────────────────────────────────────
@@ -544,7 +574,7 @@ export class ManagerAgentService {
 
       const c = await this.campaigns.findOne({ where: { id: p.campaignId, user_id: userId } });
       if (!c) return { ok: false, message: 'הקמפיין לא נמצא' };
-      const v = validateProposal({ kind: p.kind, value: p.value, reason: p.reason }, this.proposalCampaign(c));
+      const v = validateProposal({ kind: p.kind, value: p.value, reason: p.reason }, await this.proposalCampaign(userId, c));
       if ('error' in v) return { ok: false, message: `המצב השתנה מאז ההצעה, לא בוצע (${v.error})` };
 
       await this.apply(userId, c, v.draft);
@@ -556,6 +586,33 @@ export class ManagerAgentService {
     } finally {
       this.approving.delete(proposalId);
     }
+  }
+
+  /**
+   * "אשר הכל" under an answer with several proposals. Each is approved on its own, in the
+   * order the manager made them, with the same re-check against the live state — so one that
+   * no longer applies is reported and the rest still go through.
+   */
+  async approveAll(userId: string, bundleId: string): Promise<{ ok: boolean; message: string }> {
+    const b = await this.memory.load<{ userId: string; ids: string[] }>(bundleKey(bundleId));
+    if (!b || b.userId !== userId || !Array.isArray(b.ids)) return { ok: false, message: 'ההצעות פגו — שאל שוב ואקבל נתונים עדכניים' };
+    const lines: string[] = [];
+    let any = false;
+    for (const id of b.ids) {
+      const res = await this.approve(userId, id);
+      any = any || res.ok;
+      lines.push(res.ok ? res.message.split('\n').filter((l) => !l.startsWith('אפשר לבטל')).join('\n') : `❌ ${res.message}`);
+    }
+    if (any) lines.push('אפשר לבטל כל שינוי דרך "↩️ בטל שינוי" בדוח הבוקר.');
+    return { ok: any, message: lines.join('\n\n') };
+  }
+
+  async rejectAll(userId: string, bundleId: string): Promise<string> {
+    const b = await this.memory.load<{ userId: string; ids: string[] }>(bundleKey(bundleId));
+    if (!b || b.userId !== userId || !Array.isArray(b.ids)) return 'ההצעות כבר טופלו או פגו';
+    const lines = [];
+    for (const id of b.ids) lines.push(await this.reject(userId, id));
+    return lines.join('\n');
   }
 
   async reject(userId: string, proposalId: string): Promise<string> {
@@ -570,13 +627,41 @@ export class ManagerAgentService {
   private async apply(userId: string, c: Campaign, d: ProposalDraft): Promise<void> {
     const q = (sql: string, params: any[]) => this.campaigns.query(sql, params);
     const reason = `אושר על ידך מהמנהל: ${d.reason}`;
-    const log = (kind: string, before: string, after: string) => q(
+    const log = (kind: string, before: string, after: string, label = c.name) => q(
       `INSERT INTO manager_actions (user_id, kind, target_id, target_label, "before", "after", reason)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [userId, kind, c.id, c.name, before, after, reason],
+      [userId, kind, c.id, label, before, after, reason],
     );
 
     switch (d.kind) {
+      case 'set_keywords': {
+        const keywords = c.keywords || [];
+        const retired = c.retired_keywords || [];
+        const list = Array.isArray(d.value) ? d.value.map(String) : [];
+        const has = (arr: string[], k: string) => arr.some((x) => x.trim().toLowerCase() === k.trim().toLowerCase());
+        // Words leaving the rotation go to the retired list, like a single remove_keyword;
+        // words coming back leave it. Logged as 'keywords', so the usual undo restores both.
+        const next = {
+          keywords: list,
+          retired: [
+            ...retired.filter((k) => !has(list, k)),
+            ...keywords.filter((k) => !has(list, k) && !has(retired, k)),
+          ],
+        };
+        await q(`UPDATE campaigns SET keywords = $1, retired_keywords = $2 WHERE id = $3 AND user_id = $4`,
+          [next.keywords, next.retired, c.id, userId]);
+        await log('keywords', JSON.stringify({ keywords, retired }), JSON.stringify(next));
+        return;
+      }
+      case 'set_group_focus': {
+        const before = parseGroupsBefore(d.current);
+        const ids = before.map((g) => g.channelId);
+        await q(`UPDATE channels SET core_focus = $1, updated_at = now() WHERE user_id = $2 AND channel_id = ANY($3::text[])`,
+          [String(d.value), userId, ids]);
+        await log('group_focus', JSON.stringify(before), JSON.stringify({ focus: String(d.value) }),
+          before.map((g) => g.name).filter(Boolean).join(', ') || c.name);
+        return;
+      }
       case 'add_copy_angle':
       case 'remove_copy_angle': {
         const before = Array.isArray(c.copy_angles) ? c.copy_angles : [];

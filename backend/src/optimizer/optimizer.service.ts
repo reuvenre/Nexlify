@@ -876,6 +876,12 @@ export class OptimizerService {
           await q(`UPDATE campaigns SET copy_angles = $1::jsonb WHERE id = $2 AND user_id = $3`,
             [JSON.stringify(plan.angles), plan.campaignId, userId]);
           break;
+        case 'group_focus':
+          for (const g of plan.groups) {
+            await q(`UPDATE channels SET core_focus = $1, updated_at = now() WHERE user_id = $2 AND channel_id = $3`,
+              [g.focus, userId, g.channelId]);
+          }
+          break;
       }
     } catch (err: any) {
       this.logger.warn(`undo ${actionId} failed: ${err?.message}`);

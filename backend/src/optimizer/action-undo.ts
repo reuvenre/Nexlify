@@ -36,7 +36,9 @@ export type UndoPlan =
   // A mute has no side table: the standing, un-undone row IS the mute, which the recycler
   // reads. Stamping undone_at is therefore the whole inverse — nothing else to write.
   | { kind: 'product_mute'; productId: string }
-  | { kind: 'copy_angles'; campaignId: string; angles: unknown[] };
+  | { kind: 'copy_angles'; campaignId: string; angles: unknown[] }
+  // The focus each group had before, null = none (group-focus.ts).
+  | { kind: 'group_focus'; groups: Array<{ channelId: string; focus: string | null }> };
 
 interface KeywordsPayload { keywords?: unknown; retired?: unknown }
 
@@ -108,6 +110,10 @@ export function actionLabel(row: ActionRow): string {
       if (removed.length) return `${where}הפסקתי זווית כתיבה: ${removed.map((a) => a.label).join(', ')}`;
       return `${where}עדכנתי את זוויות הכתיבה`;
     }
+    case 'group_focus': {
+      const after = parse<{ focus?: string }>(row.after);
+      return after?.focus ? `${where}קבעתי מיקוד ליבה: "${after.focus}"` : `${where}עדכנתי את מיקוד הקבוצה`;
+    }
     default:
       return `${where}${row.reason || row.kind}`;
   }
@@ -164,6 +170,14 @@ export function undoPlan(row: ActionRow): UndoPlan | null {
       const before = parse<unknown[]>(row.before);
       if (!campaignId || !Array.isArray(before)) return null;
       return { kind: 'copy_angles', campaignId, angles: before };
+    }
+    case 'group_focus': {
+      const before = parse<Array<{ channelId?: unknown; focus?: unknown }>>(row.before);
+      if (!Array.isArray(before)) return null;
+      const groups = before
+        .filter((g) => g && g.channelId)
+        .map((g) => ({ channelId: String(g.channelId), focus: g.focus ? String(g.focus) : null }));
+      return groups.length ? { kind: 'group_focus', groups } : null;
     }
     default:
       // golden_hours and anything unknown: the row is a record of a recomputation, not a

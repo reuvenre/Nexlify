@@ -248,9 +248,13 @@ export class TelegramBotService implements OnModuleInit {
         }
         const chatId = String(cq?.message?.chat?.id ?? '');
         const { action, args } = parseCallback(data);
-        if ((action === 'pa' || action === 'pr') && this.isOwner(chatId)
+        if (['pa', 'pr', 'pb', 'pz'].includes(action) && this.isOwner(chatId)
           && await this.subscription.allows(userId, 'manager_agent')) {
-          await this.onProposal(chatId, String(cq.id || ''), cq?.message?.message_id, args[0], action === 'pa');
+          if (action === 'pb' || action === 'pz') {
+            await this.onProposalBundle(chatId, String(cq.id || ''), cq?.message?.message_id, args[0], action === 'pb');
+          } else {
+            await this.onProposal(chatId, String(cq.id || ''), cq?.message?.message_id, args[0], action === 'pa');
+          }
           return;
         }
         await this.answer(String(cq.id || ''));
@@ -624,6 +628,8 @@ export class TelegramBotService implements OnModuleInit {
       case CB_UNDO: return this.onUndo(chatId, cbId, messageId, args[0]);
       case 'pa': return this.onProposal(chatId, cbId, messageId, args[0], true);
       case 'pr': return this.onProposal(chatId, cbId, messageId, args[0], false);
+      case 'pb': return this.onProposalBundle(chatId, cbId, messageId, args[0], true);
+      case 'pz': return this.onProposalBundle(chatId, cbId, messageId, args[0], false);
       case 'rs': return this.onResetSearches(chatId, cbId, messageId, args[0]);
       case 'x':
         await this.answer(cbId, 'בוטל');
@@ -660,7 +666,7 @@ export class TelegramBotService implements OnModuleInit {
     await this.deliverManagerAnswer(chatId, answer);
   }
 
-  /** The manager's answer, then each proposal with its own ✅/❌. */
+  /** The manager's answer, then each proposal with its own ✅/❌, then «אשר הכל» when there are several. */
   private async deliverManagerAnswer(chatId: string, answer: ManagerAnswer, header = ''): Promise<void> {
     await this.sendLong(chatId, `${header}${answer.text}`);
     for (const p of answer.proposals) {
@@ -668,6 +674,30 @@ export class TelegramBotService implements OnModuleInit {
         { text: '✅ אשר', callback_data: encodeCallback('pa', p.id) },
         { text: '❌ דחה', callback_data: encodeCallback('pr', p.id) },
       ]]);
+    }
+    if (answer.bundleId && answer.proposals.length >= 2) {
+      await this.send(chatId, `👆 ${answer.proposals.length} ההצעות יחד, בלחיצה אחת:`, [[
+        { text: `✅ אשר את כל ה-${answer.proposals.length}`, callback_data: encodeCallback('pb', answer.bundleId) },
+        { text: '❌ דחה הכל', callback_data: encodeCallback('pz', answer.bundleId) },
+      ]]);
+    }
+  }
+
+  /** «אשר הכל» / «דחה הכל» under an answer with several proposals. */
+  private async onProposalBundle(
+    chatId: string, cbId: string, messageId: number | undefined, bundleId: string | undefined, approve: boolean,
+  ): Promise<void> {
+    const userId = await this.ownerUserId();
+    if (!bundleId || !userId) {
+      await this.answer(cbId, 'לא נמצא');
+      return;
+    }
+    await this.answer(cbId, approve ? 'מבצע…' : 'נדחה');
+    if (approve) {
+      const res = await this.manager.approveAll(userId, bundleId);
+      await this.editText(chatId, messageId, res.ok ? res.message : `❌ ${res.message}`);
+    } else {
+      await this.editText(chatId, messageId, await this.manager.rejectAll(userId, bundleId));
     }
   }
 
