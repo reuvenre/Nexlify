@@ -45,7 +45,7 @@ import { occupiesCurrentInterval, pacingIntervalMinutes } from './group-pacing';
 import { platformFilterSql } from './platform-filter';
 import { ImportRowInput, composeImportText, extractAliProductId, extractAliProductIdFromHtml, validImportRow } from './import-rows';
 import { GROUP_FOCUS_SYSTEM, PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdict, buildProductFitPrompt, isStrictFit, parseProductFitVerdicts } from './product-relevance';
-import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusLabel, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
+import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusApplies, focusLabel, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
 import { hotHours } from '../optimizer/hot-hours';
 import { PriceBand, preferInBand, soldPriceBand } from '../optimizer/sold-price-band';
 import { COPY_VARIANTS, VariantStat, customVariants, pickVariant, variantHint } from './copy-variants';
@@ -3137,8 +3137,9 @@ export class PostsService {
       )).filter((n): n is string => !!n);
       // A group with a declared core focus turns the guard strict (group-focus.ts): only a
       // product clearly inside the focus goes out. No focus → the lenient guard, unchanged.
-      const focusChats = targets.length ? targets : [creds?.telegram_channel_id].filter((c): c is string => !!c);
-      const foci = await this.channels.getFocus(userId, focusChats).catch(() => [] as GroupFocus[]);
+      const focusChats = !focusApplies(platforms) ? []
+        : targets.length ? targets : [creds?.telegram_channel_id].filter((c): c is string => !!c);
+      const foci = focusChats.length ? await this.channels.getFocus(userId, focusChats).catch(() => [] as GroupFocus[]) : [];
       const strict = foci.length > 0;
       const guardName = strict ? focusLabel(foci) : 'שומר הרלוונטיות';
       const fitCtx: ProductFitContext = { campaign: campaign.name, channels: groupLabels, keywords: kwEffective, focus: foci };
@@ -6612,8 +6613,11 @@ export class PostsService {
     targets: string[],
     items: ProductFitItem[],
     campaignName = '',
+    targetPlatforms?: string | null,
   ): Promise<{ foci: GroupFocus[]; verdicts: ProductFitVerdict[] }> {
     const accept = items.map(() => ({ fits: true, reason: '' }));
+    // A campaign that never reaches the group (Pinterest only) is not the group's to judge.
+    if (!focusApplies(this.parseTargetPlatforms(targetPlatforms))) return { foci: [], verdicts: accept };
     const chats = targets.length ? targets : [creds?.telegram_channel_id].filter((c): c is string => !!c);
     const foci = await this.channels.getFocus(userId, chats).catch(() => [] as GroupFocus[]);
     if (!foci.length || !items.length || !creds || !this.ai.hasAnyKey(creds)) return { foci, verdicts: accept };

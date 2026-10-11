@@ -170,7 +170,7 @@ export class AmazonService {
     const focusNotes: string[] = [];
     const { foci, verdicts } = await this.posts.groupFocusCheck(userId, creds, targets, candidates.map((p) => ({
       id: p.asin, keyword, title: String(p.title || ''),
-    })), campaign.name);
+    })), campaign.name, campaign.target_platforms);
     if (foci.length) {
       candidates.forEach((p, i) => {
         if (!verdicts[i].fits) focusNotes.push(`${focusLabel(foci)}: "${String(p.title || '').slice(0, 50)}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);

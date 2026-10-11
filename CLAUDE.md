@@ -144,6 +144,7 @@ The relevance guard (`product-relevance.ts`) accepts anything plausible and reje
   - The AliExpress campaign uses its existing guard in strict mode. Replacements are judged three per call over at most `FOCUS_MAX_DONORS` (4) keywords.
   - FLYLINK, the agents (asked for twice the products, then cut back to the plan's count), sales recovery (up to 3 picks) and Amazon go through `PostsService.groupFocusCheck`.
   - A campaign with no targets is checked against the account's default chat.
+  - A Pinterest-only campaign is never checked (`focusApplies`), because it never reaches the group. Checking it against the default group's focus once rejected every US Halloween pin (#101).
   - Manual sends are not checked.
 - **FLYLINK** is judged by the enrichment's `store_name` / `store_brand` / `store_category` and the description (`flylinkFitItem`). An item with only a supplier code is not asked about and goes through.
 - **Rejections are remembered** per focus text in `persistent_values` (`group_focus_rejected:<user>:<hash>`, 14 d). This stops a FLYLINK rotation or a repeating search from asking about the same item every run. Rewriting the focus starts fresh.

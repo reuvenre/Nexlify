@@ -988,7 +988,7 @@ export class SupplierProductsService {
     if (focusItems.some((it) => it)) {
       const asked = focusItems.map((it, i) => ({ it, i })).filter((x) => !!x.it);
       const { foci, verdicts } = await this.posts.groupFocusCheck(
-        userId, creds, targets, asked.map((x) => x.it!), campaign.name,
+        userId, creds, targets, asked.map((x) => x.it!), campaign.name, campaign.target_platforms,
       );
       if (foci.length) {
         const out = new Set<number>();

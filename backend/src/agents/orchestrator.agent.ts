@@ -88,7 +88,7 @@ export class OrchestratorAgent {
       let targets: string[] = [];
       try { targets = JSON.parse(campaign.target_channels || '[]'); } catch { targets = []; }
       targets = targets.filter((t) => typeof t === 'string' && t.trim());
-      const { foci } = await this.posts.groupFocusCheck(userId, creds, targets, []);
+      const { foci } = await this.posts.groupFocusCheck(userId, creds, targets, [], campaign.name, campaign.target_platforms);
       const want = foci.length ? plan.perPost * 2 : plan.perPost;
       const { products: picked, tokens: productTokens } = await this.productAgent.findBestProducts(
         userId,
@@ -115,7 +115,7 @@ export class OrchestratorAgent {
         const { verdicts } = await this.posts.groupFocusCheck(userId, creds, targets, products.map((p) => ({
           id: String(p.product_id), keyword: String(p.keyword || ''), title: String(p.title || ''),
           category: (p as any).category,
-        })), campaign.name);
+        })), campaign.name, campaign.target_platforms);
         const label = focusLabel(foci);
         products.forEach((p, i) => {
           if (!verdicts[i].fits) errors.push(`${label}: "${String(p.title || '').slice(0, 50)}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);

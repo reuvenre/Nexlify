@@ -110,3 +110,18 @@ export function flylinkFitItem(p: {
     .filter(Boolean).join(' ');
   return { id: String(p.sku || p.id || ''), keyword: 'FLYLINK', title, category: category || undefined };
 }
+
+/** The platforms on which a post reaches the group itself (its chat, its Page, its Instagram). */
+const GROUP_PLATFORMS = ['telegram', 'facebook', 'instagram', 'whatsapp'];
+
+/**
+ * Whether a group's focus applies to a campaign publishing on `platforms` (null = every
+ * platform, the legacy default). A Pinterest-only campaign never reaches the group, so the
+ * group's focus has nothing to guard there. Without this, a pin campaign with no target
+ * group was checked against the default group's focus and lost every product: the US
+ * Halloween and Christmas pins all failed the tactical group's focus (#101).
+ */
+export function focusApplies(platforms: Set<string> | null | undefined): boolean {
+  if (!platforms || !platforms.size) return true;
+  return GROUP_PLATFORMS.some((p) => platforms.has(p));
+}

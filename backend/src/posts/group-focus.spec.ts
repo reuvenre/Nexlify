@@ -1,5 +1,5 @@
 import {
-  FOCUS_REJECT_TTL_MS, flylinkFitItem, focusHash, focusLabel, focusMemoryKey,
+  FOCUS_REJECT_TTL_MS, flylinkFitItem, focusApplies, focusHash, focusLabel, focusMemoryKey,
   liveRejections, mergeRejections, normalizeFocus,
 } from './group-focus';
 import {
@@ -145,5 +145,31 @@ describe('PostsService.groupFocusCheck', () => {
     const { svc } = service('[{"i":1,"fits":true},{"i":2,"fits":true}]');
     await svc.groupFocusCheck('u1', creds, [], items);
     expect(svc.channels.getFocus).toHaveBeenCalledWith('u1', ['-100']);
+  });
+});
+
+describe('a campaign that never reaches the group (#101)', () => {
+  it('the focus applies to every platform that reaches the group, not to Pinterest alone', () => {
+    expect(focusApplies(null)).toBe(true);
+    expect(focusApplies(new Set())).toBe(true);
+    expect(focusApplies(new Set(['telegram']))).toBe(true);
+    expect(focusApplies(new Set(['pinterest', 'facebook']))).toBe(true);
+    expect(focusApplies(new Set(['pinterest']))).toBe(false);
+  });
+
+  it('a Pinterest-only campaign is not judged by the default group\'s focus', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PostsService } = require('./posts.service');
+    const svc: any = Object.create(PostsService.prototype);
+    const generate = jest.fn();
+    svc.ai = { hasAnyKey: () => true, generate };
+    svc.channels = { getFocus: jest.fn(async () => [TACTICAL]) };
+    svc.memory = { load: async () => null, save: async () => undefined };
+    const r = await svc.groupFocusCheck('u1', { user_id: 'u1', telegram_channel_id: '-100' }, [],
+      [{ id: 'p1', keyword: 'halloween decorations', title: 'Halloween door wreath' }], 'קמפיין Pinterest', '["pinterest"]');
+    expect(r.foci).toEqual([]);
+    expect(r.verdicts[0].fits).toBe(true);
+    expect(generate).not.toHaveBeenCalled();
+    expect(svc.channels.getFocus).not.toHaveBeenCalled();
   });
 });
