@@ -161,7 +161,9 @@ export class StorefrontService {
     // can follow, and handing Pinterest one would be worse than sending it nowhere.
     if (!/^https?:\/\//.test(base)) return null;
     // encodeURIComponent to match the link the store's own grid builds ("p:<uuid>").
-    return `${base}/p/${encodeURIComponent(`p:${post.id}`)}`;
+    // ?src=pin marks the visit as Pinterest's: the page hands it to the buy button's
+    // /r/<code>?s=pin, so the click — and the sale behind it — is counted as a pin's.
+    return `${base}/p/${encodeURIComponent(`p:${post.id}`)}?src=pin`;
   }
 
   // ── Public side ────────────────────────────────────────────────────────────
@@ -355,11 +357,17 @@ export class StorefrontService {
       `SELECT DISTINCT ON (p.product_id)
               p.id, p.product_id, p.product_title, p.product_image, p.gallery_json,
               p.price_ils, p.sent_at, p.keyword,
-              coalesce(ch.name, c.name) AS grp
+              coalesce(ch.name, c.name) AS grp,
+              -- price_ils holds the price in the CAMPAIGN's currency (a US campaign: USD).
+              split_part(coalesce(nullif(c.currency_pair, ''), nullif(cs.currency_pair, ''), 'USD_ILS'), '_', 2) AS cur
        FROM posts p
        LEFT JOIN channels ch ON ch.channel_id = p.channel_override AND ch.user_id = p.user_id
        LEFT JOIN campaigns c ON c.id = p.campaign_id
-       WHERE p.user_id = $1 AND p.status = 'sent'
+       LEFT JOIN credential_sets cs ON cs.user_id = p.user_id
+       -- One product page is also read while its post is being published: Pinterest
+       -- fetches a pin's link the moment the pin is created, and a 404 then is a broken
+       -- destination on record. The shelf itself shows sent posts only.
+       WHERE p.user_id = $1 AND ${id ? "p.status IN ('sent', 'pending')" : "p.status = 'sent'"}
          AND p.product_id IS NOT NULL AND p.product_title <> '' AND p.price_ils > 0
          AND p.affiliate_url IS NOT NULL AND p.affiliate_url <> ''
          ${id ? 'AND p.id = $2' : ''}
@@ -381,7 +389,7 @@ export class StorefrontService {
       image: r.product_image || null,
       gallery: this.parseGallery(r.gallery_json, r.product_image),
       price: Number(r.price_ils) || 0,
-      currency: 'ILS',
+      currency: String(r.cur || 'ILS').toUpperCase(),
       source: 'post' as const,
       group: r.grp ? String(r.grp) : null,
       at: r.sent_at ? new Date(r.sent_at).toISOString() : null,

@@ -35,8 +35,14 @@ describe('StorefrontService.postProductUrl', () => {
   it('builds the product page on the claimed host', async () => {
     const { svc } = build();
     await expect(svc.postProductUrl(USER, OK)).resolves.toBe(
-      'https://nexlify.win-solutions.co.il/s/hidden-premium-brands/p/p%3Apost-uuid',
+      'https://nexlify.win-solutions.co.il/s/hidden-premium-brands/p/p%3Apost-uuid?src=pin',
     );
+  });
+
+  it('marks the visit as Pinterest\'s, so the buy click is counted as a pin\'s', async () => {
+    const { svc } = build();
+    const url = new URL((await svc.postProductUrl(USER, OK))!);
+    expect(url.searchParams.get('src')).toBe('pin');
   });
 
   it('encodes the id exactly the way the store\'s own grid links it', async () => {

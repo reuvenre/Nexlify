@@ -259,6 +259,13 @@ The bot and the manager above were built for one owner (the first admin, env cha
   - The price-alert and parcel crons send from the bot each row came through (`readerBotFor`).
 - **Invite line.** A non-admin account's posts invite readers to its own bot (`shopperBotUsername`) when it is connected, delivering, and in the plan.
 
+### Where a pin lands (`storefront/`, `app/s/[slug]/p/[id]/`)
+Since `c2bb97c` a pin links to the store's product page (`postProductUrl`), not the affiliate redirect. That page is a client component, so its server HTML used to carry the root layout's metadata: the Hebrew Nexlify SaaS title, no product image, no price. The pin's destination looked like a marketing tool to Pinterest. Now:
+- `p/[id]/layout.tsx` renders the product's own `<title>`, Open Graph (`og:type` product, `product:price:*` as property= tags) and a schema.org `Product`. It reads `GET /store/:slug/products/:id` server-side, and a Yupoo image goes through `/suppliers/image`.
+- **One product reads `pending` posts too.** Pinterest fetches the link the moment the pin is created, which is before the post is `sent`. The shelf still shows `sent` only.
+- **Currency.** `price_ils` holds the price in the campaign's currency, so `currency` comes from the campaign's `currency_pair`, else the account's. A US pin no longer reads "₪ 6.4".
+- **Attribution.** The pin link carries `?src=pin`, and the page turns it into `/r/<code>?s=pin`, so the store click is recorded as Pinterest's (`ClickSourcesPanel`). Orders are still matched to posts by product id only; there is no per-platform tracking id.
+
 ### Model input and output boundaries
 - **Third-party text is fenced** (`common/untrusted.ts`). Product titles, categories and supplier notes are a seller's words. They go into a prompt only through `fenceUntrusted()`, which flattens newlines and control characters, caps the length, and wraps the text in `⟦…⟧`. Any brief that carries fenced text also appends `UNTRUSTED_DATA_RULE`. The marks must never be published: `stripFenceMarks` runs on every draft in `generateText`, the content agent, and again in `buildPostBody`.
 - **ProductAgent picks; the server supplies the facts** (`agents/product-grounding.ts`). The model returns only product ids. An id that `search_products` never returned this run is dropped. Title, prices, image and the source keyword are read from the search result, never from the model's JSON.

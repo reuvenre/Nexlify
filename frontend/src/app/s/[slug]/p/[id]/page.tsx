@@ -19,6 +19,18 @@ import '../../store.css';
  * exactly like a click in the channel.
  */
 
+/**
+ * The buy link, tagged with where the visitor came from. A pin's link carries ?src=pin
+ * (backend storefront postProductUrl); the tracked /r/<code> then records the click as
+ * Pinterest's (?s=pin), so a sale that started on a pin is no longer counted as nobody's.
+ */
+function taggedBuyUrl(url: string): string {
+  if (typeof window === 'undefined' || !/\/r\/[A-Za-z0-9]+$/.test(url.split('?')[0])) return url;
+  const src = new URLSearchParams(window.location.search).get('src');
+  if (src !== 'pin' || /[?&]s=/.test(url)) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}s=pin`;
+}
+
 function priceLabel(p: StoreProduct): string {
   const symbol = p.currency === 'ILS' ? '₪' : p.currency === 'USD' ? '$' : '';
   const value = Math.round(p.price * 100) / 100;
@@ -168,7 +180,7 @@ export default function StoreProductPage() {
               published and the seller's page is the authority at checkout. */}
           <div className="store-price text-2xl mb-6">{priceLabel(product)} <span className="text-base font-normal">(משוער)</span></div>
 
-          <a href={product.buy_url} target="_blank" rel="noopener noreferrer sponsored" className="store-buy mb-3">
+          <a href={taggedBuyUrl(product.buy_url)} target="_blank" rel="noopener noreferrer sponsored" className="store-buy mb-3">
             <ExternalLink size={16} /> לרכישה
           </a>
 
