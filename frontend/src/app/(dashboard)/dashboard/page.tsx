@@ -3,16 +3,25 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  Megaphone, FileText, DollarSign, TrendingUp,
+  Megaphone, FileText, DollarSign, MousePointerClick, BadgeDollarSign,
   AlertCircle, CheckCircle2, Circle, ChevronLeft,
-  Users, Zap, RefreshCw, Bot,
+  Users, Zap, Bot,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { campaignsApi, postsApi, earningsApi, credentialsApi, channelsApi, subscriptionApi } from '@/lib/api-client';
-import type { Post, EarningsSummary, SubscriptionStatus } from '@/types';
+import { useLive } from '@/lib/hooks/useLive';
+import { useVizColors } from '@/lib/viz';
+import { postsApi, earningsApi, credentialsApi, channelsApi, subscriptionApi, campaignsApi, statsApi } from '@/lib/api-client';
 import { AiUsagePanel } from '@/components/dashboard/AiUsagePanel';
 import { ClickleadRoiPanel } from '@/components/dashboard/ClickleadRoiPanel';
 import { OverviewPanel } from '@/components/dashboard/OverviewPanel';
+import { LiveBadge } from '@/components/dashboard/live/LiveBadge';
+import { StatTile } from '@/components/dashboard/live/StatTile';
+import { DailyChart } from '@/components/dashboard/live/DailyChart';
+import { NowPanel } from '@/components/dashboard/live/NowPanel';
+
+const nf = (v: number) => Math.round(v).toLocaleString('he-IL');
+const usd = (v: number) => `$${v.toFixed(2)}`;
+const ils = (v: number) => `₪${Math.round(v).toLocaleString('he-IL')}`;
 
 // ── Onboarding steps ──────────────────────────────────────────────────────────
 
@@ -24,119 +33,33 @@ interface SetupStep {
   done: boolean;
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
-
-function StatCard({
-  label, value, sub, icon: Icon, accent,
-}: {
-  label: string; value: string | number; sub?: string;
-  icon: React.ElementType; accent: string;
-}) {
-  const map: Record<string, string> = {
-    blue:   'text-blue-300 bg-gradient-to-br from-blue-500/20 to-blue-500/5 border-blue-500/20',
-    violet: 'text-violet-300 bg-gradient-to-br from-violet-500/20 to-violet-500/5 border-violet-500/20',
-    green:  'text-emerald-300 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-emerald-500/20',
-    amber:  'text-amber-300 bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-amber-500/20',
-    cyan:   'text-cyan-300 bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 border-cyan-500/20',
-  };
-  const cls = map[accent] || map.blue;
-  return (
-    <div className="card p-5 group transition-all duration-300 hover:-translate-y-0.5 hover:border-edge-hover">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-white/40">{label}</p>
-        <span className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${cls}`}>
-          <Icon size={14} />
-        </span>
-      </div>
-      <p className="text-2xl font-bold text-white tracking-tight">{value}</p>
-      {sub && <p className="text-xs text-white/30 mt-1">{sub}</p>}
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [stats, setStats] = useState({ campaigns: 0, activeCampaigns: 0, totalPosts: 0, sentToday: 0, channels: 0 });
-  const [recentPosts, setRecentPosts] = useState<Post[]>([]);
-  const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
-  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
-  const [steps, setSteps] = useState<SetupStep[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const colors = useVizColors();
+  // Everything that moves during the day — one cheap call, every 20 s while on screen.
+  const live = useLive(() => statsApi.live(30), { intervalMs: 20_000 });
+  // The slower account picture: recent posts, the month's earnings, setup state.
+  const base = useLive(async () => {
+    const [posts, earn, creds, channels, sub] = await Promise.all([
+      postsApi.list({ limit: 6 }),
+      earningsApi.summary({ period: 'month' }),
+      credentialsApi.get().catch(() => null),
+      channelsApi.list().catch(() => []),
+      subscriptionApi.status().catch(() => null),
+    ]);
+    return { posts, earn, creds, channels, sub };
+  }, { intervalMs: 45_000 });
   // Facebook token countdown — a dead token silently kills IG/FB publishing, so the
   // dashboard warns from 14 days out.
   const [tokenDaysLeft, setTokenDaysLeft] = useState<number | null>(null);
-  // Groups that carry their OWN Facebook page token and are running out. The account-level
-  // banner below says "הטוקן הראשי" and nothing about these, so a group token used to lapse
-  // with no warning anywhere — and an owner with several pages could not tell which token an
-  // alert was even about. Each of these names its group.
-  const [expiringGroups, setExpiringGroups] = useState<Array<{ id: string; name: string; days: number }>>([]);
   // Active commercial-calendar seasons (auto keywords + copy context in campaigns).
   const [seasons, setSeasons] = useState<Array<{ key: string; name: string; emoji: string }>>([]);
 
   const displayName = user?.name?.trim() || user?.email?.split('@')[0] || 'משתמש';
 
-  const load = async () => {
-    setIsLoading(true);
-    try {
-      const [camps, posts, earn, creds, channels, sub] = await Promise.all([
-        campaignsApi.list({ limit: 100 }),
-        postsApi.list({ limit: 5 }),
-        earningsApi.summary({ period: 'month' }),
-        credentialsApi.get().catch(() => null),
-        channelsApi.list().catch(() => []),
-        subscriptionApi.status().catch(() => null),
-      ]);
-      setSubscription(sub);
-
-      const sentPosts = posts.data.filter((p) => {
-        const today = new Date().toDateString();
-        return p.sent_at && new Date(p.sent_at).toDateString() === today;
-      });
-
-      setExpiringGroups(
-        (channels || [])
-          .filter((c) => c.has_fb_token && c.fb_token_days_left != null && c.fb_token_days_left <= 14)
-          .map((c) => ({ id: c.id, name: c.name, days: c.fb_token_days_left as number }))
-          .sort((a, b) => a.days - b.days),
-      );
-
-      setStats({
-        campaigns: camps.total,
-        activeCampaigns: camps.data.filter((c) => c.status === 'active').length,
-        totalPosts: posts.total,
-        sentToday: sentPosts.length,
-        channels: channels.length,
-      });
-      setRecentPosts(posts.data);
-      setEarnings(earn);
-
-      const aliOk = !!(creds?.aliexpress_app_key);
-      // The server reports whether AI generation actually works — including via the
-      // shared server key. Reading the key fields instead kept the step marked incomplete
-      // for users whose AI was working fine, with no way to ever tick it off.
-      const aiOk = !!creds?.ai_ready;
-      const channelOk = channels.length > 0;
-      const campaignOk = camps.total > 0;
-      const postOk = posts.total > 0;
-
-      setSteps([
-        { id: 'ali',      label: 'חבר את AliExpress',     desc: 'הגדר App Key ו-App Secret',     href: '/settings',         done: aliOk },
-        { id: 'ai',       label: 'חבר מנוע AI',            desc: 'מפתח API ליצירת תוכן — Gemini / OpenAI / Claude', href: '/settings', done: aiOk },
-        { id: 'channel',  label: 'הוסף ערוץ טלגרם',        desc: 'חבר ערוץ לפרסום אוטומטי',       href: '/groups',           done: channelOk },
-        { id: 'campaign', label: 'הגדר טייס אוטומטי',        desc: 'הפעל פרסום אוטומטי של מוצרים', href: '/campaigns/new',    done: campaignOk },
-        { id: 'post',     label: 'שלח פוסט ראשון',         desc: 'פרסם מוצר לטלגרם',             href: '/quick-post',       done: postOk },
-      ]);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    load();
     credentialsApi.tokenStatus()
       .then((s) => setTokenDaysLeft(s.days_left))
       .catch(() => {});
@@ -144,6 +67,33 @@ export default function DashboardPage() {
       .then((s) => setSeasons(s.active))
       .catch(() => {});
   }, []);
+
+  const L = live.data;
+  const B = base.data;
+  const isLoading = base.loading && !B;
+  const earnings = B?.earn ?? null;
+  const subscription = B?.sub ?? null;
+  const recentPosts = B?.posts.data ?? [];
+  const channels = B?.channels ?? [];
+  // Groups that carry their OWN Facebook page token and are running out. The account-level
+  // banner below says "הטוקן הראשי" and nothing about these, so a group token used to lapse
+  // with no warning anywhere — and an owner with several pages could not tell which token an
+  // alert was even about. Each of these names its group.
+  const expiringGroups = channels
+    .filter((c) => c.has_fb_token && c.fb_token_days_left != null && c.fb_token_days_left <= 14)
+    .map((c) => ({ id: c.id, name: c.name, days: c.fb_token_days_left as number }))
+    .sort((a, b) => a.days - b.days);
+  // The server reports whether AI generation actually works — including via the shared
+  // server key. Reading the key fields instead kept the step marked incomplete for users
+  // whose AI was working fine, with no way to ever tick it off.
+  const steps: SetupStep[] = B && L ? [
+    { id: 'ali',      label: 'חבר את AliExpress',     desc: 'הגדר App Key ו-App Secret',     href: '/settings',         done: !!B.creds?.aliexpress_app_key },
+    { id: 'ai',       label: 'חבר מנוע AI',            desc: 'מפתח API ליצירת תוכן — Gemini / OpenAI / Claude', href: '/settings', done: !!B.creds?.ai_ready },
+    { id: 'channel',  label: 'הוסף ערוץ טלגרם',        desc: 'חבר ערוץ לפרסום אוטומטי',       href: '/groups',           done: channels.length > 0 },
+    { id: 'campaign', label: 'הגדר טייס אוטומטי',        desc: 'הפעל פרסום אוטומטי של מוצרים', href: '/campaigns/new',    done: L.campaigns.total > 0 },
+    { id: 'post',     label: 'שלח פוסט ראשון',         desc: 'פרסם מוצר לטלגרם',             href: '/quick-post',       done: (B.posts.total ?? 0) > 0 },
+  ] : [];
+  const refreshAll = () => { void live.refresh(); void base.refresh(); };
 
   const totalEarnings = earnings ? earnings.total_settled + earnings.total_estimated : 0;
   const completedSteps = steps.filter((s) => s.done).length;
@@ -205,20 +155,19 @@ export default function DashboardPage() {
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white">שלום, {displayName}!</h1>
           <p className="text-sm text-white/40 mt-1">
             {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        <button
-          onClick={load}
-          className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors mt-1"
-        >
-          <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
-          עדכן
-        </button>
+        <LiveBadge
+          updatedAt={live.updatedAt}
+          error={live.error}
+          refreshing={live.loading}
+          onRefresh={refreshAll}
+        />
       </div>
 
       {/* Onboarding checklist */}
@@ -277,40 +226,58 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Headline — commissions for the CURRENT month, clicks/posts over 12 weeks */}
+      {/* Today, live — each number glides to its new value as the day moves. */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4 mb-6">
+        <StatTile
+          label="קליקים היום" icon={MousePointerClick} value={L ? L.today.clicks : null} format={nf}
+          sub={L ? `${nf(L.last_hour.clicks)} בשעה האחרונה` : undefined}
+          spark={L?.daily.clicks} sparkDays={L?.days} sparkColor={colors.clicks}
+        />
+        <StatTile
+          label="פוסטים שיצאו היום" icon={FileText} value={L ? L.today.posts_sent : null} format={nf}
+          sub={L ? `${nf(L.queue.scheduled + L.queue.queued)} ממתינים בתור` : undefined}
+          spark={L?.daily.posts} sparkDays={L?.days} sparkColor={colors.posts}
+        />
+        <StatTile
+          label="עמלות היום" icon={BadgeDollarSign} value={L ? L.today.commissions_usd : null} format={usd}
+          sub="לפי הסנכרון האחרון"
+          spark={L?.daily.commissions_usd} sparkDays={L?.days} sparkColor={colors.commissions}
+        />
+        <StatTile
+          label="הכנסות החודש" icon={DollarSign} value={earnings ? earnings.total_settled + earnings.total_estimated : null} format={ils}
+          sub={earnings ? `${ils(earnings.total_settled)} מוסדר` : undefined} href="/reports"
+        />
+        <StatTile
+          label="טייסים פעילים" icon={Megaphone} value={L ? L.campaigns.active : null} format={nf}
+          sub={L ? `מתוך ${nf(L.campaigns.total)} · ${nf(channels.length)} ערוצים` : undefined} href="/campaigns"
+        />
+        <StatTile
+          label={`קרדיטים (${subscription?.plan_name || '—'})`} icon={Bot}
+          value={subscription && !subscription.unlimited ? subscription.credits_remaining : null}
+          format={nf} href="/settings?tab=subscription"
+          sub={subscription
+            ? subscription.unlimited ? 'ללא הגבלה' : `מתוך ${nf(subscription.monthly_credits)} החודש`
+            : undefined}
+        />
+      </div>
+
+      {/* Headline — commissions for the CURRENT month, clicks/posts by month */}
       <OverviewPanel />
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-        <StatCard label="טייסים אוטומטיים" value={isLoading ? '—' : stats.campaigns}                        sub={`${stats.activeCampaigns} פעילים`} icon={Megaphone}  accent="blue" />
-        <StatCard label="סה״כ פוסטים"    value={isLoading ? '—' : stats.totalPosts.toLocaleString()}      sub={`${stats.sentToday} היום`}          icon={FileText}   accent="violet" />
-        <StatCard label="ערוצים"         value={isLoading ? '—' : stats.channels}                         sub="ערוצי טלגרם"                         icon={Users}      accent="cyan" />
-        <StatCard label="הכנסות החודש"    value={isLoading ? '—' : `₪${totalEarnings.toFixed(0)}`}        sub="מוסדר + משוער"                       icon={DollarSign}  accent="green" />
-        <StatCard label="עמלה מוסדרת"    value={isLoading ? '—' : `₪${(earnings?.total_settled ?? 0).toFixed(0)}`} sub="החודש הנוכחי"                icon={TrendingUp}  accent="amber" />
-        <Link href="/settings?tab=subscription" className="card p-5 group transition-all duration-300 hover:-translate-y-0.5 hover:border-edge-hover block">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-white/40">קרדיטים ({subscription?.plan_name || '—'})</p>
-            <span className="w-7 h-7 rounded-lg border border-violet-500/20 flex items-center justify-center text-violet-300 bg-gradient-to-br from-violet-500/20 to-violet-500/5 transition-transform duration-300 group-hover:scale-110">
-              <Bot size={14} />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-white">
-            {isLoading || !subscription ? '—' : subscription.credits_remaining.toLocaleString()}
-          </p>
-          <div className="mt-2 h-1.5 bg-white/5 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-violet-500 to-blue-500 rounded-full transition-all"
-              style={{
-                width: subscription && subscription.monthly_credits > 0
-                  ? `${Math.min(100, Math.round((subscription.credits_remaining / subscription.monthly_credits) * 100))}%`
-                  : '0%',
-              }}
-            />
-          </div>
-          <p className="text-xs text-white/30 mt-1">
-            {subscription ? `/ ${subscription.monthly_credits.toLocaleString()} החודש` : 'טוען...'}
-          </p>
-        </Link>
+      {/* The last 30 days, one measure per chart (they live on different scales). */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+        <DailyChart
+          title="קליקים" days={L?.days ?? []} values={L?.daily.clicks ?? []} color={colors.clicks} colors={colors}
+          format={nf} total={L ? nf(L.daily.clicks.reduce((a, b) => a + b, 0)) : '—'}
+        />
+        <DailyChart
+          title="פוסטים שיצאו" days={L?.days ?? []} values={L?.daily.posts ?? []} color={colors.posts} colors={colors}
+          format={nf} total={L ? nf(L.daily.posts.reduce((a, b) => a + b, 0)) : '—'}
+        />
+        <DailyChart
+          title="עמלות ($)" days={L?.days ?? []} values={L?.daily.commissions_usd ?? []} color={colors.commissions} colors={colors}
+          format={(v) => `$${Math.round(v)}`} total={L ? usd(L.daily.commissions_usd.reduce((a, b) => a + b, 0)) : '—'}
+        />
       </div>
 
       {/* AI token usage — daily consumption + monthly quota gauge */}
@@ -367,18 +334,20 @@ export default function DashboardPage() {
         </div>
 
         {/* Earnings mini panel */}
-        <div className="w-64 shrink-0 space-y-3">
+        <div className="w-full lg:w-72 shrink-0 space-y-3">
+          <NowPanel live={L} />
+
           <div className="card p-5">
             <h2 className="section-title mb-4">הכנסות החודש</h2>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-white/40">משוער</span>
-                <span className="text-sm font-semibold text-amber-400">₪{(earnings?.total_estimated ?? 0).toFixed(2)}</span>
+                <span className="text-sm font-semibold text-ink">₪{(earnings?.total_estimated ?? 0).toFixed(2)}</span>
               </div>
               <hr className="divider" />
               <div className="flex items-center justify-between">
                 <span className="text-xs text-white/40">מוסדר</span>
-                <span className="text-sm font-semibold text-emerald-400">₪{(earnings?.total_settled ?? 0).toFixed(2)}</span>
+                <span className="text-sm font-semibold text-ink">₪{(earnings?.total_settled ?? 0).toFixed(2)}</span>
               </div>
               <hr className="divider" />
               <div className="flex items-center justify-between">

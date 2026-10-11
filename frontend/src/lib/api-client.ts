@@ -804,7 +804,23 @@ export const pinterestApi = {
 
 // ─── Earnings API ────────────────────────────────────────────────────────────
 
+/** The numbers that move during the day (backend StatsService.live) — polled by the
+ *  dashboards while they are on screen. Times are ISO UTC; days are Israel calendar days. */
+export interface LiveStats {
+  at: string;
+  today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number };
+  last_hour: { clicks: number };
+  queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
+  campaigns: { active: number; total: number };
+  last_click_at: string | null;
+  last_post_at: string | null;
+  last_order_at: string | null;
+  days: string[];
+  daily: { clicks: number[]; posts: number[]; commissions_usd: number[] };
+}
+
 export const statsApi = {
+  live: (days = 30) => http.get<LiveStats>('/stats/live', { params: { days } }).then(extract),
   /** Dashboard headline — commissions, clicks and posts by calendar month: current month,
    *  full previous month, elapsed-stretch delta and a monthly trend series. */
   overview: (months = 12) =>

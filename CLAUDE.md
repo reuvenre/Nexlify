@@ -276,6 +276,22 @@ Since `c2bb97c` a pin links to the store's product page (`postProductUrl`), not 
 
 ## Frontend Architecture
 
+### Live dashboards (`/dashboard`, `/reports`)
+Both screens keep themselves current while they are on screen. There is no push channel; they poll through `lib/hooks/useLive.ts`:
+- **What it does.** It polls on an interval only while the tab is visible, catches up on focus or tab return, never stacks requests, and keeps the last good data on a failed refresh.
+- **One cheap endpoint.** `GET /stats/live` (`StatsService.live`) carries everything that moves during the day:
+  - today's clicks, posts, failures and commissions;
+  - clicks in the last hour;
+  - the queue and the next scheduled send;
+  - the last click, post and synced order;
+  - 7–60 days of daily clicks, posts and commissions (Israel days).
+- **Intervals:** live 20 s, the slower account picture 45 s, monthly overview 60 s, reports 60 s / 30 s. Mind the global throttler (100 requests a minute per IP) before shortening any of them.
+- **Commissions arrive in jumps.** They move only when the earnings sync runs (every 3 h). The screen says so (`NowPanel`) instead of pretending they are live.
+- **Charts.** One measure per chart (`DailyChart`), never two y-axes. Hues come from `lib/viz.ts`: clicks blue, commissions aqua, posts violet, settled/estimated blue/orange. They were validated per theme with the dataviz palette script.
+  - A recharts gradient id must be a plain token (`useId()` stripped). A Hebrew title in the id broke `url(#…)` and the fill fell back to solid black.
+- **Count-up.** `useCountUp` glides from the previous value. Counting up from zero on every refresh made every tile flicker.
+- **Auth.** `useAuth` no longer logs the owner out on a 429/5xx/network error from `/auth/me`. It retries, and only a refused session ends it.
+
 ### Auth flow
 `middleware.ts` only redirects unauthenticated users (no API calls, to avoid ISR cache invalidation). Real session validation happens inside the dashboard layout via the `useAuth` hook.
 

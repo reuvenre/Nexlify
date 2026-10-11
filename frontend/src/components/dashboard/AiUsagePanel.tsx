@@ -22,9 +22,20 @@ export function AiUsagePanel() {
   const [data, setData] = useState<AiUsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [locked, setLocked] = useState(false);
+
   useEffect(() => {
-    usageApi.ai(14).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+    // A plan without token tracking gets { locked: true } — no days to draw. Rendering it
+    // anyway threw on data.days.map and took the whole dashboard down with it.
+    usageApi.ai(14)
+      .then((d: any) => {
+        if (d?.locked || !Array.isArray(d?.days)) { setLocked(true); setData(null); } else setData(d);
+      })
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
   }, []);
+
+  if (locked) return null;
 
   const maxDay = data ? Math.max(1, ...data.days.map((d) => d.total_tokens)) : 1;
   const pct = data && data.budget ? Math.min(100, Math.round((data.month_total / data.budget) * 100)) : 0;

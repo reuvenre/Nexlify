@@ -1,4 +1,4 @@
-import { deltaPct, densify, localNowString, monthKeys, monthWindows, sum } from './stats.util';
+import { deltaPct, densify, localNowString, monthKeys, monthWindows, sum, dayKeys } from './stats.util';
 
 describe('stats.util', () => {
   describe('localNowString', () => {
@@ -14,6 +14,19 @@ describe('stats.util', () => {
         .toBe('2026-09');
       expect(localNowString('Asia/Jerusalem', new Date('2026-08-31T20:00:00Z')).slice(0, 7))
         .toBe('2026-08');
+    });
+  });
+
+  describe('dayKeys', () => {
+    it('returns consecutive days ending with today, across a month and a year boundary', () => {
+      expect(dayKeys('2026-10-11 09:30:00', 3)).toEqual(['2026-10-09', '2026-10-10', '2026-10-11']);
+      expect(dayKeys('2026-03-01 00:10:00', 2)).toEqual(['2026-02-28', '2026-03-01']);
+      expect(dayKeys('2027-01-01 08:00:00', 2)).toEqual(['2026-12-31', '2027-01-01']);
+    });
+
+    it('densify fills quiet days with zeros, in order', () => {
+      const keys = dayKeys('2026-10-11 09:30:00', 3);
+      expect(densify([{ bucket: '2026-10-11', value: 4 }, { bucket: '2026-10-09', value: 1 }], keys)).toEqual([1, 0, 4]);
     });
   });
 

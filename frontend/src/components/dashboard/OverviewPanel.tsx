@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { BadgeDollarSign, MousePointerClick, Send, TrendingDown, TrendingUp } from 'lucide-react';
 import { statsApi } from '@/lib/api-client';
 import { useCountUp } from '@/lib/hooks/useCountUp';
+import { useLive } from '@/lib/hooks/useLive';
 import type { MonthMetric, OverviewStats } from '@/types';
 
 /**
@@ -68,12 +68,12 @@ function Tile({
   return (
     <div className="bg-surface-secondary border border-edge rounded-2xl p-4 shadow-card">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs text-white/40">{label}</p>
+        <p className="text-xs text-ink-muted">{label}</p>
         <Icon size={13} className={accent} />
       </div>
-      <p className="text-2xl font-bold text-white tracking-tight" dir="ltr">{value}</p>
-      <p className="text-2xs text-white/35 h-4">{prevLine}</p>
-      <p className="text-2xs text-white/30 h-4 mb-1">{note ?? ''}</p>
+      <p className="text-2xl font-bold text-ink tracking-tight" dir="ltr">{value}</p>
+      <p className="text-2xs text-ink-muted h-4">{prevLine}</p>
+      <p className="text-2xs text-ink-muted h-4 mb-1">{note ?? ''}</p>
       <div className="flex items-center justify-between">
         <Sparkline points={metric.series} positive={(metric.delta_pct ?? 0) >= 0} />
         <DeltaBadge pct={metric.delta_pct} />
@@ -108,7 +108,7 @@ function MonthlyBars({ series, monthKeys }: { series: number[]; monthKeys: strin
       </div>
       <div className="flex gap-1 mt-1">
         {series.map((_, i) => (
-          <p key={monthKeys[i] ?? i} className="flex-1 text-center text-2xs text-white/25 truncate">
+          <p key={monthKeys[i] ?? i} className="flex-1 text-center text-2xs text-ink-muted truncate">
             {monthLabel(monthKeys[i] ?? '', 'short')}
           </p>
         ))}
@@ -118,12 +118,11 @@ function MonthlyBars({ series, monthKeys }: { series: number[]; monthKeys: strin
 }
 
 export function OverviewPanel() {
-  const [data, setData] = useState<OverviewStats | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    statsApi.overview(MONTHS).then(setData).catch(() => setFailed(true));
-  }, []);
+  // Kept current while on screen (a minute is plenty for month totals); the tiles glide
+  // to each new value instead of recounting from zero.
+  const live = useLive(() => statsApi.overview(MONTHS), { intervalMs: 60_000 });
+  const data: OverviewStats | null = live.data;
+  const failed = !!live.error && !live.data;
 
   const m = data?.metrics;
   const commissions = useCountUp(m?.commissions.current.total ?? 0);
@@ -177,7 +176,7 @@ export function OverviewPanel() {
       <div className="bg-surface-secondary border border-edge rounded-2xl px-4 pt-4 pb-3 shadow-card">
         <div className="flex items-center justify-between mb-3">
           <p className="text-sm font-semibold text-white/70">עמלות · {data.months} חודשים אחרונים</p>
-          <span className="text-xs text-white/35" dir="ltr">
+          <span className="text-xs text-ink-muted" dir="ltr">
             ${m.commissions.series.reduce((a, b) => a + b, 0).toLocaleString('en-US', { maximumFractionDigits: 2 })} סה״כ
           </span>
         </div>
@@ -187,7 +186,7 @@ export function OverviewPanel() {
           // A brand-new account has a flat chart, which reads as broken rather than empty.
           <div className="h-24 flex flex-col items-center justify-center text-center gap-1">
             <p className="text-sm text-white/45">עוד אין נתונים להצגה</p>
-            <p className="text-xs text-white/30">ברגע שהפוסטים הראשונים יפורסמו, המגמה תופיע כאן</p>
+            <p className="text-xs text-ink-muted">ברגע שהפוסטים הראשונים יפורסמו, המגמה תופיע כאן</p>
           </div>
         )}
       </div>

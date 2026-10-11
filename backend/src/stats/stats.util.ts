@@ -22,6 +22,16 @@ export function monthKeys(localNow: string, count: number): string[] {
   return keys;
 }
 
+/** `count` consecutive 'YYYY-MM-DD' keys ending with the day containing `localNow`. */
+export function dayKeys(localNow: string, count: number): string[] {
+  const [y, m, d] = localNow.slice(0, 10).split('-').map(Number);
+  const keys: string[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    keys.push(new Date(Date.UTC(y, m - 1, d - i)).toISOString().slice(0, 10));
+  }
+  return keys;
+}
+
 /**
  * The calendar-month comparison windows around `localNow`, as naive local timestamps.
  *

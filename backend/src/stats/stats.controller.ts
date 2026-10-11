@@ -19,6 +19,12 @@ export class StatsController {
     return this.svc.overview((req.user as any).id, months ? +months : 12);
   }
 
+  /** The numbers that move during the day, for the dashboards' live refresh. */
+  @Get('live')
+  live(@Req() req: Request, @Query('days') days?: string) {
+    return this.svc.live((req.user as any).id, days ? +days : 30);
+  }
+
   /** Clicks per platform (tg/fb/ig/wa, 'other' = untagged history) over the last N days. */
   @Get('click-sources')
   clickSources(@Req() req: Request, @Query('days') days?: string) {

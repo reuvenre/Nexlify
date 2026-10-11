@@ -23,7 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
-  const bootstrap = useCallback(async () => {
+  const bootstrap = useCallback(async (attempt = 0): Promise<void> => {
     try {
       // Validate the session using the access token already in localStorage (set by
       // email login or the Google callback). If it's expired, the api-client's 401
@@ -31,11 +31,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // far more robust than eagerly rotating the refresh token on every page load.
       const user = await authApi.me();
       setUser(user);
-    } catch {
+      setIsLoading(false);
+    } catch (err: any) {
+      // Only a refused session ends it. A rate limit (429), a server hiccup or a dropped
+      // connection says nothing about the session — logging the owner out for one made a
+      // busy minute (several open tabs refreshing live) look like an expired login.
+      const status = err?.response?.status;
+      const passing = status === undefined || status === 429 || status >= 500;
+      if (passing && attempt < 4) {
+        setTimeout(() => { void bootstrap(attempt + 1); }, 1500 * (attempt + 1));
+        return;
+      }
       setAccessToken(null);
       setRefreshToken(null);
       setUser(null);
-    } finally {
       setIsLoading(false);
     }
   }, []);

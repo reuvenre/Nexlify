@@ -5,7 +5,8 @@ import { Earning } from '../earnings/earning.entity';
 import { LinkClick } from '../links/link-click.entity';
 import { Post } from '../posts/post.entity';
 import { RatesService } from '../rates/rates.service';
-import { deltaPct, densify, localNowString, monthKeys, monthWindows } from './stats.util';
+import { Campaign } from '../campaigns/campaign.entity';
+import { dayKeys, deltaPct, densify, localNowString, monthKeys, monthWindows } from './stats.util';
 
 export interface MonthMetric {
   /** The current calendar month so far. */
@@ -37,6 +38,27 @@ export interface OverviewStats {
 
 const MAX_MONTHS = 24;
 
+/**
+ * Everything on the dashboard that moves during the day, in one cheap round trip — the
+ * screens poll it (every ~20 s while visible), so it must stay a handful of indexed counts.
+ * Times are Israel time; commissions per day are cut on the same clock as clicks, which
+ * is what a day-by-day chart of the owner's own activity needs.
+ */
+export interface LiveStats {
+  /** Server time of this snapshot. */
+  at: string;
+  today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number };
+  last_hour: { clicks: number };
+  queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
+  campaigns: { active: number; total: number };
+  last_click_at: string | null;
+  last_post_at: string | null;
+  /** The newest order the earnings sync has brought in (commissions arrive in batches). */
+  last_order_at: string | null;
+  days: string[];
+  daily: { clicks: number[]; posts: number[]; commissions_usd: number[] };
+}
+
 /** AliExpress reports by its platform clock — the commissions figure must match the
  *  portal the owner holds it against, so its months are cut on this timezone. */
 const PORTAL_TZ = 'Asia/Shanghai';
@@ -63,8 +85,94 @@ export class StatsService {
     @InjectRepository(Earning) private readonly earnings: Repository<Earning>,
     @InjectRepository(LinkClick) private readonly clicks: Repository<LinkClick>,
     @InjectRepository(Post) private readonly posts: Repository<Post>,
+    @InjectRepository(Campaign) private readonly campaigns: Repository<Campaign>,
     private readonly rates: RatesService,
   ) {}
+
+  /** See LiveStats. `days` is the daily chart's length (7–60). */
+  async live(userId: string, days = 30): Promise<LiveStats> {
+    const n = Math.min(60, Math.max(7, Math.floor(days) || 30));
+    const localNow = localNowString(LOCAL_TZ);
+    const keys = dayKeys(localNow, n);
+    const todayFrom = `${keys[keys.length - 1]} 00:00:00`;
+    const fromLocal = `${keys[0]} 00:00:00`;
+    const clickCol = naiveUtcAsLocal('c.clicked_at', LOCAL_TZ);
+    const postCol = naiveUtcAsLocal('p.sent_at', LOCAL_TZ);
+    const commissionCol = `COALESCE(${tstzAsLocal('e.paid_date', LOCAL_TZ)}, ${naiveUtcAsLocal('e.order_date', LOCAL_TZ)})`;
+    const day = (col: string) => `to_char(${col}, 'YYYY-MM-DD')`;
+    const hourAgo = new Date(Date.now() - 3600_000);
+
+    const [clickDays, postDays, commissionDays, lastHour, failedToday, queue, camps, lasts] = await Promise.all([
+      this.clicks.createQueryBuilder('c').select(day(clickCol), 'bucket').addSelect('COUNT(*)::int', 'value')
+        .where('c.user_id = :userId', { userId }).andWhere(`${clickCol} >= :fromLocal`, { fromLocal })
+        .groupBy('bucket').getRawMany(),
+      this.posts.createQueryBuilder('p').select(day(postCol), 'bucket').addSelect('COUNT(*)::int', 'value')
+        .where('p.user_id = :userId', { userId }).andWhere("p.status = 'sent'").andWhere(`${postCol} >= :fromLocal`, { fromLocal })
+        .groupBy('bucket').getRawMany(),
+      this.earnings.createQueryBuilder('e').select(day(commissionCol), 'bucket').addSelect('COALESCE(SUM(e.commission_usd), 0)', 'value')
+        .where('e.user_id = :userId', { userId }).andWhere("e.status IN ('estimated', 'settled')")
+        .andWhere(`${commissionCol} >= :fromLocal`, { fromLocal })
+        .groupBy('bucket').getRawMany(),
+      this.clicks.createQueryBuilder('c').select('COUNT(*)::int', 'n')
+        .where('c.user_id = :userId', { userId }).andWhere('c.clicked_at >= :hourAgo', { hourAgo })
+        .getRawOne(),
+      this.posts.createQueryBuilder('p').select('COUNT(*)::int', 'n')
+        .where('p.user_id = :userId', { userId }).andWhere("p.status = 'failed'")
+        .andWhere(`${naiveUtcAsLocal('p.created_at', LOCAL_TZ)} >= :todayFrom`, { todayFrom })
+        .getRawOne(),
+      this.posts.createQueryBuilder('p')
+        .select("COUNT(*) FILTER (WHERE p.status = 'scheduled')::int", 'scheduled')
+        .addSelect("COUNT(*) FILTER (WHERE p.status = 'queued')::int", 'queued')
+        .addSelect("COUNT(*) FILTER (WHERE p.status = 'pending')::int", 'pending')
+        .addSelect("MIN(p.scheduled_at) FILTER (WHERE p.status = 'scheduled')", 'next_at')
+        .where('p.user_id = :userId', { userId }).andWhere("p.status IN ('scheduled', 'queued', 'pending')")
+        .getRawOne(),
+      this.campaigns.createQueryBuilder('k')
+        .select("COUNT(*) FILTER (WHERE k.status = 'active')::int", 'active')
+        .addSelect('COUNT(*)::int', 'total')
+        .where('k.user_id = :userId', { userId })
+        .getRawOne(),
+      this.posts.query(
+        // user_id is uuid on some of these tables and varchar on others — compare as text.
+        `SELECT (SELECT max(clicked_at) FROM link_clicks WHERE user_id::text = $1) AS last_click,
+                (SELECT max(sent_at) FROM posts WHERE user_id::text = $1 AND status = 'sent') AS last_post,
+                (SELECT max(order_date) FROM earnings WHERE user_id::text = $1) AS last_order`,
+        [userId],
+      ).then((r: any[]) => r[0]),
+    ]);
+
+    const clicks = densify(clickDays, keys);
+    const posts = densify(postDays, keys);
+    const commissions = densify(commissionDays, keys).map((v) => Math.round(v * 100) / 100);
+    // Naive UTC timestamps (clicked_at, sent_at, order_date, scheduled_at) leave as ISO UTC.
+    const iso = (v: any): string | null => {
+      if (!v) return null;
+      const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T') + (/[zZ+]/.test(String(v).slice(10)) ? '' : 'Z'));
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    };
+    return {
+      at: new Date().toISOString(),
+      today: {
+        posts_sent: posts[posts.length - 1] ?? 0,
+        clicks: clicks[clicks.length - 1] ?? 0,
+        failed: Number(failedToday?.n) || 0,
+        commissions_usd: commissions[commissions.length - 1] ?? 0,
+      },
+      last_hour: { clicks: Number(lastHour?.n) || 0 },
+      queue: {
+        scheduled: Number(queue?.scheduled) || 0,
+        queued: Number(queue?.queued) || 0,
+        pending: Number(queue?.pending) || 0,
+        next_at: iso(queue?.next_at),
+      },
+      campaigns: { active: Number(camps?.active) || 0, total: Number(camps?.total) || 0 },
+      last_click_at: iso(lasts?.last_click),
+      last_post_at: iso(lasts?.last_post),
+      last_order_at: iso(lasts?.last_order),
+      days: keys,
+      daily: { clicks, posts, commissions_usd: commissions },
+    };
+  }
 
   /**
    * Headline numbers for the dashboard, by CALENDAR month: commissions, clicks and posts —
