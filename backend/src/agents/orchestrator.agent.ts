@@ -111,16 +111,25 @@ export class OrchestratorAgent {
         published.add(p);
         return true;
       });
+      // Products a focus turned down but that may still go to the campaign's other groups.
+      const onlyFor = new Map<string, string[]>();
       if (foci.length && products.length) {
-        const { verdicts } = await this.posts.groupFocusCheck(userId, creds, targets, products.map((p) => ({
+        const { verdicts, open } = await this.posts.groupFocusCheck(userId, creds, targets, products.map((p) => ({
           id: String(p.product_id), keyword: String(p.keyword || ''), title: String(p.title || ''),
           category: (p as any).category,
         })), campaign.name, campaign.target_platforms);
         const label = focusLabel(foci);
         products.forEach((p, i) => {
-          if (!verdicts[i].fits) errors.push(`${label}: "${String(p.title || '').slice(0, 50)}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);
+          if (verdicts[i].fits) return;
+          const title = String(p.title || '').slice(0, 50);
+          if (open.length) {
+            onlyFor.set(String(p.product_id), open);
+            errors.push(`${label}: "${title}" לא נשלח לקבוצה הממוקדת (${verdicts[i].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
+          } else {
+            errors.push(`${label}: "${title}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);
+          }
         });
-        products = products.filter((_p, i) => verdicts[i].fits).slice(0, plan.perPost);
+        products = products.filter((p, i) => verdicts[i].fits || onlyFor.has(String(p.product_id))).slice(0, plan.perPost);
       }
       totalTokens += productTokens;
       this.logger.log(`[Orchestrator] Found ${products.length} products`);
@@ -169,6 +178,7 @@ export class OrchestratorAgent {
             generated_text: text,
             rate,
             keyword: product.keyword || null,
+            targets: onlyFor.get(String(product.product_id)),
           }, creds);
 
           postsCreated++;

@@ -125,3 +125,12 @@ export function focusApplies(platforms: Set<string> | null | undefined): boolean
   if (!platforms || !platforms.size) return true;
   return GROUP_PLATFORMS.some((p) => platforms.has(p));
 }
+
+/**
+ * The campaign's targets that no focus speaks for. A product a focus turns down may still go
+ * to these: the focus decides what reaches ITS group, never what a sister group gets.
+ */
+export function openTargets(targets: string[], foci: GroupFocus[]): string[] {
+  const focused = new Set(foci.map((f) => f.channelId));
+  return targets.filter((t) => !focused.has(t));
+}

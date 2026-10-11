@@ -45,7 +45,7 @@ import { occupiesCurrentInterval, pacingIntervalMinutes } from './group-pacing';
 import { platformFilterSql } from './platform-filter';
 import { ImportRowInput, composeImportText, extractAliProductId, extractAliProductIdFromHtml, validImportRow } from './import-rows';
 import { GROUP_FOCUS_SYSTEM, PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdict, buildProductFitPrompt, isStrictFit, parseProductFitVerdicts } from './product-relevance';
-import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusApplies, focusLabel, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
+import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusApplies, focusLabel, openTargets, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
 import { hotHours } from '../optimizer/hot-hours';
 import { PriceBand, preferInBand, soldPriceBand } from '../optimizer/sold-price-band';
 import { COPY_VARIANTS, VariantStat, customVariants, pickVariant, variantHint } from './copy-variants';
@@ -3079,7 +3079,9 @@ export class PostsService {
     };
     // Track WHICH keyword actually supplied each product (a borrowed slot carries the
     // donor keyword) — persisted on the post so revenue attribution can report per keyword.
-    const toPost: Array<{ product: any; kw: string }> = [];
+    // `only`: the groups this product may go to when a group's focus turned it down but the
+    // campaign also feeds groups without one (see the guard below). Absent = every target.
+    const toPost: Array<{ product: any; kw: string; only?: string[] }> = [];
     for (const kw of slotKeywords) {
       let product = takeFrom(kw);
       let source = kw;
@@ -3148,10 +3150,19 @@ export class PostsService {
         keyword: kw, title: String(p?.title || ''), category: p?.category,
       });
       const verdicts = await this.productFitVerdicts(creds, fitCtx, toPost.map((x) => fitItem(x.product, x.kw)));
-      const kept: Array<{ product: any; kw: string }> = [];
+      // A focus speaks for its own group only. When the campaign also feeds groups without a
+      // focus, a product the focus turns down still goes to those — it is only kept out of the
+      // focused group. Otherwise one group's focus would decide what every other group gets.
+      const open = strict ? openTargets(targets, foci) : [];
+      const kept: Array<{ product: any; kw: string; only?: string[] }> = [];
       for (let i = 0; i < toPost.length; i++) {
         if (verdicts[i].fits) { kept.push(toPost[i]); continue; }
         const rejectedTitle = String(toPost[i].product.title || '').slice(0, 50);
+        if (open.length) {
+          kept.push({ ...toPost[i], only: open });
+          result.errors.push(`${guardName}: "${rejectedTitle}" לא נשלח לקבוצה הממוקדת (${verdicts[i].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
+          continue;
+        }
         this.logger.warn(`campaign ${campaign.id}: ${strict ? 'core focus' : 'relevance guard'} rejected "${rejectedTitle}"`
           + ` (${verdicts[i].reason || 'no reason'}) for kw "${toPost[i].kw}"`);
         // Replacement draws from THIS keyword's pool first, then from any other keyword's —
@@ -3232,6 +3243,7 @@ export class PostsService {
     const isSeasonalKw = (kw: string) => seasonalKeywordSet.has(String(kw || '').trim().toLowerCase());
     for (let i = 0; i < toPost.length; i++) {
       const { product, kw: slotKeyword } = toPost[i];
+      const postTargets = toPost[i].only ?? targets;
       try {
         // Per-group pacing: place the post in the group's next free slot (spaced by the
         // group's interval from any pending post to it, any source). On a SCHEDULED run,
@@ -3243,9 +3255,9 @@ export class PostsService {
         // it neither books the group's slot nor gets skipped by it — it runs purely on
         // its own cron cadence.
         let scheduledAt = times[i];
-        if (targets.length && (!platforms || platforms.has('telegram'))) {
+        if (postTargets.length && (!platforms || platforms.has('telegram'))) {
           const { slot, skip } = await this.nextGroupSlot(
-            userId, targets[0], times[i], campaign.id, cycleEnd,
+            userId, postTargets[0], times[i], campaign.id, cycleEnd,
           );
           if (skip && opts?.fromScheduler) { skipped++; if (isSeasonalKw(slotKeyword)) seasonalSkipped++; continue; }
           scheduledAt = slot;
@@ -3326,7 +3338,7 @@ export class PostsService {
         // Route to the campaign's target group(s). Without this the post carries no
         // channel_override and the scheduled-send cron delivers it to the DEFAULT channel —
         // which is exactly how an ALI4YOU campaign leaked into טקטי בקליק.
-        if (targets.length) this.applyChannels(post, targets);
+        if (postTargets.length) this.applyChannels(post, postTargets);
 
         await this.repo.save(post);
         result.queued++;
@@ -3500,6 +3512,8 @@ export class PostsService {
       generated_text: string;
       rate: number;
       keyword?: string | null;
+      /** Narrower than the campaign's groups: a group's focus turned this product down. */
+      targets?: string[];
     },
     creds: DecryptedCredentials,
   ): Promise<Post> {
@@ -3533,7 +3547,7 @@ export class PostsService {
     // agent-routed campaign silently ignored its configured groups and posted to the
     // account's DEFAULT channel.
     const agentCampaign = await this.campaignRepo.findOne({ where: { id: campaignId } }).catch(() => null);
-    const agentTargets = this.parseTargetChannels(agentCampaign?.target_channels);
+    const agentTargets = data.targets?.length ? data.targets : this.parseTargetChannels(agentCampaign?.target_channels);
     if (agentTargets.length) this.applyChannels(post, agentTargets);
 
     await this.repo.save(post);
@@ -6614,20 +6628,22 @@ export class PostsService {
     items: ProductFitItem[],
     campaignName = '',
     targetPlatforms?: string | null,
-  ): Promise<{ foci: GroupFocus[]; verdicts: ProductFitVerdict[] }> {
+  ): Promise<{ foci: GroupFocus[]; verdicts: ProductFitVerdict[]; open: string[] }> {
     const accept = items.map(() => ({ fits: true, reason: '' }));
     // A campaign that never reaches the group (Pinterest only) is not the group's to judge.
-    if (!focusApplies(this.parseTargetPlatforms(targetPlatforms))) return { foci: [], verdicts: accept };
+    if (!focusApplies(this.parseTargetPlatforms(targetPlatforms))) return { foci: [], verdicts: accept, open: targets };
     const chats = targets.length ? targets : [creds?.telegram_channel_id].filter((c): c is string => !!c);
     const foci = await this.channels.getFocus(userId, chats).catch(() => [] as GroupFocus[]);
-    if (!foci.length || !items.length || !creds || !this.ai.hasAnyKey(creds)) return { foci, verdicts: accept };
+    // The targets no focus speaks for: a product turned down may still go to these.
+    const open = openTargets(targets, foci);
+    if (!foci.length || !items.length || !creds || !this.ai.hasAnyKey(creds)) return { foci, verdicts: accept, open };
     const ctx: ProductFitContext = {
       campaign: campaignName || foci.map((f) => f.name).join(', '),
       channels: foci.map((f) => f.name),
       keywords: [],
       focus: foci,
     };
-    return { foci, verdicts: await this.productFitVerdicts(creds, ctx, items) };
+    return { foci, verdicts: await this.productFitVerdicts(creds, ctx, items), open };
   }
 
   private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false, opts?: { currencyPair?: string; style?: 'pinterest'; seasonHint?: string | null; copyHint?: string | null; promo?: { discount?: number | null; endsLabel?: string | null } }): Promise<string> {

@@ -197,6 +197,15 @@ export function validateProposal(
       if (!groups.length) {
         return { ok: false, error: 'this campaign publishes to no saved group, so there is no group to set a focus on' };
       }
+      // A focus belongs to ONE group. A campaign feeding several would write the same focus
+      // onto all of them — the tactical focus onto the mothers' group.
+      if (groups.length > 1) {
+        return {
+          ok: false,
+          error: `this campaign feeds ${groups.length} groups (${groups.map((g) => g.name).join(', ')}); a focus is per group, `
+            + 'so tell the owner to set it on the right group in the groups screen (edit → מיקוד ליבה)',
+        };
+      }
       const focus = normalizeFocus(String(input.value ?? '').replace(/[\u0000-\u001F\u007F-\u009F⟦⟧]/g, ' '));
       if (!focus || focus.length < MIN_FOCUS_LENGTH) {
         return { ok: false, error: `set_group_focus: one Hebrew sentence naming the product types that belong (${MIN_FOCUS_LENGTH}-${MAX_FOCUS_LENGTH} characters)` };

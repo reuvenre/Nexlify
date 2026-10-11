@@ -33,10 +33,11 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
    *  reports back, which decides whether the content step runs at all. */
   function build(
     plan: any = PLAN, products: any[] = [{ product_id: 'p1', title: 'פנס טקטי' }], published: any[] = [],
-    focus: { foci: any[]; reject?: Set<string> } = { foci: [] },
+    focus: { foci: any[]; reject?: Set<string>; open?: string[] } = { foci: [] },
   ) {
     const groupFocusCheck = jest.fn(async (_u: string, _c: any, _t: string[], items: any[]) => ({
       foci: focus.foci,
+      open: focus.open ?? [],
       verdicts: items.map((it) => (focus.reject?.has(it.id) ? { fits: false, reason: 'פנס רגיל' } : { fits: true, reason: '' })),
     }));
     const findBestProducts = jest.fn(async (..._a: any[]) => ({ products, tokens: 0 }));
@@ -186,6 +187,15 @@ describe('OrchestratorAgent — seasonal and bonus keywords reach the agents pat
       // The rejected one is out, and no more than the plan's count go out.
       expect(createAgentPost.mock.calls.map((c: any[]) => c[2].product_id)).toEqual(['b', 'c']);
       expect(res.errors.join(' ')).toContain('מיקוד הקבוצה (טקטי בקליק): "פנס רגיל" נפסל (פנס רגיל)');
+    });
+
+    it('a product the focus turns down still goes to the campaign\'s other group, and only there', async () => {
+      const products = [{ product_id: 'a', title: 'מארגן מטבח' }, { product_id: 'b', title: 'נרתיק לאקדח' }];
+      const { agent, createAgentPost } = build(PLAN, products, [], { foci: FOCI, reject: new Set(['a']), open: ['-100888'] });
+      const res = await agent.run({ ...focused, target_channels: JSON.stringify(['-100', '-100888']) }, USER);
+      const sent = createAgentPost.mock.calls.map((c: any[]) => [c[2].product_id, c[2].targets]);
+      expect(sent).toEqual([['a', ['-100888']], ['b', undefined]]);
+      expect(res.errors.join(' ')).toContain('רק לשאר הקבוצות');
     });
 
     it('without a focus nothing changes: same count asked, nothing judged', async () => {

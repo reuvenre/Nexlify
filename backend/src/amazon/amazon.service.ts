@@ -168,14 +168,23 @@ export class AmazonService {
     // CORE FOCUS (posts/group-focus.ts): a focused group takes only products clearly inside it.
     const creds = await this.credentials.getRaw(userId);
     const focusNotes: string[] = [];
-    const { foci, verdicts } = await this.posts.groupFocusCheck(userId, creds, targets, candidates.map((p) => ({
+    const { foci, verdicts, open } = await this.posts.groupFocusCheck(userId, creds, targets, candidates.map((p) => ({
       id: p.asin, keyword, title: String(p.title || ''),
     })), campaign.name, campaign.target_platforms);
+    // Products a focus turned down that may still go to the campaign's groups without a focus.
+    const onlyFor = new Map<string, string[]>();
     if (foci.length) {
       candidates.forEach((p, i) => {
-        if (!verdicts[i].fits) focusNotes.push(`${focusLabel(foci)}: "${String(p.title || '').slice(0, 50)}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);
+        if (verdicts[i].fits) return;
+        const title = String(p.title || '').slice(0, 50);
+        if (open.length) {
+          onlyFor.set(p.asin, open);
+          focusNotes.push(`${focusLabel(foci)}: "${title}" לא נשלח לקבוצה הממוקדת (${verdicts[i].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
+        } else {
+          focusNotes.push(`${focusLabel(foci)}: "${title}" נפסל (${verdicts[i].reason || 'מחוץ למיקוד'})`);
+        }
       });
-      candidates = candidates.filter((_p, i) => verdicts[i].fits);
+      candidates = candidates.filter((p, i) => verdicts[i].fits || onlyFor.has(p.asin));
       if (!candidates.length) {
         return { queued: 0, failed: 0, keyword, searched: `Amazon: ${keyword}`,
           errors: [...focusNotes, `אף מוצר שנמצא עבור "${keyword}" לא בתוך מיקוד הקבוצה — דילוג`] };
@@ -190,7 +199,8 @@ export class AmazonService {
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
       try {
-        const { slot, skip } = await this.posts.nextGroupSlot(userId, targets[0], times[i]);
+        const tgs = onlyFor.get(p.asin) ?? targets;
+        const { slot, skip } = await this.posts.nextGroupSlot(userId, tgs[0], times[i]);
         if (skip && opts?.fromScheduler) continue;
 
         // Prices come from Amazon in USD → pass currency 'USD' so createQueuedPost converts
@@ -208,7 +218,7 @@ export class AmazonService {
           rating: 0,
         };
         await this.posts.createQueuedPost(
-          userId, product, undefined, template || undefined, targets[0], [p.image], undefined, targets,
+          userId, product, undefined, template || undefined, tgs[0], [p.image], undefined, tgs,
           { scheduledAt: slot, campaignId: campaign.id },
         );
         result.queued++;

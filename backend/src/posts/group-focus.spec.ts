@@ -1,5 +1,5 @@
 import {
-  FOCUS_REJECT_TTL_MS, flylinkFitItem, focusApplies, focusHash, focusLabel, focusMemoryKey,
+  FOCUS_REJECT_TTL_MS, flylinkFitItem, focusApplies, openTargets, focusHash, focusLabel, focusMemoryKey,
   liveRejections, mergeRejections, normalizeFocus,
 } from './group-focus';
 import {
@@ -171,5 +171,27 @@ describe('a campaign that never reaches the group (#101)', () => {
     expect(r.verdicts[0].fits).toBe(true);
     expect(generate).not.toHaveBeenCalled();
     expect(svc.channels.getFocus).not.toHaveBeenCalled();
+  });
+});
+
+describe('one group\'s focus never decides for its sister groups', () => {
+  const MAMA = '-100888';
+  it('the targets no focus speaks for stay open to a turned-down product', () => {
+    expect(openTargets(['-100', MAMA], [TACTICAL])).toEqual([MAMA]);
+    expect(openTargets(['-100'], [TACTICAL])).toEqual([]);
+    expect(openTargets([MAMA], [])).toEqual([MAMA]);
+  });
+
+  it('groupFocusCheck reports which targets a rejected product may still go to', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PostsService } = require('./posts.service');
+    const svc: any = Object.create(PostsService.prototype);
+    svc.ai = { hasAnyKey: () => true, generate: async () => ({ text: '[{"i":1,"fits":false,"reason":"מוצר לבית"}]' }) };
+    svc.channels = { getFocus: async () => [TACTICAL] };
+    svc.memory = { load: async () => null, save: async () => undefined };
+    const r = await svc.groupFocusCheck('u1', { user_id: 'u1' }, ['-100', MAMA],
+      [{ id: 'p1', keyword: 'מארגן', title: 'Kitchen organizer' }]);
+    expect(r.verdicts[0].fits).toBe(false);
+    expect(r.open).toEqual([MAMA]);
   });
 });

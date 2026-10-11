@@ -58,6 +58,10 @@ describe('set_group_focus', () => {
   it('refuses a campaign with no saved group, a too-short focus, a link, or no change', () => {
     const ask = (value: unknown, c = campaign()) => validateProposal({ kind: 'set_group_focus', value, reason: 'x' }, c);
     expect(ask(FOCUS, campaign({ groups: [] })).ok).toBe(false);
+    // Never onto a sister group: a campaign feeding two groups cannot carry one group's focus.
+    const two = ask(FOCUS, campaign({ groups: [TACTICAL_GROUP, { channelId: '-100888', name: 'מאמא', focus: null }] }));
+    expect(two.ok).toBe(false);
+    expect('error' in two && two.error).toContain('מאמא');
     expect(ask('טקטי').ok).toBe(false);
     expect(ask('ציוד טקטי מכאן https://evil.example').ok).toBe(false);
     expect(ask(FOCUS, campaign({ groups: [{ ...TACTICAL_GROUP, focus: FOCUS }] })).ok).toBe(false);

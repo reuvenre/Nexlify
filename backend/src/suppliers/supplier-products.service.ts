@@ -982,21 +982,29 @@ export class SupplierProductsService {
     // (a bare supplier code) cannot be judged and goes through as before.
     const creds = await this.credentials.getRaw(userId);
     const focusNotes: string[] = [];
+    // Items a focus turned down that may still go to the campaign's groups without a focus.
+    const onlyFor = new Map<string, string[]>();
     let products = pool.slice(0, limit);
     const judgeable = pool.slice(0, limit * 3);
     const focusItems = judgeable.map((p) => flylinkFitItem(p));
     if (focusItems.some((it) => it)) {
       const asked = focusItems.map((it, i) => ({ it, i })).filter((x) => !!x.it);
-      const { foci, verdicts } = await this.posts.groupFocusCheck(
+      const { foci, verdicts, open } = await this.posts.groupFocusCheck(
         userId, creds, targets, asked.map((x) => x.it!), campaign.name, campaign.target_platforms,
       );
       if (foci.length) {
         const out = new Set<number>();
         asked.forEach((x, j) => {
           if (verdicts[j].fits) return;
-          out.add(x.i);
           const p = judgeable[x.i];
-          focusNotes.push(`${focusLabel(foci)}: "${(p.store_name || p.title || p.sku || '').slice(0, 50)}" נפסל (${verdicts[j].reason || 'מחוץ למיקוד'})`);
+          const name = (p.store_name || p.title || p.sku || '').slice(0, 50);
+          if (open.length) {
+            onlyFor.set(p.id, open);
+            focusNotes.push(`${focusLabel(foci)}: "${name}" לא נשלח לקבוצה הממוקדת (${verdicts[j].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
+            return;
+          }
+          out.add(x.i);
+          focusNotes.push(`${focusLabel(foci)}: "${name}" נפסל (${verdicts[j].reason || 'מחוץ למיקוד'})`);
         });
         products = judgeable.filter((_p, i) => !out.has(i)).slice(0, limit);
         if (!products.length) {
@@ -1020,12 +1028,13 @@ export class SupplierProductsService {
     let skipped = 0;
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
+      const tgs = onlyFor.get(p.id) ?? targets;
       try {
         // Per-group pacing WITH fair-share (same rule as AliExpress): pass the campaign id so
         // a group shared by this FLYLINK campaign and an AliExpress one ALTERNATES between
         // them. Without the id, FLYLINK booked every interval and the AliExpress campaign
         // (which does pass its id) always saw the group busy and was starved.
-        const { slot, skip } = await this.posts.nextGroupSlot(userId, targets[0], times[i], campaign.id);
+        const { slot, skip } = await this.posts.nextGroupSlot(userId, tgs[0], times[i], campaign.id);
         if (skip && opts?.fromScheduler) { skipped++; continue; }
 
         const productKey = String(p.sku || p.id);
@@ -1053,7 +1062,7 @@ export class SupplierProductsService {
             orders_count: 0,
             rating: 0,
           };
-          await this.posts.createQueuedPost(userId, product, undefined, original.generated_text || undefined, targets[0], origGallery, undefined, targets,
+          await this.posts.createQueuedPost(userId, product, undefined, original.generated_text || undefined, tgs[0], origGallery, undefined, tgs,
             { scheduledAt: slot, campaignId: campaign.id });
         } else {
           // FIRST TIME for this product: write fresh AI copy in the group's voice (one
@@ -1075,7 +1084,7 @@ export class SupplierProductsService {
             copyHint: variantHint(variant, 'he'),
           });
           const text = preview?.generated_text || p.description || undefined;
-          await this.posts.createQueuedPost(userId, product, undefined, text, targets[0], gallery, undefined, targets,
+          await this.posts.createQueuedPost(userId, product, undefined, text, tgs[0], gallery, undefined, tgs,
             { scheduledAt: slot, campaignId: campaign.id, copyVariant: variant.id });
         }
 
