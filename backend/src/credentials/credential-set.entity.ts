@@ -31,6 +31,19 @@ export class CredentialSet {
   @Column({ nullable: true })
   telegram_channel_id: string;
 
+  /**
+   * The account's own readers' bot (Growth): readers search the account's products through
+   * it, and the account owner's linked chat talks to the manager in it (Autopilot). Its
+   * webhook is /telegram/tenant/<user_id> — see telegram-bot/tenant-bot.ts.
+   */
+  @Column({ type: 'text', nullable: true })
+  search_bot_token_enc: string | null;
+
+  /** The private chat linked through «/start link_<code>» in the account's own bot — the
+   *  only chat that bot treats as its owner. */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  manager_chat_id: string | null;
+
   @Column({ nullable: true })
   openai_api_key_enc: string;
 

@@ -7,7 +7,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index, Unique
  * reader blocks the bot; inactive rows are deleted after 30 days.
  */
 @Entity('parcel_tracks')
-@Unique('uq_parcel_tracks_chat_number', ['chat_id', 'number'])
+@Unique('uq_parcel_tracks_user_chat_number', ['user_id', 'chat_id', 'number'])
 @Index('idx_parcel_tracks_active', ['active'])
 export class ParcelTrack {
   @PrimaryGeneratedColumn('uuid')

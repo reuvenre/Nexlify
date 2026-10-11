@@ -19,6 +19,11 @@ import {
 } from './parcel-tracking';
 import { parcelInfo, parcelQuota, registerParcel, seventeenTrackKey } from './seventeen-track';
 import { VideosService } from '../videos/videos.service';
+import { SubscriptionService } from '../subscription/subscription.service';
+import {
+  LINK_CODE_TTL_MS, MANAGER_LOCKED, TENANT_BOT_PAUSED, linkCodeKey, linkDeepLink, looksLikeBotToken,
+  newLinkCode, parseLinkStart, tenantWebhookSecret, tenantWebhookUrl,
+} from './tenant-bot';
 import { parseStartSource, startsReport } from './bot-start';
 import {
   ALERT_MAX_MISSES, ALERT_TTL_DAYS, MAX_ALERTS_PER_READER, isPriceDrop, isStopAlerts, parseAlertCallback, priceDropCaption,
@@ -103,8 +108,12 @@ export class TelegramBotService implements OnModuleInit {
     label?: string;
   }>();
   /** Which bot answers this update. Set while handling the search bot's updates, so every
-   *  reply in that flow goes out from the bot the reader wrote to (see search-bot.ts). */
-  private readonly replyVia = new AsyncLocalStorage<{ token: string }>();
+   *  reply in that flow goes out from the bot the reader wrote to (see search-bot.ts).
+   *  In an account's own bot (tenant-bot.ts) it also carries whose bot it is and the chat
+   *  linked as that bot's owner — ownerUserId() and isOwner() answer from it. */
+  private readonly replyVia = new AsyncLocalStorage<{ token: string; userId?: string; managerChat?: string | null }>();
+  /** An account bot's @username, for the invite line and the settings screen. */
+  private readonly tenantBotNames = new Map<string, { username: string | null; at: number }>();
   private searchBotName: { username: string | null; at: number } | null = null;
 
   constructor(
@@ -127,6 +136,7 @@ export class TelegramBotService implements OnModuleInit {
     private readonly agentClient: AgentClient,
     private readonly memory: PersistentValueStore,
     private readonly videos: VideosService,
+    private readonly subscription: SubscriptionService,
   ) {}
 
   // ── Entry point ────────────────────────────────────────────────────────────
@@ -217,6 +227,229 @@ export class TelegramBotService implements OnModuleInit {
     await this.replyVia.run({ token }, () => this.handleShopper(msg, text));
   }
 
+  // ── An account's own bot (tenant-bot.ts) ─────────────────────────────────
+
+  /**
+   * An update delivered to an account's own bot. Readers get that account's product search
+   * (Growth); the chat the account linked gets the manager (Autopilot). Everything runs with
+   * the account in the AsyncLocalStorage store, so every search, log row, alert and reply is
+   * the account's and goes out from its bot.
+   */
+  async handleTenantUpdate(userId: string, update: any): Promise<void> {
+    const bot = await this.credentials.getSearchBot(userId).catch(() => null);
+    if (!bot) return;
+    await this.replyVia.run({ token: bot.token, userId, managerChat: bot.managerChatId }, async () => {
+      const cq = update?.callback_query;
+      if (cq) {
+        const data = String(cq.data || '');
+        if (parseAlertCallback(data) || parseParcelCallback(data)) {
+          await this.onReaderTap(cq);
+          return;
+        }
+        const chatId = String(cq?.message?.chat?.id ?? '');
+        const { action, args } = parseCallback(data);
+        if ((action === 'pa' || action === 'pr') && this.isOwner(chatId)
+          && await this.subscription.allows(userId, 'manager_agent')) {
+          await this.onProposal(chatId, String(cq.id || ''), cq?.message?.message_id, args[0], action === 'pa');
+          return;
+        }
+        await this.answer(String(cq.id || ''));
+        return;
+      }
+
+      const msg = update?.message;
+      const text = String(msg?.text || '').trim();
+      const chatId = String(msg?.chat?.id ?? '');
+      if (!text || !chatId) return;
+      const isPrivate = msg?.chat?.type === 'private';
+
+      // The account owner linking his own chat — the deep link in Settings sends this.
+      const code = isPrivate ? parseLinkStart(text) : null;
+      if (code) {
+        await this.linkManagerChat(userId, chatId, code);
+        return;
+      }
+
+      if (isPrivate && this.isOwner(chatId)) {
+        const question = managerQuestion(text);
+        const weekly = /^\/weekly(@\S+)?$/i.test(text);
+        if (question || weekly) {
+          if (!(await this.subscription.allows(userId, 'manager_agent'))) {
+            await this.send(chatId, MANAGER_LOCKED);
+            return;
+          }
+          if (weekly) {
+            await this.call('sendChatAction', { chat_id: chatId, action: 'typing' });
+            await this.sendWeeklyReview(chatId);
+          } else {
+            await this.askManager(chatId, question!);
+          }
+          return;
+        }
+        if (/^\/searches(@\S+)?$/i.test(text)) {
+          await this.reportSearches(chatId);
+          return;
+        }
+      }
+
+      if (!(await this.subscription.allows(userId, 'search_bot'))) {
+        if (isPrivate) await this.send(chatId, TENANT_BOT_PAUSED);
+        return;
+      }
+      await this.handleShopper(msg, text);
+    });
+  }
+
+  /** «/start link_<code>» from the account owner: this chat becomes the bot's owner chat. */
+  private async linkManagerChat(userId: string, chatId: string, code: string): Promise<void> {
+    const owner = await this.memory.load<string>(linkCodeKey(code));
+    if (owner !== userId) {
+      await this.send(chatId, '❌ קישור החיבור לא תקף או שפג תוקפו (30 דקות). צור קישור חדש בלוח הבקרה: הגדרות ← הבוט שלי.');
+      return;
+    }
+    // Single use: the code is spent the moment it links.
+    await this.memory.save(linkCodeKey(code), '', 1000);
+    await this.credentials.setManagerChat(userId, chatId);
+    const store = this.replyVia.getStore();
+    if (store) store.managerChat = chatId;
+    const manager = await this.subscription.allows(userId, 'manager_agent');
+    await this.send(chatId, '✅ הצ\'אט שלך מקושר לחשבון Nexlify. רק אתה תקבל כאן את התשובות של המנהל.\n\n'
+      + (manager
+        ? '🧠 שאל אותי כל דבר על הקמפיינים, הקליקים והמכירות — למשל: "מה הכי עבד השבוע?" או "למה ירדו הקליקים?". '
+          + 'כשיש לי הצעה לשינוי, היא תגיע עם כפתורי ✅/❌. ובכל יום ראשון בבוקר אשלח סקירה שבועית.'
+        : MANAGER_LOCKED));
+  }
+
+  /** The bot an account's readers are answered from: its own, or for the platform owner the
+   *  platform's. Null when there is no bot to send from. */
+  private async readerBotFor(
+    userId: string, platformToken: string | null, platformOwner: string | null,
+  ): Promise<{ token: string; userId?: string; managerChat?: string | null } | null> {
+    if (userId !== platformOwner) {
+      const bot = await this.credentials.getSearchBot(userId).catch(() => null);
+      if (bot) return { token: bot.token, userId, managerChat: bot.managerChatId };
+    }
+    return platformToken ? { token: platformToken } : null;
+  }
+
+  /** 17TRACK registration spends the platform's one-off quota, so following a parcel is
+   *  offered in the platform's bots only; an account's own bot gives the free tracking page. */
+  private parcelFollowAvailable(): boolean {
+    return !!seventeenTrackKey() && !this.replyVia.getStore()?.userId;
+  }
+
+  /**
+   * Connect an account's own bot: check the token with Telegram, point its webhook here and
+   * give it the readers' menu. The account chose this bot, so a webhook another integration
+   * had on it is replaced — the settings screen says so before the owner saves.
+   */
+  async connectTenantBot(userId: string, rawToken: string): Promise<{ ok: boolean; username?: string; error?: string }> {
+    const token = String(rawToken || '').trim();
+    if (!looksLikeBotToken(token)) return { ok: false, error: 'זה לא נראה כמו טוקן של BotFather (מספר, נקודתיים ורצף אותיות).' };
+    if (token === searchBotToken() || token === (await this.telegramToken())) {
+      return { ok: false, error: 'הבוט הזה כבר משמש את המערכת עצמה. צור בוט חדש ב-BotFather.' };
+    }
+    const taken = (await this.credentials.tenantBots()).some((b) => b.token === token && b.userId !== userId);
+    if (taken) return { ok: false, error: 'הבוט הזה כבר מחובר לחשבון אחר.' };
+    const me = await this.replyVia.run({ token }, () => this.get('getMe', {}));
+    if (!me?.username) return { ok: false, error: 'טלגרם לא מכיר את הטוקן. בדוק שהעתקת אותו במלואו מ-BotFather.' };
+    const url = tenantWebhookUrl(userId);
+    if (!url) return { ok: false, error: 'לשרת אין כתובת ציבורית (BACKEND_URL), ולכן טלגרם לא יכול להגיע אליו.' };
+    const hooked = await this.replyVia.run({ token }, () => this.call('setWebhook', {
+      url, secret_token: tenantWebhookSecret(userId), allowed_updates: ['message', 'callback_query'],
+    }));
+    if (!hooked) return { ok: false, error: 'טלגרם סירב לחבר את הבוט. נסה שוב בעוד דקה.' };
+    await this.credentials.setSearchBotToken(userId, token);
+    await this.replyVia.run({ token }, () => this.call('setMyCommands', {
+      commands: [
+        { command: 'find', description: 'חיפוש מוצר באלי אקספרס' },
+        { command: 'track', description: 'מעקב משלוח לפי מספר מעקב' },
+      ],
+      scope: { type: 'default' },
+    }));
+    this.tenantBotNames.set(userId, { username: me.username, at: Date.now() });
+    return { ok: true, username: me.username };
+  }
+
+  /** Disconnect the account's own bot: its webhook goes, and so does its token here. */
+  async disconnectTenantBot(userId: string): Promise<void> {
+    const bot = await this.credentials.getSearchBot(userId).catch(() => null);
+    if (bot) await this.replyVia.run({ token: bot.token }, () => this.call('deleteWebhook', {}));
+    await this.credentials.setSearchBotToken(userId, null);
+    this.tenantBotNames.delete(userId);
+  }
+
+  /** What the settings screen shows about the account's own bot. */
+  async tenantBotStatus(userId: string): Promise<{
+    connected: boolean; username: string | null; webhook_ok: boolean; webhook_error: string | null;
+    manager_linked: boolean; search_bot_allowed: boolean; manager_allowed: boolean;
+  }> {
+    const [bot, searchAllowed, managerAllowed] = await Promise.all([
+      this.credentials.getSearchBot(userId).catch(() => null),
+      this.subscription.allows(userId, 'search_bot'),
+      this.subscription.allows(userId, 'manager_agent'),
+    ]);
+    const base = {
+      connected: false, username: null, webhook_ok: false, webhook_error: null as string | null,
+      manager_linked: false, search_bot_allowed: searchAllowed, manager_allowed: managerAllowed,
+    };
+    if (!bot) return base;
+    const [me, info] = await this.replyVia.run({ token: bot.token }, () => Promise.all([
+      this.get('getMe', {}), this.get('getWebhookInfo', {}),
+    ]));
+    const url = tenantWebhookUrl(userId);
+    const webhookOk = !!info && !!url && info.url === url;
+    return {
+      ...base,
+      connected: true,
+      username: me?.username || null,
+      webhook_ok: webhookOk,
+      webhook_error: !me ? 'טלגרם לא מכיר את הטוקן (אולי הבוט נמחק או שהטוקן הוחלף)'
+        : !webhookOk ? 'הבוט לא מחובר לשרת — לחץ "חבר מחדש"'
+          : (info?.last_error_message ? String(info.last_error_message).slice(0, 200) : null),
+      manager_linked: !!bot.managerChatId,
+    };
+  }
+
+  /** A one-time deep link that links the account owner's chat (30 minutes, single use). */
+  async createManagerLink(userId: string): Promise<{ url: string } | { error: string }> {
+    const username = await this.tenantBotUsername(userId);
+    if (!username) return { error: 'חבר קודם את הבוט שלך.' };
+    const code = newLinkCode();
+    await this.memory.save(linkCodeKey(code), userId, LINK_CODE_TTL_MS);
+    return { url: linkDeepLink(username, code) };
+  }
+
+  /** Unlink the owner chat — the bot then treats that chat as any other reader. */
+  async unlinkManagerChat(userId: string): Promise<void> {
+    await this.credentials.setManagerChat(userId, null);
+  }
+
+  /** The @username of the account's own bot, cached for an hour; null without one. */
+  async tenantBotUsername(userId: string): Promise<string | null> {
+    const hit = this.tenantBotNames.get(userId);
+    if (hit && Date.now() - hit.at < 3600_000) return hit.username;
+    const bot = await this.credentials.getSearchBot(userId).catch(() => null);
+    if (!bot) return null;
+    const me = await this.replyVia.run({ token: bot.token }, () => this.get('getMe', {}));
+    this.tenantBotNames.set(userId, { username: me?.username || null, at: Date.now() });
+    return me?.username || null;
+  }
+
+  /** Keep every account bot's webhook pointed here (a moved BACKEND_URL, a deploy). */
+  private async ensureTenantWebhooks(): Promise<void> {
+    for (const b of await this.credentials.tenantBots()) {
+      const url = tenantWebhookUrl(b.userId);
+      if (!url) return;
+      await this.replyVia.run({ token: b.token }, async () => {
+        const info = await this.get('getWebhookInfo', {});
+        if (info && info.url !== url) {
+          await this.call('setWebhook', { url, secret_token: tenantWebhookSecret(b.userId), allowed_updates: ['message', 'callback_query'] });
+        }
+      });
+    }
+  }
+
   /**
    * The @username readers should be sent to: the search bot's when one is configured,
    * otherwise null. Cached for an hour — getMe does not change.
@@ -230,8 +463,11 @@ export class TelegramBotService implements OnModuleInit {
     return this.searchBotName.username;
   }
 
-  /** Only the configured owner chat is answered; anything else is silently ignored. */
+  /** Only the configured owner chat is answered; anything else is silently ignored. In an
+   *  account's own bot the owner is the chat that account linked, and nobody else. */
   private isOwner(chatId: string): boolean {
+    const store = this.replyVia.getStore();
+    if (store?.userId) return !!store.managerChat && chatId === store.managerChat;
     const owner = String(process.env.WATCHDOG_TELEGRAM_CHAT_ID || '');
     return !!owner && chatId === owner;
   }
@@ -447,14 +683,26 @@ export class TelegramBotService implements OnModuleInit {
    */
   @Cron('0 */20 9-13 * * 0', { timeZone: 'Asia/Jerusalem' })
   async weeklyManagerReview(): Promise<void> {
-    const chatId = String(process.env.WATCHDOG_TELEGRAM_CHAT_ID || '');
-    if (!chatId || process.env.MANAGER_WEEKLY_DISABLED === '1' || this.weeklyRunning) return;
+    if (process.env.MANAGER_WEEKLY_DISABLED === '1' || this.weeklyRunning) return;
     const day = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
-    const key = `manager_weekly:${day}`;
-    if (await this.memory.load(key)) return;
     this.weeklyRunning = true;
     try {
-      if (await this.sendWeeklyReview(chatId)) await this.memory.save(key, true, 8 * 24 * 3600_000);
+      const chatId = String(process.env.WATCHDOG_TELEGRAM_CHAT_ID || '');
+      const key = `manager_weekly:${day}`;
+      if (chatId && !(await this.memory.load(key))) {
+        if (await this.sendWeeklyReview(chatId)) await this.memory.save(key, true, 8 * 24 * 3600_000);
+      }
+      // Every account whose own bot has a linked owner chat and the manager in its plan.
+      const platformOwner = await this.ownerUserId();
+      for (const b of await this.credentials.tenantBots().catch(() => [])) {
+        if (!b.managerChatId || b.userId === platformOwner) continue;
+        const tenantKey = `manager_weekly:${b.userId}:${day}`;
+        if (await this.memory.load(tenantKey)) continue;
+        if (!(await this.subscription.allows(b.userId, 'manager_agent'))) continue;
+        const sent = await this.replyVia.run({ token: b.token, userId: b.userId, managerChat: b.managerChatId },
+          () => this.sendWeeklyReview(b.managerChatId!));
+        if (sent) await this.memory.save(tenantKey, true, 8 * 24 * 3600_000);
+      }
     } finally {
       this.weeklyRunning = false;
     }
@@ -515,7 +763,8 @@ export class TelegramBotService implements OnModuleInit {
     // «בטל התראות» / /stop — every price alert of this reader goes.
     if (isPrivate && isStopAlerts(text)) {
       const res: any = await this.alerts.query(
-        `UPDATE price_alerts SET active = false WHERE chat_id = $1 AND active RETURNING id`, [chatId],
+        `UPDATE price_alerts SET active = false WHERE chat_id = $1 AND user_id = $2 AND active RETURNING id`,
+        [chatId, await this.ownerUserId()],
       ).catch(() => [[]]);
       const n = Array.isArray(res?.[0]) ? res[0].length : Array.isArray(res) ? res.length : 0;
       await this.send(chatId, n > 1 ? `🔕 ביטלתי ${n} התראות מחיר.` : n ? '🔕 ביטלתי את התראת המחיר.' : 'אין לך התראות מחיר פעילות.');
@@ -538,7 +787,9 @@ export class TelegramBotService implements OnModuleInit {
         // /start, /help and anything else: explain, but only in private — a group sees
         // other bots' commands all day, and answering them would be noise.
         if (isPrivate) {
-          await this.send(chatId, SHOPPER_WELCOME);
+          await this.send(chatId, this.replyVia.getStore()?.userId
+            ? SHOPPER_WELCOME.replace('ברוכים הבאים ל-Nexlify Deals Bot!', 'ברוכים הבאים!')
+            : SHOPPER_WELCOME);
           await this.recordStart(text, String(msg?.from?.id ?? chatId));
         }
         return;
@@ -566,7 +817,7 @@ export class TelegramBotService implements OnModuleInit {
       return;
     }
 
-    const budget = this.shopperLimits.take(memberKey);
+    const budget = this.shopperLimits.take(memberKey, this.replyVia.getStore()?.userId || '');
     if (budget !== 'ok') {
       if (budget === 'user') await this.send(chatId, '⏳ הרבה חיפושים ברצף — נסה שוב בעוד כמה דקות.', undefined, replyTo);
       return;
@@ -596,7 +847,8 @@ export class TelegramBotService implements OnModuleInit {
         ? `החיפוש בערוץ נכשל: ${(channel as { error?: string }).error}`
         : `בפוסטים של הערוץ: ${channel.matched} תואמים ל-${terms.join(' + ')}, הוצגו ${shownChannel}`
           + (shownChannel ? ` (${shownFull} עם כל המילים).` : '.');
-      if (fromChannel.length === 0) {
+      // The funnel counts across every account — the platform owner's diagnostic only.
+      if (fromChannel.length === 0 && !this.replyVia.getStore()?.userId) {
         line += `\n${await this.channelSearchFunnel(userId, terms).catch((e) => `בדיקה נכשלה: ${e?.message}`)}`;
       }
       if (rewriteNote) line += `\n🪄 ${rewriteNote}`;
@@ -879,7 +1131,7 @@ export class TelegramBotService implements OnModuleInit {
       await this.send(chatId, 'על מה להביא עוד? כתבו מה אתם מחפשים, למשל: אוזניות בלוטות\' עד 100 ש"ח');
       return;
     }
-    if (this.shopperLimits.take(memberKey) !== 'ok') {
+    if (this.shopperLimits.take(memberKey, this.replyVia.getStore()?.userId || '') !== 'ok') {
       await this.send(chatId, '⏳ הרבה חיפושים ברצף — נסה שוב בעוד כמה דקות.');
       return;
     }
@@ -995,13 +1247,13 @@ export class TelegramBotService implements OnModuleInit {
   private async recordStart(text: string, memberKey: string): Promise<void> {
     const source = parseStartSource(text);
     if (!source || memberKey.startsWith('owner:') || this.isOwner(memberKey)) return;
-    const seenKey = `${memberKey}:${source}`;
+    const userId = await this.ownerUserId();
+    if (!userId) return;
+    const seenKey = `${userId}:${memberKey}:${source}`;
     const now = Date.now();
     if (now - (this.startsSeen.get(seenKey) || 0) < 24 * 3600_000) return;
     this.startsSeen.set(seenKey, now);
     if (this.startsSeen.size > 20000) this.startsSeen.delete(this.startsSeen.keys().next().value as string);
-    const userId = await this.ownerUserId();
-    if (!userId) return;
     await this.starts.insert({ user_id: userId, source })
       .catch((err) => this.logger.warn(`bot start log failed: ${err?.message}`));
   }
@@ -1017,7 +1269,8 @@ export class TelegramBotService implements OnModuleInit {
   /** A tracking number (the free page at once, 🔔 when the API is set up), or the reader's list. */
   private async handleParcelMessage(chatId: string, text: string): Promise<void> {
     const number = parseTrackingNumber(text);
-    const mine: ParcelTrack[] = await this.parcels.find({ where: { chat_id: chatId, active: true }, order: { created_at: 'DESC' } })
+    const owner = (await this.ownerUserId()) || '';
+    const mine: ParcelTrack[] = await this.parcels.find({ where: { chat_id: chatId, user_id: owner, active: true }, order: { created_at: 'DESC' } })
       .catch(() => []);
     if (!number) {
       const list = mine.map((p) => parcelCard(p.number, { status: p.status, subStatus: p.sub_status, eventTime: null, eventText: null, eventLocation: null }));
@@ -1029,7 +1282,7 @@ export class TelegramBotService implements OnModuleInit {
     if (followed && seventeenTrackKey()) {
       state = await parcelInfo([number]).then((m) => (m.has(number) ? readTrackInfo(m.get(number)) : null)).catch(() => null);
     }
-    const button = seventeenTrackKey() ? [[followButton(number, !!followed)]] : undefined;
+    const button = this.parcelFollowAvailable() ? [[followButton(number, !!followed)]] : undefined;
     await this.call('sendMessage', {
       chat_id: chatId, text: parcelCard(number, state), parse_mode: 'HTML', link_preview_options: { is_disabled: true },
       ...(button ? { reply_markup: { inline_keyboard: button } } : {}),
@@ -1041,7 +1294,7 @@ export class TelegramBotService implements OnModuleInit {
     const cbId = String(cq?.id || '');
     const tap = parseParcelCallback(String(cq?.data || ''));
     const chatId = String(cq?.message?.chat?.id ?? '');
-    if (!tap || !chatId || cq?.message?.chat?.type !== 'private' || !seventeenTrackKey()) {
+    if (!tap || !chatId || cq?.message?.chat?.type !== 'private' || !this.parcelFollowAvailable()) {
       await this.answer(cbId);
       return;
     }
@@ -1049,7 +1302,8 @@ export class TelegramBotService implements OnModuleInit {
       chat_id: chatId, message_id: cq?.message?.message_id, reply_markup: { inline_keyboard: [[followButton(tap.number, following)]] },
     });
     if (tap.action === 'stop') {
-      await this.parcels.query(`UPDATE parcel_tracks SET active = false WHERE chat_id = $1 AND number = $2`, [chatId, tap.number]).catch(() => {});
+      await this.parcels.query(`UPDATE parcel_tracks SET active = false WHERE chat_id = $1 AND number = $2 AND user_id = $3`,
+        [chatId, tap.number, await this.ownerUserId()]).catch(() => {});
       await this.answer(cbId, '🔕 המעקב בוטל');
       await setButton(false);
       return;
@@ -1057,7 +1311,7 @@ export class TelegramBotService implements OnModuleInit {
     const userId = await this.ownerUserId();
     if (!userId) { await this.answer(cbId); return; }
     const [{ n }] = await this.parcels.query(
-      `SELECT count(*)::int AS n FROM parcel_tracks WHERE chat_id = $1 AND active AND number <> $2`, [chatId, tap.number],
+      `SELECT count(*)::int AS n FROM parcel_tracks WHERE chat_id = $1 AND user_id = $3 AND active AND number <> $2`, [chatId, tap.number, userId],
     ).catch(() => [{ n: 0 }]);
     if (n >= MAX_PARCELS_PER_READER) {
       await this.answer(cbId, `אני כבר עוקב אחרי ${MAX_PARCELS_PER_READER} חבילות שלך. כשאחת תגיע, אפשר להוסיף עוד.`);
@@ -1068,7 +1322,7 @@ export class TelegramBotService implements OnModuleInit {
     const [{ today }] = await this.parcels.query(
       `SELECT count(*)::int AS today FROM parcel_tracks WHERE created_at > now() - interval '1 day'`,
     ).catch(() => [{ today: 0 }]);
-    const existing = await this.parcels.findOne({ where: { chat_id: chatId, number: tap.number } }).catch(() => null);
+    const existing = await this.parcels.findOne({ where: { chat_id: chatId, number: tap.number, user_id: userId } }).catch(() => null);
     if (!existing && today >= cap) {
       await this.answer(cbId, 'המעקב האוטומטי מלא להיום — נסו מחר. הקישור למעקב עובד בינתיים.');
       return;
@@ -1083,7 +1337,7 @@ export class TelegramBotService implements OnModuleInit {
     }
     await this.parcels.query(
       `INSERT INTO parcel_tracks (user_id, chat_id, number) VALUES ($1, $2, $3)
-       ON CONFLICT (chat_id, number) DO UPDATE SET active = true, checked_at = NULL`,
+       ON CONFLICT (user_id, chat_id, number) DO UPDATE SET active = true, checked_at = NULL`,
       [userId, chatId, tap.number],
     );
     await this.answer(cbId, '🔔 אעדכן אותך בכל שלב, עד שהחבילה מגיעה.');
@@ -1111,30 +1365,35 @@ export class TelegramBotService implements OnModuleInit {
       await this.parcels.query(`DELETE FROM parcel_tracks WHERE NOT active AND created_at < now() - interval '30 days'`);
       const rows: ParcelTrack[] = await this.parcels.query(`SELECT * FROM parcel_tracks WHERE active ORDER BY checked_at ASC NULLS FIRST LIMIT 400`);
       if (!rows.length) return result;
-      const token = searchBotToken() || await this.telegramToken();
-      if (!token) return result;
+      const platformToken = searchBotToken() || await this.telegramToken();
+      const platformOwner = await this.ownerUserId();
       const infos = await parcelInfo([...new Set(rows.map((r) => r.number))]).catch((err) => {
         this.logger.warn(`parcels: 17TRACK read failed: ${err?.message}`);
         return null;
       });
       if (!infos) return result;
       const blocked = new Set<string>();
+      const vias = new Map<string, { token: string; userId?: string; managerChat?: string | null } | null>();
       for (const r of rows) {
-        if (blocked.has(r.chat_id)) continue;
+        const blockKey = `${r.user_id}:${r.chat_id}`;
+        if (blocked.has(blockKey)) continue;
+        if (!vias.has(r.user_id)) vias.set(r.user_id, await this.readerBotFor(r.user_id, platformToken, platformOwner));
+        const via = vias.get(r.user_id);
+        if (!via) continue;
         result.checked++;
         const info = infos.get(r.number);
         if (!info) continue;
         const state = readTrackInfo(info);
         const final = isFinal(state.status, state.subStatus);
         if (isNewStage({ status: r.status, subStatus: r.sub_status }, state)) {
-          const outcome = await this.replyVia.run({ token }, () => this.sendToReader('sendMessage', {
+          const outcome = await this.replyVia.run(via, () => this.sendToReader('sendMessage', {
             chat_id: r.chat_id, text: parcelCard(r.number, state, { update: true }), parse_mode: 'HTML',
             link_preview_options: { is_disabled: true },
             ...(final ? {} : { reply_markup: { inline_keyboard: [[followButton(r.number, true)]] } }),
           }));
           if (outcome === 'blocked') {
-            blocked.add(r.chat_id);
-            await this.parcels.query(`UPDATE parcel_tracks SET active = false WHERE chat_id = $1`, [r.chat_id]);
+            blocked.add(blockKey);
+            await this.parcels.query(`UPDATE parcel_tracks SET active = false WHERE chat_id = $1 AND user_id = $2`, [r.chat_id, r.user_id]);
             continue;
           }
           if (outcome === 'failed') continue; // the stage is told again next time
@@ -1198,7 +1457,7 @@ export class TelegramBotService implements OnModuleInit {
     });
 
     if (tap.action === 'stop') {
-      await this.alerts.query(`UPDATE price_alerts SET active = false WHERE chat_id = $1 AND product_id = $2`, [chatId, tap.productId])
+      await this.alerts.query(`UPDATE price_alerts SET active = false WHERE chat_id = $1 AND product_id = $2 AND user_id = $3`, [chatId, tap.productId, userId])
         .catch(() => {});
       await this.answer(cbId, '🔕 המעקב בוטל');
       await setButton(false);
@@ -1206,7 +1465,7 @@ export class TelegramBotService implements OnModuleInit {
     }
 
     const [{ n }] = await this.alerts.query(
-      `SELECT count(*)::int AS n FROM price_alerts WHERE chat_id = $1 AND active AND product_id <> $2`, [chatId, tap.productId],
+      `SELECT count(*)::int AS n FROM price_alerts WHERE chat_id = $1 AND user_id = $3 AND active AND product_id <> $2`, [chatId, tap.productId, userId],
     ).catch(() => [{ n: 0 }]);
     if (n >= MAX_ALERTS_PER_READER) {
       await this.answer(cbId, `יש לך כבר ${MAX_ALERTS_PER_READER} מוצרים במעקב. כתוב /stop כדי לבטל את כולם.`);
@@ -1223,7 +1482,7 @@ export class TelegramBotService implements OnModuleInit {
     await this.alerts.query(
       `INSERT INTO price_alerts (user_id, chat_id, product_id, title, image_url, price_ils, currency)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (chat_id, product_id) DO UPDATE
+       ON CONFLICT (user_id, chat_id, product_id) DO UPDATE
          SET active = true, price_ils = EXCLUDED.price_ils, title = EXCLUDED.title, image_url = EXCLUDED.image_url,
              currency = EXCLUDED.currency, misses = 0, notified_at = NULL, notified_price = NULL, created_at = now()`,
       [userId, chatId, tap.productId, String(product.title || '').slice(0, 200), product.image_url || null,
@@ -1253,12 +1512,15 @@ export class TelegramBotService implements OnModuleInit {
       const rows: PriceAlert[] = await this.alerts.query(
         `SELECT * FROM price_alerts WHERE active ORDER BY checked_at ASC NULLS FIRST LIMIT 500`,
       );
-      const token = searchBotToken() || await this.telegramToken();
-      if (!token) return result;
+      const platformToken = searchBotToken() || await this.telegramToken();
+      const platformOwner = await this.ownerUserId();
 
       const byUser = new Map<string, PriceAlert[]>();
       for (const r of rows) byUser.set(r.user_id, [...(byUser.get(r.user_id) || []), r]);
       for (const [userId, list] of byUser) {
+        // An alert is answered by the bot it was set in: the account's own, or the platform's.
+        const via = await this.readerBotFor(userId, platformToken, platformOwner);
+        if (!via) continue;
         const ids = [...new Set(list.map((a) => a.product_id))];
         const prices = new Map<string, any>();
         const unreached = new Set<string>();
@@ -1293,12 +1555,12 @@ export class TelegramBotService implements OnModuleInit {
             await this.alerts.query(`UPDATE price_alerts SET misses = 0, checked_at = now() WHERE id = $1`, [a.id]);
             continue;
           }
-          const outcome = await this.replyVia.run({ token }, () => this.sendPriceDrop(userId, a, now));
+          const outcome = await this.replyVia.run(via, () => this.sendPriceDrop(userId, a, now));
           if (outcome === 'failed') continue; // try again at the next check
           if (outcome === 'blocked') {
             // The reader blocked the bot: nothing of theirs can be delivered any more.
             blocked.add(a.chat_id);
-            await this.alerts.query(`UPDATE price_alerts SET active = false WHERE chat_id = $1`, [a.chat_id]);
+            await this.alerts.query(`UPDATE price_alerts SET active = false WHERE chat_id = $1 AND user_id = $2`, [a.chat_id, userId]);
             continue;
           }
           await this.alerts.query(
@@ -1481,6 +1743,7 @@ export class TelegramBotService implements OnModuleInit {
     if (searchBotToken()) {
       this.setupSearchBot().catch((err) => this.logger.warn(`search bot setup skipped: ${err?.message}`));
     }
+    this.ensureTenantWebhooks().catch((err) => this.logger.warn(`account bots webhook check skipped: ${err?.message}`));
   }
 
   /**
@@ -1594,9 +1857,10 @@ export class TelegramBotService implements OnModuleInit {
     const [parcelRow] = await this.parcels.query(
       `SELECT count(*) FILTER (WHERE active)::int AS active,
               count(*) FILTER (WHERE created_at > now() - ($1 || ' days')::interval)::int AS added
-       FROM parcel_tracks`, [String(days)],
+       FROM parcel_tracks WHERE user_id = $2`, [String(days), userId],
     ).catch(() => [null]);
-    const quota = seventeenTrackKey() ? await parcelQuota() : null;
+    // The 17TRACK quota is the platform's; an account's own bot neither spends nor shows it.
+    const quota = this.parcelFollowAvailable() ? await parcelQuota() : null;
     const parcelLine = parcelRow && (parcelRow.active || parcelRow.added || quota)
       ? `\n\n📦 מעקב חבילות: ${parcelRow.active} פעילות · ${parcelRow.added} נוספו ב-${days} ימים`
         + (quota ? ` · מכסת 17TRACK: נותרו ${quota.remain} מתוך ${quota.total}` : '')
@@ -1829,6 +2093,9 @@ export class TelegramBotService implements OnModuleInit {
   /** The account the bot acts as: the first admin with AliExpress credentials
    *  configured, falling back to the first admin. */
   private async ownerUserId(): Promise<string | null> {
+    // Inside an account's own bot, everything is that account's.
+    const tenant = this.replyVia.getStore()?.userId;
+    if (tenant) return tenant;
     const admins = await this.users.find({ where: { role: 'admin' } });
     for (const admin of admins) {
       const creds = await this.credentials.getRaw(admin.id).catch(() => null);

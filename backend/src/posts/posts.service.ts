@@ -17,6 +17,7 @@ import { AI_CAPTION_NOTE } from '../videos/ai-clip';
 import { choosePool } from './pool-tiers';
 import { SEARCH_BOT_UPDATES, webhookVerdict } from '../watchdog/webhook-health';
 import { searchBotToken, searchWebhookUrl } from '../telegram-bot/search-bot';
+import { tenantWebhookUrl } from '../telegram-bot/tenant-bot';
 import { COPY_JUDGE_SYSTEM, COPY_JUDGE_PINTEREST_NOTE, parseJudgeAnswer, trimForJudge } from './copy-judge';
 import { mentionsPrice, priceProofBlock } from './price-block';
 import { KeywordPerformance, interleaveSeasonal, weightedRotation } from './keyword-rotation';
@@ -4891,14 +4892,29 @@ export class PostsService {
     // one they go to the owner's bot, whose webhook needs the owner chat configured.
     const searchToken = searchBotToken();
     if (process.env.SHOPPER_BOT_DISABLED === '1') return null;
-    if (!searchToken && !process.env.WATCHDOG_TELEGRAM_CHAT_ID) return null;
     const hit = this.shopperBotCache.get(userId);
     if (hit && Date.now() - hit.at < 3600_000) return hit.username;
     let username: string | null = null;
     try {
       const [row] = await this.repo.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+      if (row?.role !== 'admin') {
+        // Any other account invites readers to its OWN bot (telegram-bot/tenant-bot.ts),
+        // when it has one, its plan includes it, and Telegram delivers to our webhook.
+        const own = await this.credentials.getSearchBot(userId);
+        const url = tenantWebhookUrl(userId);
+        if (own && url && await this.subscription.allows(userId, 'search_bot')) {
+          const info = await axios.get(`https://api.telegram.org/bot${own.token}/getWebhookInfo`, { timeout: 8000 });
+          if (!webhookVerdict(info.data?.result ?? null, url, Date.now(), SEARCH_BOT_UPDATES) && info.data?.result?.url) {
+            const res = await axios.get(`https://api.telegram.org/bot${own.token}/getMe`, { timeout: 8000 });
+            username = res.data?.result?.username || null;
+          }
+        }
+        this.shopperBotCache.set(userId, { username, at: Date.now() });
+        return username;
+      }
+      if (!searchToken && !process.env.WATCHDOG_TELEGRAM_CHAT_ID) return null;
       const token = searchToken || process.env.WATCHDOG_TELEGRAM_BOT_TOKEN || creds?.telegram_bot_token;
-      if (row?.role === 'admin' && token) {
+      if (token) {
         // Only invite readers to a bot that actually answers: the webhook must be ours and
         // delivering. Otherwise the line would send every reader to a silent chat.
         const base = (process.env.BACKEND_URL || '').replace(/\/$/, '');

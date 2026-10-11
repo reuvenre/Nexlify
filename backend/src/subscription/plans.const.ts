@@ -192,6 +192,14 @@ export const FEATURE_MIN_PLAN = {
    *  (The monthly "go register" reminder is deliberately NOT gated: it costs nothing
    *  and it is what makes a lower tier want the automation above it.) */
   incentive_steering: 'autopilot',
+
+  // ── The account's own Telegram bot (telegram-bot/tenant-bot.ts) ──
+  /** A readers' search bot of the account's own: readers find the account's products,
+   *  price-drop alerts and parcel tracking — all through links that earn the account. */
+  search_bot: 'growth',
+  /** The manager agent in the account owner's own chat with that bot: questions about
+   *  campaigns and clicks, proposals with ✅/❌, and the Sunday weekly review. */
+  manager_agent: 'autopilot',
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_MIN_PLAN;

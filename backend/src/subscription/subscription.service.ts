@@ -32,6 +32,8 @@ const FEATURE_LABELS: Record<FeatureKey, string> = {
   landing_pages: 'דפי נחיתה (ClickLead)',
   learning_optimizer: 'מנוע אופטימיזציה לומד',
   incentive_steering: 'הטיה לקמפייני בונוס של אלי אקספרס',
+  search_bot: 'בוט חיפוש לקוראים משלך',
+  manager_agent: 'מנהל AI בטלגרם',
 };
 
 export interface SubscriptionStatus {

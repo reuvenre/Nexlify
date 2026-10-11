@@ -763,6 +763,39 @@ export class CredentialsService {
     return { accessKey, secretKey, partnerTag };
   }
 
+  // ── The account's own readers' bot (telegram-bot/tenant-bot.ts) ───────────────
+
+  /** The account's own bot token and the chat linked to it, or null without a bot. */
+  async getSearchBot(userId: string): Promise<{ token: string; managerChatId: string | null } | null> {
+    const cred = await this.repo.findOne({ where: { user_id: userId } });
+    const token = cred?.search_bot_token_enc ? decrypt(cred.search_bot_token_enc) : '';
+    return token ? { token, managerChatId: cred?.manager_chat_id || null } : null;
+  }
+
+  /** Set (or with null, remove) the account's own bot. A new bot starts with no linked chat. */
+  async setSearchBotToken(userId: string, token: string | null): Promise<void> {
+    let cred = await this.repo.findOne({ where: { user_id: userId } });
+    if (!cred) cred = this.repo.create({ user_id: userId });
+    cred.search_bot_token_enc = token ? encrypt(token) : null;
+    cred.manager_chat_id = null;
+    await this.repo.save(cred);
+  }
+
+  /** Link (or with null, unlink) the private chat the account's bot treats as its owner. */
+  async setManagerChat(userId: string, chatId: string | null): Promise<void> {
+    await this.repo.update({ user_id: userId }, { manager_chat_id: chatId });
+  }
+
+  /** Every account that has its own bot — for webhook upkeep and the per-account crons. */
+  async tenantBots(): Promise<Array<{ userId: string; token: string; managerChatId: string | null }>> {
+    const rows = await this.repo.createQueryBuilder('c')
+      .where('c.search_bot_token_enc IS NOT NULL')
+      .getMany();
+    return rows
+      .map((c) => ({ userId: c.user_id, token: decrypt(c.search_bot_token_enc) || '', managerChatId: c.manager_chat_id || null }))
+      .filter((b) => !!b.token);
+  }
+
   /** The user's default Telegram bot token (decrypted) — used as a broadcast fallback. */
   async getTelegramToken(userId: string): Promise<string | null> {
     const cred = await this.repo.findOne({ where: { user_id: userId } });
@@ -852,6 +885,7 @@ export class CredentialsService {
       aliexpress_app_secret: cred.aliexpress_app_secret_enc ? mask(decrypt(cred.aliexpress_app_secret_enc)) : '',
       telegram_bot_token: cred.telegram_bot_token_enc ? mask(decrypt(cred.telegram_bot_token_enc)) : '',
       telegram_channel_id: cred.telegram_channel_id || '',
+      has_search_bot: !!cred.search_bot_token_enc,
       openai_api_key: cred.openai_api_key_enc ? mask(decrypt(cred.openai_api_key_enc)) : '',
       openai_model: cred.openai_model || 'gpt-4o-mini',
       // Multi-provider AI

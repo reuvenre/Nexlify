@@ -985,6 +985,26 @@ export const storeApi = {
 };
 
 /** The owner's side of their store. */
+/** Settings → "הבוט שלי": the account's own readers' bot and the manager chat linked to it. */
+export interface MyBotStatus {
+  connected: boolean;
+  username: string | null;
+  webhook_ok: boolean;
+  webhook_error: string | null;
+  manager_linked: boolean;
+  search_bot_allowed: boolean;
+  manager_allowed: boolean;
+}
+
+export const myBotApi = {
+  status: () => http.get<MyBotStatus>('/telegram/my-bot').then(extract),
+  connect: (token: string) =>
+    http.post<{ ok: boolean; username?: string; error?: string }>('/telegram/my-bot', { token }, { timeout: 30_000 }).then(extract),
+  disconnect: () => http.delete<{ ok: boolean }>('/telegram/my-bot').then(extract),
+  link: () => http.post<{ url?: string; error?: string }>('/telegram/my-bot/link').then(extract),
+  unlink: () => http.delete<{ ok: boolean }>('/telegram/my-bot/link').then(extract),
+};
+
 export const storefrontApi = {
   get: () => http.get<StorefrontSettings>('/storefront').then(extract),
   update: (data: Partial<StorefrontSettings>) =>

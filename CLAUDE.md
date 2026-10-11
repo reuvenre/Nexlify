@@ -243,6 +243,22 @@ One bot and one webhook (`/telegram/webhook`). The controller sends a *bare* sta
   - A reader who still reaches the owner's bot is forwarded.
   - The watchdog checks its webhook too.
 
+### Every account's own bot (`telegram-bot/tenant-bot.ts`, Settings → «הבוט שלי»)
+The bot and the manager above were built for one owner (the first admin, env chat id). Any other account can now run the same thing in a bot of its own, sold by plan: `search_bot` (Growth) and `manager_agent` (Autopilot) in `FEATURE_MIN_PLAN`. The platform owner's bots are unchanged.
+- **Connect.** The account pastes a BotFather token in Settings (`POST /telegram/my-bot`). `connectTenantBot` checks the shape (`looksLikeBotToken`), refuses the platform's own tokens and one already used by another account, calls `getMe`, and sets the webhook to `/telegram/tenant/<user_id>` with a secret derived per account (`tenantWebhookSecret`). Only then is the token saved to `credential_sets.search_bot_token_enc`. `onModuleInit` re-points any account webhook that drifted.
+- **Routing.** `TelegramWebhookController.tenantWebhook` checks the per-account secret, then `handleTenantUpdate` runs the update inside `replyVia` with `{ token, userId, managerChat }`. In that store `ownerUserId()` returns the account and `isOwner()` matches only its linked chat, so every existing reader path (search, channel posts, price alerts, `/searches`, logs) works for the account unchanged and replies from its bot.
+- **The owner's chat.** Settings makes a one-time deep link (`/start link_<12 hex>`, `persistent_values` `tenant_bot_link:<code>`, 30 min, single use). The chat that opens it becomes `credential_sets.manager_chat_id`. In that chat a manager question, `/weekly` and the ✅/❌ of proposals go to the manager when the plan allows it, and `MANAGER_LOCKED` when it does not. Everything else is the readers' search, so the owner sees what readers see.
+- **Plan lapse.** Readers get `TENANT_BOT_PAUSED` instead of results.
+- **Kept platform-only:**
+  - Following a parcel (17TRACK registration spends the platform's one-off quota; `parcelFollowAvailable`). An account's bot gives the free tracking page.
+  - The cross-account `channelSearchFunnel` and the 17TRACK quota line.
+- **Per account:**
+  - `price_alerts` / `parcel_tracks` unique keys now include `user_id`, and every reader query is scoped by it (a reader talks to each bot separately).
+  - `ShopperLimiter` has a daily budget per account (`take(member, scope)`).
+  - The weekly review runs per account with key `manager_weekly:<user>:<date>`.
+  - The price-alert and parcel crons send from the bot each row came through (`readerBotFor`).
+- **Invite line.** A non-admin account's posts invite readers to its own bot (`shopperBotUsername`) when it is connected, delivering, and in the plan.
+
 ### Model input and output boundaries
 - **Third-party text is fenced** (`common/untrusted.ts`). Product titles, categories and supplier notes are a seller's words. They go into a prompt only through `fenceUntrusted()`, which flattens newlines and control characters, caps the length, and wraps the text in `⟦…⟧`. Any brief that carries fenced text also appends `UNTRUSTED_DATA_RULE`. The marks must never be published: `stripFenceMarks` runs on every draft in `generateText`, the content agent, and again in `buildPostBody`.
 - **ProductAgent picks; the server supplies the facts** (`agents/product-grounding.ts`). The model returns only product ids. An id that `search_products` never returned this run is dropped. Title, prices, image and the source keyword are read from the search result, never from the model's JSON.

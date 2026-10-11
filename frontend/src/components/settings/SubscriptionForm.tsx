@@ -38,6 +38,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
       { label: 'משפר תמונות AI' },
       { label: 'תור פרסום חכם' },
       { label: 'דוח "מה מכניס כסף" — עמלות עד רמת הפוסט' },
+      { label: '🤖 בוט חיפוש משלך לקוראים (הגדרות ← הבוט שלי)' },
     ],
   },
   autopilot: {
@@ -45,6 +46,7 @@ const PLAN_FEATURES: Record<string, { includesLabel: string; features: { label: 
     features: [
       { label: 'מצב טייס אוטומטי — מגילוי ועד פרסום, אפס קלט' },
       { label: '🧠 מנוע אופטימיזציה לומד — מכוונן מילות מפתח לפי עמלות אמיתיות' },
+      { label: '💬 מנהל AI בטלגרם — שאלות, הצעות לשינוי וסקירה שבועית' },
       { label: 'סוכני AI לניהול הקמפיינים' },
       { label: 'מקור מוצרים נוסף: Amazon' },
       { label: 'מיחזור מנצחים אוטומטי' },

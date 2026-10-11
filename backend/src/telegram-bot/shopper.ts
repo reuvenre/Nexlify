@@ -331,7 +331,9 @@ export function isMoreRequest(text: string): boolean {
 export class ShopperLimiter {
   private readonly perUser = new Map<string, number[]>();
   private day = '';
-  private dayCount = 0;
+  /** Searches today per account bot ('' = the platform's own bots): one busy account's
+   *  readers must not spend another account's daily budget. */
+  private readonly dayCounts = new Map<string, number>();
 
   constructor(
     private readonly userLimit = 6,
@@ -340,21 +342,23 @@ export class ShopperLimiter {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Consume one search for this member, or say why not. */
-  take(userKey: string): 'ok' | 'user' | 'daily' {
+  /** Consume one search for this member of this account's bot, or say why not. */
+  take(userKey: string, scope = ''): 'ok' | 'user' | 'daily' {
     const t = this.now();
     const today = new Date(t).toISOString().slice(0, 10);
-    if (today !== this.day) { this.day = today; this.dayCount = 0; }
-    if (this.dayCount >= this.dailyLimit) return 'daily';
+    if (today !== this.day) { this.day = today; this.dayCounts.clear(); }
+    const dayCount = this.dayCounts.get(scope) || 0;
+    if (dayCount >= this.dailyLimit) return 'daily';
 
-    const recent = (this.perUser.get(userKey) || []).filter((x) => t - x < this.userWindowMs);
+    const key = scope ? `${scope}:${userKey}` : userKey;
+    const recent = (this.perUser.get(key) || []).filter((x) => t - x < this.userWindowMs);
     if (recent.length >= this.userLimit) {
-      this.perUser.set(userKey, recent);
+      this.perUser.set(key, recent);
       return 'user';
     }
     recent.push(t);
-    this.perUser.set(userKey, recent);
-    this.dayCount++;
+    this.perUser.set(key, recent);
+    this.dayCounts.set(scope, dayCount + 1);
     if (this.perUser.size > 5000) this.perUser.delete(this.perUser.keys().next().value as string);
     return 'ok';
   }

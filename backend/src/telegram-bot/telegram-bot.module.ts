@@ -16,6 +16,8 @@ import { BotStart } from './bot-start.entity';
 import { ParcelTrack } from './parcel-track.entity';
 import { TelegramBotService } from './telegram-bot.service';
 import { VideosModule } from '../videos/videos.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
+import { TenantBotController } from './tenant-bot.controller';
 
 // Channel/User are registered as REPOSITORIES rather than pulling in ChannelsModule +
 // UsersModule: UsersModule imports WatchdogModule, which imports this module for the
@@ -35,7 +37,10 @@ import { VideosModule } from '../videos/videos.module';
     // The manager agent (owner questions) and short links for the members' search.
     // Neither reaches UsersModule or WatchdogModule.
     ManagerModule, LinksModule,
+    // An account's own bot: what it may do follows the account's plan.
+    SubscriptionModule,
   ],
+  controllers: [TenantBotController],
   providers: [TelegramBotService],
   exports: [TelegramBotService],
 })

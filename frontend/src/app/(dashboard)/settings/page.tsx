@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { User, ShoppingBag, Plug, ShieldCheck, Bell, CreditCard, ListOrdered, Calculator, Store } from 'lucide-react';
+import { User, ShoppingBag, Plug, ShieldCheck, Bell, CreditCard, ListOrdered, Calculator, Store, Bot } from 'lucide-react';
 import { CredentialsForm }    from '@/components/settings/CredentialsForm';
 import { ProfileForm }        from '@/components/settings/ProfileForm';
 import { IntegrationsForm }   from '@/components/settings/IntegrationsForm';
@@ -11,14 +11,16 @@ import { SubscriptionForm }   from '@/components/settings/SubscriptionForm';
 import { SchedulingForm }     from '@/components/settings/SchedulingForm';
 import { PricingForm }        from '@/components/settings/PricingForm';
 import { StorefrontForm }     from '@/components/settings/StorefrontForm';
+import { MyBotForm }          from '@/components/settings/MyBotForm';
 
-type Tab = 'profile' | 'marketplaces' | 'pricing' | 'integrations' | 'storefront' | 'scheduling' | 'security' | 'notifications' | 'subscription';
+type Tab = 'profile' | 'marketplaces' | 'pricing' | 'integrations' | 'mybot' | 'storefront' | 'scheduling' | 'security' | 'notifications' | 'subscription';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType; desc: string }[] = [
   { id: 'profile',       label: 'פרופיל',        icon: User,          desc: 'פרטי חשבון והעדפות' },
   { id: 'marketplaces',  label: 'שווקים',         icon: ShoppingBag,   desc: 'AliExpress ו-OpenAI' },
   { id: 'pricing',       label: 'תמחור',          icon: Calculator,    desc: 'המרת מטבע, רווח ועיגול' },
   { id: 'integrations',  label: 'אינטגרציות',     icon: Plug,          desc: 'Telegram וערוצים' },
+  { id: 'mybot',         label: 'הבוט שלי',       icon: Bot,           desc: 'בוט חיפוש לקוראים ומנהל AI בטלגרם' },
   { id: 'storefront',    label: 'חנות ציבורית',   icon: Store,         desc: 'אתר שמרכז את כל המוצרים' },
   { id: 'scheduling',    label: 'תזמון אוטומטי',  icon: ListOrdered,   desc: 'הגדרות תור שליחה אוטומטי' },
   { id: 'security',      label: 'אבטחה',          icon: ShieldCheck,   desc: 'שינוי סיסמה' },
@@ -83,6 +85,7 @@ export default function SettingsPage() {
           {tab === 'marketplaces'  && <CredentialsForm />}
           {tab === 'pricing'       && <PricingForm />}
           {tab === 'integrations'  && <IntegrationsForm />}
+          {tab === 'mybot'         && <MyBotForm />}
           {tab === 'storefront'    && <StorefrontForm />}
           {tab === 'scheduling'    && <SchedulingForm />}
           {tab === 'security'      && <SecurityForm />}

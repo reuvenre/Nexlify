@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { timingSafeEqual } from 'crypto';
 import { WatchdogService } from './watchdog.service';
 import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
 import { searchWebhookSecret } from '../telegram-bot/search-bot';
+import { tenantWebhookSecret } from '../telegram-bot/tenant-bot';
 
 /** Constant-time string compare — avoids leaking the secret via response timing. */
 function safeEqual(a: string, b: string): boolean {
@@ -59,6 +61,25 @@ export class TelegramWebhookController {
   ) {
     if (secret && safeEqual(secret, searchWebhookSecret())) {
       await this.bot.handleSearchBotUpdate(body).catch(() => {});
+    }
+    return { ok: true };
+  }
+
+  /**
+   * An account's own bot (telegram-bot/tenant-bot.ts). The path names the account; the
+   * secret is derived per account, so only that account's bot can deliver here. Unthrottled:
+   * every account's bot arrives from Telegram's same few addresses.
+   */
+  @Post('tenant/:userId')
+  @HttpCode(200)
+  @SkipThrottle()
+  async tenantWebhook(
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Headers('x-telegram-bot-api-secret-token') secret: string,
+    @Body() body: any,
+  ) {
+    if (secret && safeEqual(secret, tenantWebhookSecret(userId))) {
+      await this.bot.handleTenantUpdate(userId, body).catch(() => {});
     }
     return { ok: true };
   }

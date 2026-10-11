@@ -9,7 +9,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index, Unique
  * they ask (/stop).
  */
 @Entity('price_alerts')
-@Unique('uq_price_alerts_chat_product', ['chat_id', 'product_id'])
+@Unique('uq_price_alerts_user_chat_product', ['user_id', 'chat_id', 'product_id'])
 @Index('idx_price_alerts_active', ['active', 'user_id'])
 export class PriceAlert {
   @PrimaryGeneratedColumn('uuid')
