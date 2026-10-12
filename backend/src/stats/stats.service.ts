@@ -51,6 +51,13 @@ export interface LiveStats {
   at: string;
   /** commissions_usd and orders are for the current AliExpress day (commission_days). */
   today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number; orders: number };
+  /**
+   * Commissions and orders of the last 24 hours, by payment time — what the dashboard tile
+   * shows. Any calendar day resets at some hour: the AliExpress day starts at ~19:00 Israel
+   * time, so the tile dropped to $0 every evening with the day's orders sitting on the orders
+   * screen; the Israel day did the same in the morning. A rolling window never resets.
+   */
+  last_24h: { commissions_usd: number; orders: number };
   last_hour: { clicks: number };
   queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
   campaigns: { active: number; total: number };
@@ -111,7 +118,10 @@ export class StatsService {
     const day = (col: string) => `to_char(${col}, 'YYYY-MM-DD')`;
     const hourAgo = new Date(Date.now() - 3600_000);
 
-    const [clickDays, postDays, commissionDays, lastHour, failedToday, queue, camps, lasts] = await Promise.all([
+    const dayAgo = new Date(Date.now() - 24 * 3600_000);
+    // paid_date is a real timestamptz; order_date holds naive UTC and is declared so first.
+    const paidAt = `COALESCE(e.paid_date, e.order_date AT TIME ZONE 'UTC')`;
+    const [clickDays, postDays, commissionDays, lastHour, failedToday, queue, camps, lasts, day24] = await Promise.all([
       this.clicks.createQueryBuilder('c').select(day(clickCol), 'bucket').addSelect('COUNT(*)::int', 'value')
         .where('c.user_id = :userId', { userId }).andWhere(`${clickCol} >= :fromLocal`, { fromLocal })
         .groupBy('bucket').getRawMany(),
@@ -149,6 +159,11 @@ export class StatsService {
                 (SELECT max(order_date) FROM earnings WHERE user_id::text = $1) AS last_order`,
         [userId],
       ).then((r: any[]) => r[0]),
+      this.earnings.createQueryBuilder('e')
+        .select('COALESCE(SUM(e.commission_usd), 0)', 'usd').addSelect('COUNT(*)::int', 'orders')
+        .where('e.user_id = :userId', { userId }).andWhere("e.status IN ('estimated', 'settled')")
+        .andWhere(`${paidAt} >= :dayAgo`, { dayAgo })
+        .getRawOne(),
     ]);
 
     const clicks = densify(clickDays, keys);
@@ -169,6 +184,10 @@ export class StatsService {
         failed: Number(failedToday?.n) || 0,
         commissions_usd: commissions[commissions.length - 1] ?? 0,
         orders: ordersToday[ordersToday.length - 1] ?? 0,
+      },
+      last_24h: {
+        commissions_usd: Math.round((Number(day24?.usd) || 0) * 100) / 100,
+        orders: Number(day24?.orders) || 0,
       },
       last_hour: { clicks: Number(lastHour?.n) || 0 },
       queue: {

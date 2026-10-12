@@ -811,6 +811,8 @@ export const pinterestApi = {
 export interface LiveStats {
   at: string;
   today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number; orders?: number };
+  /** Commissions and orders of the last 24 hours by payment time — never resets at a day cut. */
+  last_24h?: { commissions_usd: number; orders: number };
   last_hour: { clicks: number };
   queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
   campaigns: { active: number; total: number };
