@@ -45,7 +45,7 @@ import { occupiesCurrentInterval, pacingIntervalMinutes } from './group-pacing';
 import { platformFilterSql } from './platform-filter';
 import { ImportRowInput, composeImportText, extractAliProductId, extractAliProductIdFromHtml, validImportRow } from './import-rows';
 import { GROUP_FOCUS_SYSTEM, PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdict, buildProductFitPrompt, isStrictFit, parseProductFitVerdicts } from './product-relevance';
-import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusApplies, focusLabel, openTargets, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
+import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusApplies, focusLabel, openTargets, MIX_TTL_MS, MixEntry, focusMixKey, focusShare, liveMix, mixAllowsOff, offFocusNote, pushMix, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
 import { hotHours } from '../optimizer/hot-hours';
 import { PriceBand, preferInBand, soldPriceBand } from '../optimizer/sold-price-band';
 import { COPY_VARIANTS, VariantStat, customVariants, pickVariant, variantHint } from './copy-variants';
@@ -3081,7 +3081,8 @@ export class PostsService {
     // donor keyword) — persisted on the post so revenue attribution can report per keyword.
     // `only`: the groups this product may go to when a group's focus turned it down but the
     // campaign also feeds groups without one (see the guard below). Absent = every target.
-    const toPost: Array<{ product: any; kw: string; only?: string[] }> = [];
+    // `offFocus`: published under the focused group's outside-the-focus share (group-focus.ts).
+    const toPost: Array<{ product: any; kw: string; only?: string[]; offFocus?: boolean }> = [];
     for (const kw of slotKeywords) {
       let product = takeFrom(kw);
       let source = kw;
@@ -3133,6 +3134,9 @@ export class PostsService {
     // the same pool (bounded attempts); no clean replacement → the slot is dropped and
     // the reason recorded. Fail-open: an unreachable judge changes nothing.
     let seasonalSwapped = 0;
+    // The focused group whose inside/outside mix this run's posts are counted in, when its
+    // share leaves room for products outside the focus (core_focus_share < 100).
+    let mixGroup: { channelId: string; share: number } | null = null;
     if (toPost.length && this.ai.hasAnyKey(creds)) {
       const groupLabels = (await Promise.all(
         targets.map((t) => this.channels.getName(userId, t).catch(() => null)),
@@ -3154,14 +3158,38 @@ export class PostsService {
       // focus, a product the focus turns down still goes to those — it is only kept out of the
       // focused group. Otherwise one group's focus would decide what every other group gets.
       const open = strict ? openTargets(targets, foci) : [];
-      const kept: Array<{ product: any; kw: string; only?: string[] }> = [];
+      // The share: the strictest focused group decides. At 100 % nothing outside the focus
+      // goes out; below it, a turned-down product may, while the group's recent posts leave
+      // room — still past the lenient guard, since "outside the focus" is fine and "wrong
+      // audience" never is. The working mix counts this run's own decisions as it goes.
+      const strictest = strict ? foci.reduce((a, f) => (focusShare(f.share) < focusShare(a.share) ? f : a)) : null;
+      if (strictest && focusShare(strictest.share) < 100) {
+        mixGroup = { channelId: strictest.channelId, share: focusShare(strictest.share) };
+      }
+      let mix: MixEntry[] = mixGroup
+        ? liveMix(await this.memory?.load<MixEntry[]>(focusMixKey(userId, mixGroup.channelId)), Date.now())
+        : [];
+      const kept: Array<{ product: any; kw: string; only?: string[]; offFocus?: boolean }> = [];
       for (let i = 0; i < toPost.length; i++) {
-        if (verdicts[i].fits) { kept.push(toPost[i]); continue; }
+        if (verdicts[i].fits) {
+          kept.push(toPost[i]);
+          if (mixGroup) mix = pushMix(mix, false, Date.now());
+          continue;
+        }
         const rejectedTitle = String(toPost[i].product.title || '').slice(0, 50);
         if (open.length) {
           kept.push({ ...toPost[i], only: open });
           result.errors.push(`${guardName}: "${rejectedTitle}" לא נשלח לקבוצה הממוקדת (${verdicts[i].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
           continue;
+        }
+        if (mixGroup && mixAllowsOff(mix, mixGroup.share)) {
+          const [lenient] = await this.productFitVerdicts(creds, { ...fitCtx, focus: [] }, [fitItem(toPost[i].product, toPost[i].kw)]);
+          if (lenient.fits) {
+            kept.push({ ...toPost[i], offFocus: true });
+            mix = pushMix(mix, true, Date.now());
+            result.errors.push(offFocusNote(guardName, rejectedTitle, mixGroup.share));
+            continue;
+          }
         }
         this.logger.warn(`campaign ${campaign.id}: ${strict ? 'core focus' : 'relevance guard'} rejected "${rejectedTitle}"`
           + ` (${verdicts[i].reason || 'no reason'}) for kw "${toPost[i].kw}"`);
@@ -3181,7 +3209,11 @@ export class PostsService {
             if (batch.length) {
               const vs = await this.productFitVerdicts(creds, fitCtx, batch.map((p) => fitItem(p, donor)));
               const at = vs.findIndex((v) => v.fits);
-              if (at >= 0) { kept.push({ product: batch[at], kw: donor }); replaced = true; }
+              if (at >= 0) {
+                kept.push({ product: batch[at], kw: donor });
+                replaced = true;
+                if (mixGroup) mix = pushMix(mix, false, Date.now());
+              }
             }
           }
           for (let attempt = 0; !strict && attempt < 3 && !replaced; attempt++) {
@@ -3341,6 +3373,10 @@ export class PostsService {
         if (postTargets.length) this.applyChannels(post, postTargets);
 
         await this.repo.save(post);
+        // Counted once the post exists, not when it was picked: a slot skipped by pacing
+        // published nothing and must not tilt the group's mix. A post kept out of the focused
+        // group (`only`) never reaches it, so it is not part of that group's mix either.
+        if (mixGroup && !toPost[i].only) await this.recordFocusMix(userId, mixGroup.channelId, !!toPost[i].offFocus);
         result.queued++;
         if (seasonalKeywordSet.has(String(slotKeyword || '').trim().toLowerCase())) fromSeasonal++;
         // Durable de-dup memory (survives post deletion). On a re-post after the cooldown,
@@ -6615,6 +6651,16 @@ export class PostsService {
     }
   }
 
+  /** One more automatic post in a focused group's inside/outside mix (persistent_values). */
+  async recordFocusMix(userId: string, channelId: string, offFocus: boolean): Promise<void> {
+    if (!this.memory) return;
+    const key = focusMixKey(userId, channelId);
+    const now = Date.now();
+    // Merge onto what is stored, never assign: two runs finishing together must both count.
+    const next = pushMix(liveMix(await this.memory.load<MixEntry[]>(key), now), offFocus, now);
+    await this.memory.save(key, next, MIX_TTL_MS);
+  }
+
   /**
    * The core-focus check for routes that have no relevance guard of their own: FLYLINK, the
    * agents and sales recovery. When none of `targets` has a focus nothing is asked and every
@@ -6628,22 +6674,42 @@ export class PostsService {
     items: ProductFitItem[],
     campaignName = '',
     targetPlatforms?: string | null,
-  ): Promise<{ foci: GroupFocus[]; verdicts: ProductFitVerdict[]; open: string[] }> {
+  ): Promise<{ foci: GroupFocus[]; verdicts: ProductFitVerdict[]; open: string[]; mixChannel: string | null }> {
     const accept = items.map(() => ({ fits: true, reason: '' }));
     // A campaign that never reaches the group (Pinterest only) is not the group's to judge.
-    if (!focusApplies(this.parseTargetPlatforms(targetPlatforms))) return { foci: [], verdicts: accept, open: targets };
+    if (!focusApplies(this.parseTargetPlatforms(targetPlatforms))) return { foci: [], verdicts: accept, open: targets, mixChannel: null };
     const chats = targets.length ? targets : [creds?.telegram_channel_id].filter((c): c is string => !!c);
     const foci = await this.channels.getFocus(userId, chats).catch(() => [] as GroupFocus[]);
     // The targets no focus speaks for: a product turned down may still go to these.
     const open = openTargets(targets, foci);
-    if (!foci.length || !items.length || !creds || !this.ai.hasAnyKey(creds)) return { foci, verdicts: accept, open };
+    // The focused group whose mix these posts count in, when its share leaves room outside.
+    const strictest = foci.length ? foci.reduce((a, f) => (focusShare(f.share) < focusShare(a.share) ? f : a)) : null;
+    const share = strictest ? focusShare(strictest.share) : 100;
+    const mixChannel = strictest && share < 100 ? strictest.channelId : null;
+    if (!foci.length || !items.length || !creds || !this.ai.hasAnyKey(creds)) return { foci, verdicts: accept, open, mixChannel };
     const ctx: ProductFitContext = {
       campaign: campaignName || foci.map((f) => f.name).join(', '),
       channels: foci.map((f) => f.name),
       keywords: [],
       focus: foci,
     };
-    return { foci, verdicts: await this.productFitVerdicts(creds, ctx, items), open };
+    const verdicts = await this.productFitVerdicts(creds, ctx, items);
+    // The share: a turned-down product may still go out while the group's recent posts leave
+    // room, past the lenient guard. Not when it can go to the campaign's other groups instead
+    // (`open`) — that is the caller's to route. The working mix counts this batch's own
+    // picks; the caller records each post once it exists (recordFocusMix).
+    if (mixChannel && !open.length) {
+      let mix = liveMix(await this.memory?.load<MixEntry[]>(focusMixKey(userId, mixChannel)), Date.now());
+      for (let i = 0; i < items.length; i++) {
+        if (verdicts[i].fits) { mix = pushMix(mix, false, Date.now()); continue; }
+        if (!mixAllowsOff(mix, share)) continue;
+        const [lenient] = await this.productFitVerdicts(creds, { ...ctx, focus: [] }, [items[i]]);
+        if (!lenient.fits) continue;
+        verdicts[i] = { fits: true, reason: verdicts[i].reason, offFocus: true };
+        mix = pushMix(mix, true, Date.now());
+      }
+    }
+    return { foci, verdicts, open, mixChannel };
   }
 
   private async generateText(product: any, language: string, rate: number, creds: DecryptedCredentials, template?: string, priceLocalOverride?: number, images?: GenerateImage[], hint?: string, forceVision = false, opts?: { currencyPair?: string; style?: 'pinterest'; seasonHint?: string | null; copyHint?: string | null; promo?: { discount?: number | null; endsLabel?: string | null } }): Promise<string> {

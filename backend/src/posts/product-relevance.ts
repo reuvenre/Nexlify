@@ -107,6 +107,8 @@ export function buildProductFitPrompt(ctx: ProductFitContext, items: ProductFitI
 export interface ProductFitVerdict {
   fits: boolean;
   reason: string;
+  /** Outside the group's focus, let through under its outside-the-focus share (group-focus.ts). */
+  offFocus?: boolean;
 }
 
 /**

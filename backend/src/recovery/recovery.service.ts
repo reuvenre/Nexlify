@@ -115,6 +115,8 @@ export class RecoveryService {
     //    clearly inside it: a rejected pick is set aside and the next one tried, a few times.
     const creds = await this.credentials.getRaw(u.userId).catch(() => null);
     let product: any = null;
+    let mixChannel: string | null = null;
+    let productOffFocus = false;
     for (let attempt = 0; attempt < RECOVERY_FOCUS_ATTEMPTS && !product; attempt++) {
       let pick: any = null;
       if (keywords.length) {
@@ -126,10 +128,10 @@ export class RecoveryService {
           : (await this.pickBestSeller(u.userId, posted)) || (await this.pickBoughtNotPosted(u.userId, posted));
       }
       if (!pick) break;
-      const { foci, verdicts } = await this.postsService.groupFocusCheck(u.userId, creds, [group], [{
+      const { foci, verdicts, mixChannel: mc } = await this.postsService.groupFocusCheck(u.userId, creds, [group], [{
         id: String(pick.product_id), keyword: keywords[0] || '', title: String(pick.title || ''), category: pick.category,
       }]);
-      if (verdicts[0].fits) { product = pick; break; }
+      if (verdicts[0].fits) { product = pick; mixChannel = mc; productOffFocus = !!verdicts[0].offFocus; break; }
       this.logger.log(`recovery ${u.userId}: ${focusLabel(foci)} rejected ${pick.product_id} (${verdicts[0].reason || 'off focus'})`);
       posted.add(String(pick.product_id)); // never offered again this tick
     }
@@ -155,6 +157,7 @@ export class RecoveryService {
       { scheduledAt: new Date() },
     );
     if (saved) {
+      if (mixChannel) await this.postsService.recordFocusMix(u.userId, mixChannel, productOffFocus);
       saved.is_boost = true;
       await this.posts.save(saved).catch(() => {});
       this.logger.log(`recovery ${u.userId}: pushed product ${product.product_id} → group ${group} (orders=${orders}<${u.minOrders})`);

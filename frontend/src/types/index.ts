@@ -794,6 +794,8 @@ export interface Channel {
   smart_timing?: boolean;
   /** The group's core focus; '' = none (the lenient relevance guard only). */
   core_focus?: string;
+  /** Share (%) of the group's automatic posts that must be inside the focus (50-100). */
+  core_focus_share?: number;
   /** Per-group send queue. null on any field = inherit the global schedule setting. */
   schedule_enabled: boolean | null;
   schedule_interval_minutes: number | null;
@@ -869,6 +871,7 @@ export interface UpdateChannelInput {
   smart_timing?: boolean;
   /** The group's core focus; '' clears it. */
   core_focus?: string | null;
+  core_focus_share?: number | null;
   /** Per-group send queue. Send null to clear an override (back to the global schedule). */
   schedule_enabled?: boolean | null;
   schedule_interval_minutes?: number | null;

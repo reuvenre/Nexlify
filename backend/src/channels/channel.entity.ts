@@ -118,6 +118,14 @@ export class Channel {
   @Column({ type: 'text', nullable: true })
   core_focus: string | null;
 
+  /**
+   * The share (%) of this group's automatic posts that must sit inside `core_focus`. The rest
+   * may come from the campaign's other keywords, still past the lenient relevance guard.
+   * Null = 100, every post inside the focus.
+   */
+  @Column({ type: 'int', nullable: true })
+  core_focus_share: number | null;
+
   /** When this group last received a queued post — its own interval clock. */
   @Column({ type: 'timestamp', nullable: true })
   schedule_last_sent_at: Date | null;

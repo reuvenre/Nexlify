@@ -5,7 +5,7 @@ import axios from 'axios';
 import { CredentialsService } from '../credentials/credentials.service';
 import { PostsService, CampaignRunResult } from '../posts/posts.service';
 import { Campaign } from '../campaigns/campaign.entity';
-import { focusLabel } from '../posts/group-focus';
+import { focusLabel, offFocusNote } from '../posts/group-focus';
 import { signAmazonPaapi, AMAZON_MARKETPLACES } from '../common/amazon-sign';
 
 /** A normalized Amazon product (from PA-API SearchItems). */
@@ -168,15 +168,22 @@ export class AmazonService {
     // CORE FOCUS (posts/group-focus.ts): a focused group takes only products clearly inside it.
     const creds = await this.credentials.getRaw(userId);
     const focusNotes: string[] = [];
-    const { foci, verdicts, open } = await this.posts.groupFocusCheck(userId, creds, targets, candidates.map((p) => ({
+    const { foci, verdicts, open, mixChannel } = await this.posts.groupFocusCheck(userId, creds, targets, candidates.map((p) => ({
       id: p.asin, keyword, title: String(p.title || ''),
     })), campaign.name, campaign.target_platforms);
     // Products a focus turned down that may still go to the campaign's groups without a focus.
     const onlyFor = new Map<string, string[]>();
+    // Let through under the group's outside-the-focus share.
+    const offFocus = new Set<string>();
     if (foci.length) {
       candidates.forEach((p, i) => {
-        if (verdicts[i].fits) return;
         const title = String(p.title || '').slice(0, 50);
+        if (verdicts[i].offFocus) {
+          offFocus.add(p.asin);
+          focusNotes.push(offFocusNote(focusLabel(foci), title, foci[0].share ?? 100));
+          return;
+        }
+        if (verdicts[i].fits) return;
         if (open.length) {
           onlyFor.set(p.asin, open);
           focusNotes.push(`${focusLabel(foci)}: "${title}" לא נשלח לקבוצה הממוקדת (${verdicts[i].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
@@ -222,6 +229,7 @@ export class AmazonService {
           { scheduledAt: slot, campaignId: campaign.id },
         );
         result.queued++;
+        if (mixChannel && !onlyFor.has(p.asin)) await this.posts.recordFocusMix(userId, mixChannel, offFocus.has(p.asin));
         await this.posts.incrementCampaignPosts(campaign.id).catch(() => {});
       } catch (err: any) {
         result.failed++;

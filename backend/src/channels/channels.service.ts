@@ -15,7 +15,7 @@ import {
   canPublish, describeMissingScopes, missingScopes, parseGrantedScopes,
 } from '../pinterest/pinterest-scopes';
 import { daysUntil, resolveMetaTokenExpiry } from '../common/meta-token';
-import { GroupFocus, normalizeFocus } from '../posts/group-focus';
+import { GroupFocus, focusShare, normalizeFocus } from '../posts/group-focus';
 
 @Injectable()
 export class ChannelsService {
@@ -120,6 +120,7 @@ export class ChannelsService {
     }
     if (dto.smart_timing !== undefined) channel.smart_timing = dto.smart_timing === true;
     if (dto.core_focus !== undefined) channel.core_focus = normalizeFocus(dto.core_focus);
+    if (dto.core_focus_share !== undefined) channel.core_focus_share = dto.core_focus_share;
     // Per-group queue overrides — an explicit null clears the override (back to inherit).
     if (dto.schedule_enabled !== undefined) channel.schedule_enabled = dto.schedule_enabled;
     if (dto.schedule_interval_minutes !== undefined) channel.schedule_interval_minutes = dto.schedule_interval_minutes;
@@ -823,7 +824,7 @@ export class ChannelsService {
     const chans = await this.repo.find({ where: { user_id: userId, channel_id: In(ids) } });
     return chans
       .filter((c) => !!c.core_focus?.trim())
-      .map((c) => ({ channelId: c.channel_id, name: c.name, focus: c.core_focus!.trim() }));
+      .map((c) => ({ channelId: c.channel_id, name: c.name, focus: c.core_focus!.trim(), share: focusShare(c.core_focus_share) }));
   }
 
   /** The saved channel's display name (for multi-group error labels). Null if unknown. */
@@ -887,6 +888,7 @@ export class ChannelsService {
       fb_token_days_left: daysUntil(c.facebook_token_expires_at),
       smart_timing: c.smart_timing === true,
       core_focus: c.core_focus || '',
+      core_focus_share: focusShare(c.core_focus_share),
       // Per-group queue settings — null means "inherit the global schedule".
       schedule_enabled: c.schedule_enabled ?? null,
       schedule_interval_minutes: c.schedule_interval_minutes ?? null,

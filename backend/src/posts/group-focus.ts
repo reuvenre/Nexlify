@@ -21,6 +21,8 @@ export interface GroupFocus {
   name: string;
   /** The focus in the owner's words. */
   focus: string;
+  /** Share (%) of the group's posts that must be inside the focus (focusShare). Absent = 100. */
+  share?: number;
 }
 
 export const MAX_FOCUS_LENGTH = 400;
@@ -133,4 +135,63 @@ export function focusApplies(platforms: Set<string> | null | undefined): boolean
 export function openTargets(targets: string[], foci: GroupFocus[]): string[] {
   const focused = new Set(foci.map((f) => f.channelId));
   return targets.filter((t) => !focused.has(t));
+}
+
+// ── The mix: how much of the group must be inside the focus ──────────────────────────────
+//
+// A 100 % focus turned down everything outside it, and the campaign's other keywords stopped
+// mattering: the owner wanted the tactical group MOSTLY tactical (60-70 %), with the rest
+// still coming from his other keywords. So a product the focus turns down may still go out
+// when the group's recent posts leave room for one more from outside the focus. It must
+// still pass the lenient relevance guard: "outside the focus" is allowed, "wrong audience"
+// never is.
+
+/** The stored share, clamped to 50-100; null or anything unreadable is 100 (strict). */
+export function focusShare(raw: number | null | undefined): number {
+  const n = Number(raw);
+  if (raw === null || raw === undefined || !Number.isFinite(n)) return 100;
+  return Math.min(100, Math.max(50, Math.round(n)));
+}
+
+/** One of the group's recent automatic posts: when, and whether it was outside the focus. */
+export interface MixEntry { at: number; off: boolean }
+
+/** How many recent posts the share is measured over. */
+export const MIX_WINDOW = 20;
+/** Older posts drop out of the mix, so a quiet week does not carry over a stale ratio. */
+export const MIX_TTL_MS = 14 * 86_400_000;
+
+/** persistent_values key of a group's recent mix. */
+export function focusMixKey(userId: string, channelId: string): string {
+  return `group_focus_mix:${userId}:${channelId}`;
+}
+
+/** The live part of a stored mix, newest last, at most MIX_WINDOW. */
+export function liveMix(entries: MixEntry[] | null | undefined, now: number): MixEntry[] {
+  return (Array.isArray(entries) ? entries : [])
+    .filter((e) => e && typeof e.at === 'number' && now - e.at < MIX_TTL_MS)
+    .slice(-MIX_WINDOW);
+}
+
+/**
+ * Whether one more post from outside the focus keeps the group at its share. Counted with
+ * that post included, so an empty history starts inside the focus and the first outside post
+ * comes once the inside ones make room for it.
+ */
+export function mixAllowsOff(entries: MixEntry[], sharePct: number): boolean {
+  const share = focusShare(sharePct);
+  if (share >= 100) return false;
+  const recent = entries.slice(-(MIX_WINDOW - 1));
+  const off = recent.filter((e) => e.off).length + 1;
+  return off / (recent.length + 1) <= (100 - share) / 100;
+}
+
+/** The mix with one more post. */
+export function pushMix(entries: MixEntry[], off: boolean, now: number): MixEntry[] {
+  return liveMix([...entries, { at: now, off }], now);
+}
+
+/** The run-note line for a product that went out under the outside-the-focus share. */
+export function offFocusNote(label: string, title: string, sharePct: number): string {
+  return `${label}: "${title}" מחוץ למיקוד, עבר במכסת ${100 - focusShare(sharePct)}% של מילות המפתח האחרות`;
 }

@@ -361,6 +361,7 @@ function EditChannelModal({
   const [inQueue, setInQueue] = useState(channel.schedule_enabled !== false);
   const [smartTiming, setSmartTiming] = useState(channel.smart_timing === true);
   const [coreFocus, setCoreFocus] = useState(channel.core_focus || '');
+  const [focusShare, setFocusShare] = useState(channel.core_focus_share ?? 100);
   const [customSched, setCustomSched] = useState(
     channel.schedule_interval_minutes != null ||
     channel.schedule_start_hour != null ||
@@ -400,6 +401,7 @@ function EditChannelModal({
         schedule_enabled: inQueue ? null : false,
         smart_timing: smartTiming,
         core_focus: coreFocus.trim() || null,
+        core_focus_share: focusShare >= 100 ? null : focusShare,
         // Only what the user actually typed is stored; an empty field stays null and keeps
         // inheriting the global schedule. Note hour 0 (midnight) is a legitimate value, so
         // the empty-check is on the string — `Number('') || 0` would have stored midnight.
@@ -462,9 +464,25 @@ function EditChannelModal({
               onChange={(e) => setCoreFocus(e.target.value)}
               placeholder="לדוגמה: ציוד טקטי ואיירסופט: נרתיקים, אפודים, מסילות פיקטיני, ידיות, פנסי נשק"
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-blue-500/50 resize-y" />
+            {coreFocus.trim() && (
+              <div className="space-y-1">
+                <label htmlFor="core-focus-share" className="flex justify-between text-2xs text-white/50">
+                  <span>כמה מהפוסטים חייבים להיות מתוך המיקוד</span>
+                  <span className="text-white/80 font-medium">{focusShare}%</span>
+                </label>
+                <input id="core-focus-share" type="range" min={50} max={100} step={5} value={focusShare}
+                  onChange={(e) => setFocusShare(Number(e.target.value))}
+                  className="w-full accent-blue-500" />
+                <p className="text-2xs text-white/30 leading-relaxed">
+                  {focusShare >= 100
+                    ? 'רק מוצרים מתוך המיקוד. מוצר מחוץ לו נפסל ומוחלף.'
+                    : `כ-${100 - focusShare}% מהפוסטים יכולים להגיע משאר מילות המפתח של הקמפיין, גם אם הם מחוץ למיקוד, כל עוד הם מתאימים לקהל.`}
+                </p>
+              </div>
+            )}
             <p className="text-2xs text-white/30 leading-relaxed">
               {coreFocus.trim()
-                ? 'כל מוצר שנשלח לקבוצה אוטומטית (קמפיינים, FLYLINK, הסוכנים ופוסטי החזרת מכירות) נבדק מול המיקוד. עובר רק מוצר שנמצא בבירור בתוכו, ומוצר גבולי מוחלף באחר. מה שנפסל מופיע בהערת הריצה של הקמפיין. פוסט ששולחים ידנית לא נבדק.'
+                ? 'כל מוצר שנשלח לקבוצה אוטומטית (קמפיינים, FLYLINK, הסוכנים ופוסטי החזרת מכירות) נבדק מול המיקוד. מוצר מחוץ למיקוד עובר רק בתוך המכסה שלמעלה, ואחרת מוחלף באחר. מה שנפסל או עבר במכסה מופיע בהערת הריצה של הקמפיין. פוסט ששולחים ידנית לא נבדק.'
                 : 'ריק = הבדיקה הרגילה בלבד: נפסל רק מוצר שבבירור לא מתאים לקהל. כתוב כאן במה הקבוצה עוסקת כדי שיעברו רק מוצרים מהתחום.'}
             </p>
           </div>

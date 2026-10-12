@@ -95,6 +95,14 @@ export class UpdateChannelDto {
   @MaxLength(400)
   core_focus?: string | null;
 
+  /** Share (%) of the group's posts that must be inside the focus; null = 100. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(50)
+  @Max(100)
+  core_focus_share?: number | null;
+
   // ── Per-group send queue (explicit null = inherit the user's global schedule) ──
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)

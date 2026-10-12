@@ -9,7 +9,7 @@ import { PostsService } from '../posts/posts.service';
 import { RatesService } from '../rates/rates.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { Campaign } from '../campaigns/campaign.entity';
-import { focusLabel } from '../posts/group-focus';
+import { focusLabel, offFocusNote } from '../posts/group-focus';
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   ILS: '₪', EUR: '€', GBP: '£', USD: '$',
@@ -113,15 +113,25 @@ export class OrchestratorAgent {
       });
       // Products a focus turned down but that may still go to the campaign's other groups.
       const onlyFor = new Map<string, string[]>();
+      // Products let through under the group's outside-the-focus share, and the group whose
+      // mix every post to it is counted in.
+      const offFocus = new Set<string>();
+      let mixChannel: string | null = null;
       if (foci.length && products.length) {
-        const { verdicts, open } = await this.posts.groupFocusCheck(userId, creds, targets, products.map((p) => ({
+        const { verdicts, open, mixChannel: mc } = await this.posts.groupFocusCheck(userId, creds, targets, products.map((p) => ({
           id: String(p.product_id), keyword: String(p.keyword || ''), title: String(p.title || ''),
           category: (p as any).category,
         })), campaign.name, campaign.target_platforms);
+        mixChannel = mc;
         const label = focusLabel(foci);
         products.forEach((p, i) => {
-          if (verdicts[i].fits) return;
           const title = String(p.title || '').slice(0, 50);
+          if (verdicts[i].offFocus) {
+            offFocus.add(String(p.product_id));
+            errors.push(offFocusNote(label, title, foci[0].share ?? 100));
+            return;
+          }
+          if (verdicts[i].fits) return;
           if (open.length) {
             onlyFor.set(String(p.product_id), open);
             errors.push(`${label}: "${title}" לא נשלח לקבוצה הממוקדת (${verdicts[i].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
@@ -182,6 +192,9 @@ export class OrchestratorAgent {
           }, creds);
 
           postsCreated++;
+          if (mixChannel && !onlyFor.has(String(product.product_id))) {
+            await this.posts.recordFocusMix(userId, mixChannel, offFocus.has(String(product.product_id)));
+          }
 
           // Small delay between posts to avoid Telegram rate limits
           await new Promise((r) => setTimeout(r, 1500));

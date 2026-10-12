@@ -147,6 +147,11 @@ The relevance guard (`product-relevance.ts`) accepts anything plausible and reje
   - A Pinterest-only campaign is never checked (`focusApplies`), because it never reaches the group. Checking it against the default group's focus once rejected every US Halloween pin (#101).
   - Manual sends are not checked.
 - **A focus speaks for its own group only** (`openTargets`). When a campaign feeds several groups and only some have a focus, a product the focus turns down still goes to the others; only the focused group loses it (run note: «… לא נשלח לקבוצה הממוקדת … רק לשאר הקבוצות»). It is dropped, and replaced where it can be, only when every target is focused. The manager's `set_group_focus` refuses a campaign that feeds more than one group, so one group's focus can never be written onto a sister group.
+- **The mix** (`channels.core_focus_share`, the «כמה מהפוסטים חייבים להיות מתוך המיקוד» slider): a 100 % focus turned down everything outside it, and the campaign's other keywords stopped mattering. The owner wants 60–70 % tactical and the rest from those keywords. Below 100, a product the focus turns down may still go out while the group's recent posts leave room (`mixAllowsOff`: the last `MIX_WINDOW` = 20 posts of 14 days, counted with the new one). It must still pass the lenient guard, because "outside the focus" is allowed and "wrong audience" never is.
+  - The mix lives in `persistent_values` (`group_focus_mix:<user>:<chat>`).
+  - It is recorded **once the post exists** (`recordFocusMix`), so a slot skipped by pacing does not tilt it.
+  - The run note says «… מחוץ למיקוד, עבר במכסת 35% של מילות המפתח האחרות».
+  - Null share = 100. The migration set 65 on the groups that already had a focus.
 - **FLYLINK** is judged by the enrichment's `store_name` / `store_brand` / `store_category` and the description (`flylinkFitItem`). An item with only a supplier code is not asked about and goes through.
 - **Rejections are remembered** per focus text in `persistent_values` (`group_focus_rejected:<user>:<hash>`, 14 d). This stops a FLYLINK rotation or a repeating search from asking about the same item every run. Rewriting the focus starts fresh.
 - **Fail-open stays:** no AI key, a judge error or an unreadable reply accepts everything. A judge outage must never silence a group.

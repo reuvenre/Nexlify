@@ -23,7 +23,7 @@ import { CredentialsService, DecryptedCredentials } from '../credentials/credent
 import { SubscriptionService } from '../subscription/subscription.service';
 import { RatesService } from '../rates/rates.service';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
-import { flylinkFitItem, focusLabel } from '../posts/group-focus';
+import { flylinkFitItem, focusLabel, offFocusNote } from '../posts/group-focus';
 
 // store_name / store_category / store_brand are here so the owner can overrule the
 // enrichment agent — it proposes, he decides, and the correction stands because
@@ -984,20 +984,30 @@ export class SupplierProductsService {
     const focusNotes: string[] = [];
     // Items a focus turned down that may still go to the campaign's groups without a focus.
     const onlyFor = new Map<string, string[]>();
+    // Items let through under the group's outside-the-focus share, and the group whose mix
+    // every post to it is counted in.
+    const offFocus = new Set<string>();
+    let mixChannel: string | null = null;
     let products = pool.slice(0, limit);
     const judgeable = pool.slice(0, limit * 3);
     const focusItems = judgeable.map((p) => flylinkFitItem(p));
     if (focusItems.some((it) => it)) {
       const asked = focusItems.map((it, i) => ({ it, i })).filter((x) => !!x.it);
-      const { foci, verdicts, open } = await this.posts.groupFocusCheck(
+      const { foci, verdicts, open, mixChannel: mc } = await this.posts.groupFocusCheck(
         userId, creds, targets, asked.map((x) => x.it!), campaign.name, campaign.target_platforms,
       );
+      mixChannel = mc;
       if (foci.length) {
         const out = new Set<number>();
         asked.forEach((x, j) => {
-          if (verdicts[j].fits) return;
           const p = judgeable[x.i];
           const name = (p.store_name || p.title || p.sku || '').slice(0, 50);
+          if (verdicts[j].offFocus) {
+            offFocus.add(p.id);
+            focusNotes.push(offFocusNote(focusLabel(foci), name, foci[0].share ?? 100));
+            return;
+          }
+          if (verdicts[j].fits) return;
           if (open.length) {
             onlyFor.set(p.id, open);
             focusNotes.push(`${focusLabel(foci)}: "${name}" לא נשלח לקבוצה הממוקדת (${verdicts[j].reason || 'מחוץ למיקוד'}) — רק לשאר הקבוצות`);
@@ -1093,6 +1103,7 @@ export class SupplierProductsService {
         await this.repo.save(p);
         await this.posts.incrementCampaignPosts(campaign.id);
         result.queued++;
+        if (mixChannel && !onlyFor.has(p.id)) await this.posts.recordFocusMix(userId, mixChannel, offFocus.has(p.id));
       } catch (err: any) {
         result.failed++;
         result.errors.push(`${p.title?.slice(0, 40) || p.sku || p.id}: ${err.message}`);

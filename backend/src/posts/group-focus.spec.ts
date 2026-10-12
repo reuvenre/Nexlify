@@ -195,3 +195,79 @@ describe('one group\'s focus never decides for its sister groups', () => {
     expect(r.open).toEqual([MAMA]);
   });
 });
+
+describe('the mix: mostly inside the focus, the rest from the other keywords', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const gf = require('./group-focus');
+  const now = Date.now();
+  const entries = (offs: boolean[]) => offs.map((off, i) => ({ at: now - (offs.length - i) * 60_000, off }));
+
+  it('reads the stored share: null is strict, anything else is held to 50-100', () => {
+    expect(gf.focusShare(null)).toBe(100);
+    expect(gf.focusShare(undefined)).toBe(100);
+    expect(gf.focusShare(65)).toBe(65);
+    expect(gf.focusShare(20)).toBe(50);
+    expect(gf.focusShare(140)).toBe(100);
+  });
+
+  it('a strict group never lets a product outside the focus through', () => {
+    expect(gf.mixAllowsOff(entries([false, false, false, false]), 100)).toBe(false);
+  });
+
+  it('at 65 % an empty history starts inside the focus, then makes room for about a third', () => {
+    expect(gf.mixAllowsOff([], 65)).toBe(false);
+    expect(gf.mixAllowsOff(entries([false]), 65)).toBe(false);          // 1 of 2 = 50 %
+    expect(gf.mixAllowsOff(entries([false, false]), 65)).toBe(true);    // 1 of 3 = 33 %
+    expect(gf.mixAllowsOff(entries([false, false, true]), 65)).toBe(false);
+    // Over a long run the outside share settles near 35 %, never above it.
+    let mix: any[] = [];
+    for (let i = 0; i < 60; i++) mix = gf.pushMix(mix, gf.mixAllowsOff(mix, 65), now + i);
+    const off = mix.filter((e: any) => e.off).length / mix.length;
+    expect(off).toBeGreaterThanOrEqual(0.3);
+    expect(off).toBeLessThanOrEqual(0.35);
+  });
+
+  it('keeps the last 20 posts of the last 14 days', () => {
+    const old = [{ at: now - 15 * 86_400_000, off: true }];
+    expect(gf.liveMix(old, now)).toEqual([]);
+    expect(gf.liveMix(entries(new Array(30).fill(false)), now)).toHaveLength(gf.MIX_WINDOW);
+  });
+
+  it('groupFocusCheck lets a turned-down product through under the share, past the lenient guard', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PostsService } = require('./posts.service');
+    const store = new Map<string, any>();
+    const svc: any = Object.create(PostsService.prototype);
+    const answers = [
+      '[{"i":1,"fits":true},{"i":2,"fits":false,"reason":"מתנע לרכב"},{"i":3,"fits":false,"reason":"צעצוע"}]',
+      '[{"i":1,"fits":true}]',                                        // lenient: the jump starter is fine
+    ];
+    svc.ai = { hasAnyKey: () => true, generate: jest.fn(async () => ({ text: answers.shift() ?? '[{"i":1,"fits":false}]' })) };
+    svc.channels = { getFocus: async () => [{ ...TACTICAL, share: 65 }] };
+    svc.memory = { load: async (k: string) => store.get(k) ?? null, save: async (k: string, v: any) => { store.set(k, v); } };
+    store.set(gf.focusMixKey('u1', '-100'), entries([false, false, false]));
+    const r = await svc.groupFocusCheck('u1', { user_id: 'u1' }, ['-100'], [
+      { id: 'a', keyword: 'holster', title: 'Kydex holster' },
+      { id: 'b', keyword: 'jump starter', title: 'Car jump starter' },
+      { id: 'c', keyword: 'toy', title: 'Plush toy' },
+    ]);
+    expect(r.mixChannel).toBe('-100');
+    expect(r.verdicts.map((v: any) => [v.fits, !!v.offFocus])).toEqual([[true, false], [true, true], [false, false]]);
+
+    // Recording happens once a post exists, and merges onto what is stored.
+    await svc.recordFocusMix('u1', '-100', true);
+    expect(store.get(gf.focusMixKey('u1', '-100')).map((e: any) => e.off)).toEqual([false, false, false, true]);
+  });
+
+  it('a strict group (share 100) has no mix and lets nothing outside through', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PostsService } = require('./posts.service');
+    const svc: any = Object.create(PostsService.prototype);
+    svc.ai = { hasAnyKey: () => true, generate: async () => ({ text: '[{"i":1,"fits":false,"reason":"x"}]' }) };
+    svc.channels = { getFocus: async () => [TACTICAL] };
+    svc.memory = { load: async () => null, save: async () => undefined };
+    const r = await svc.groupFocusCheck('u1', { user_id: 'u1' }, ['-100'], [{ id: 'b', keyword: 'k', title: 'Car jump starter' }]);
+    expect(r.mixChannel).toBeNull();
+    expect(r.verdicts[0].fits).toBe(false);
+  });
+});
