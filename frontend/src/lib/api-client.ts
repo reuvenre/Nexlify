@@ -805,10 +805,12 @@ export const pinterestApi = {
 // ─── Earnings API ────────────────────────────────────────────────────────────
 
 /** The numbers that move during the day (backend StatsService.live) — polled by the
- *  dashboards while they are on screen. Times are ISO UTC; days are Israel calendar days. */
+ *  dashboards while they are on screen. Times are ISO UTC. Clicks and posts are on Israel
+ *  days (`days`); commissions and orders on the AliExpress day (`commission_days`, GMT+8),
+ *  the clock the portal and the orders screen count by. */
 export interface LiveStats {
   at: string;
-  today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number };
+  today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number; orders?: number };
   last_hour: { clicks: number };
   queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
   campaigns: { active: number; total: number };
@@ -816,6 +818,7 @@ export interface LiveStats {
   last_post_at: string | null;
   last_order_at: string | null;
   days: string[];
+  commission_days?: string[];
   daily: { clicks: number[]; posts: number[]; commissions_usd: number[] };
 }
 

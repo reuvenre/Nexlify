@@ -41,13 +41,16 @@ const MAX_MONTHS = 24;
 /**
  * Everything on the dashboard that moves during the day, in one cheap round trip — the
  * screens poll it (every ~20 s while visible), so it must stay a handful of indexed counts.
- * Times are Israel time; commissions per day are cut on the same clock as clicks, which
- * is what a day-by-day chart of the owner's own activity needs.
+ * Clicks and posts are cut on Israel days. Commissions and orders are cut on the AliExpress
+ * day (Asia/Shanghai), the clock the portal, the orders screen and the monthly figures all
+ * count by: on Israel days, an order placed after ~19:00 was "today" everywhere else and
+ * "yesterday" on this tile, which read 0 while the orders screen listed today's orders.
  */
 export interface LiveStats {
   /** Server time of this snapshot. */
   at: string;
-  today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number };
+  /** commissions_usd and orders are for the current AliExpress day (commission_days). */
+  today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number; orders: number };
   last_hour: { clicks: number };
   queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
   campaigns: { active: number; total: number };
@@ -55,7 +58,10 @@ export interface LiveStats {
   last_post_at: string | null;
   /** The newest order the earnings sync has brought in (commissions arrive in batches). */
   last_order_at: string | null;
+  /** Israel days, for clicks and posts. */
   days: string[];
+  /** AliExpress (GMT+8) days, for commissions_usd — the same length, ending on its today. */
+  commission_days: string[];
   daily: { clicks: number[]; posts: number[]; commissions_usd: number[] };
 }
 
@@ -98,7 +104,10 @@ export class StatsService {
     const fromLocal = `${keys[0]} 00:00:00`;
     const clickCol = naiveUtcAsLocal('c.clicked_at', LOCAL_TZ);
     const postCol = naiveUtcAsLocal('p.sent_at', LOCAL_TZ);
-    const commissionCol = `COALESCE(${tstzAsLocal('e.paid_date', LOCAL_TZ)}, ${naiveUtcAsLocal('e.order_date', LOCAL_TZ)})`;
+    // Commissions on the AliExpress day — see LiveStats.
+    const portalKeys = dayKeys(localNowString(PORTAL_TZ), n);
+    const portalFrom = `${portalKeys[0]} 00:00:00`;
+    const commissionCol = `COALESCE(${tstzAsLocal('e.paid_date', PORTAL_TZ)}, ${naiveUtcAsLocal('e.order_date', PORTAL_TZ)})`;
     const day = (col: string) => `to_char(${col}, 'YYYY-MM-DD')`;
     const hourAgo = new Date(Date.now() - 3600_000);
 
@@ -109,9 +118,10 @@ export class StatsService {
       this.posts.createQueryBuilder('p').select(day(postCol), 'bucket').addSelect('COUNT(*)::int', 'value')
         .where('p.user_id = :userId', { userId }).andWhere("p.status = 'sent'").andWhere(`${postCol} >= :fromLocal`, { fromLocal })
         .groupBy('bucket').getRawMany(),
-      this.earnings.createQueryBuilder('e').select(day(commissionCol), 'bucket').addSelect('COALESCE(SUM(e.commission_usd), 0)', 'value')
+      this.earnings.createQueryBuilder('e').select(day(commissionCol), 'bucket')
+        .addSelect('COALESCE(SUM(e.commission_usd), 0)', 'value').addSelect('COUNT(*)::int', 'orders')
         .where('e.user_id = :userId', { userId }).andWhere("e.status IN ('estimated', 'settled')")
-        .andWhere(`${commissionCol} >= :fromLocal`, { fromLocal })
+        .andWhere(`${commissionCol} >= :portalFrom`, { portalFrom })
         .groupBy('bucket').getRawMany(),
       this.clicks.createQueryBuilder('c').select('COUNT(*)::int', 'n')
         .where('c.user_id = :userId', { userId }).andWhere('c.clicked_at >= :hourAgo', { hourAgo })
@@ -143,7 +153,8 @@ export class StatsService {
 
     const clicks = densify(clickDays, keys);
     const posts = densify(postDays, keys);
-    const commissions = densify(commissionDays, keys).map((v) => Math.round(v * 100) / 100);
+    const commissions = densify(commissionDays, portalKeys).map((v) => Math.round(v * 100) / 100);
+    const ordersToday = densify(commissionDays.map((r: any) => ({ bucket: r.bucket, value: r.orders })), portalKeys);
     // Naive UTC timestamps (clicked_at, sent_at, order_date, scheduled_at) leave as ISO UTC.
     const iso = (v: any): string | null => {
       if (!v) return null;
@@ -157,6 +168,7 @@ export class StatsService {
         clicks: clicks[clicks.length - 1] ?? 0,
         failed: Number(failedToday?.n) || 0,
         commissions_usd: commissions[commissions.length - 1] ?? 0,
+        orders: ordersToday[ordersToday.length - 1] ?? 0,
       },
       last_hour: { clicks: Number(lastHour?.n) || 0 },
       queue: {
@@ -170,6 +182,7 @@ export class StatsService {
       last_post_at: iso(lasts?.last_post),
       last_order_at: iso(lasts?.last_order),
       days: keys,
+      commission_days: portalKeys,
       daily: { clicks, posts, commissions_usd: commissions },
     };
   }

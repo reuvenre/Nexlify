@@ -240,8 +240,8 @@ export default function DashboardPage() {
         />
         <StatTile
           label="עמלות היום" icon={BadgeDollarSign} value={L ? L.today.commissions_usd : null} format={usd}
-          sub="לפי הסנכרון האחרון"
-          spark={L?.daily.commissions_usd} sparkDays={L?.days} sparkColor={colors.commissions}
+          sub={L ? `${nf(L.today.orders ?? 0)} הזמנות · לפי היום של אלי אקספרס` : undefined}
+          spark={L?.daily.commissions_usd} sparkDays={L?.commission_days ?? L?.days} sparkColor={colors.commissions}
         />
         <StatTile
           label="הכנסות החודש" icon={DollarSign} value={earnings ? earnings.total_settled + earnings.total_estimated : null} format={ils}
@@ -275,7 +275,7 @@ export default function DashboardPage() {
           format={nf} total={L ? nf(L.daily.posts.reduce((a, b) => a + b, 0)) : '—'}
         />
         <DailyChart
-          title="עמלות ($)" days={L?.days ?? []} values={L?.daily.commissions_usd ?? []} color={colors.commissions} colors={colors}
+          title="עמלות ($)" days={L?.commission_days ?? L?.days ?? []} values={L?.daily.commissions_usd ?? []} color={colors.commissions} colors={colors}
           format={(v) => `$${Math.round(v)}`} total={L ? usd(L.daily.commissions_usd.reduce((a, b) => a + b, 0)) : '—'}
         />
       </div>

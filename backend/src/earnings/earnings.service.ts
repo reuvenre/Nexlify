@@ -34,6 +34,16 @@ const ORDER_STATUSES: { api: string; local: 'estimated' | 'settled' | 'cancelled
   { api: 'Invalid', local: 'cancelled', lookbackDays: 150 },
 ];
 
+/**
+ * The hourly pass between full syncs: only new paid orders of the last two days, one call
+ * per account. The full pass (every status, months back, ~17 calls) runs every 3 hours; on
+ * its own it left a new order off the dashboard for up to 3 hours while the AliExpress
+ * portal already showed it.
+ */
+export const RECENT_ORDER_STATUSES: typeof ORDER_STATUSES = [
+  { api: 'Payment Completed', local: 'estimated', lookbackDays: 2 },
+];
+
 /** Max span AliExpress accepts per order.list call — walk longer lookbacks in slices this size. */
 const WINDOW_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -463,7 +473,10 @@ export class EarningsService {
    * are integer CENTS of settled_currency; times are 'yyyy-MM-dd HH:mm:ss';
    * the query window is limited, so we fetch the last 60 days per run.
    */
-  async sync(userId: string): Promise<{ synced: number; updated: number; by_status?: Record<string, StatusDiag> }> {
+  async sync(
+    userId: string,
+    statuses: typeof ORDER_STATUSES = ORDER_STATUSES,
+  ): Promise<{ synced: number; updated: number; by_status?: Record<string, StatusDiag> }> {
     const creds = await this.credentials.getRaw(userId);
     if (!creds?.aliexpress_app_key || !creds?.aliexpress_app_secret) {
       throw new BadRequestException('מפתחות AliExpress לא מוגדרים — הגדר אותם בהגדרות ← שווקים');
@@ -476,7 +489,7 @@ export class EarningsService {
     }
     this.syncing.add(userId);
     try {
-      const result = await this.doSync(userId, creds);
+      const result = await this.doSync(userId, creds, statuses);
       // Attribution rides every sync — but FIRE-AND-FORGET: with hundreds of orders it
       // adds seconds, and awaiting it inside the HTTP request pushed the manual sync past
       // the frontend's timeout (the sync "failed" in the UI while succeeding server-side).
@@ -529,12 +542,12 @@ export class EarningsService {
    * so the orders/earnings screens stay current without a manual refresh. Paced between users
    * (the gateway bans bursts); one user's failure (bad keys, API limit) never aborts the rest.
    */
-  async syncAllUsers(): Promise<{ users: number; synced: number; updated: number }> {
+  async syncAllUsers(recentOnly = false): Promise<{ users: number; synced: number; updated: number }> {
     const userIds = await this.credentials.listUserIdsWithAliexpress();
     let synced = 0, updated = 0;
     for (const uid of userIds) {
       try {
-        const r = await this.sync(uid);
+        const r = await this.sync(uid, recentOnly ? RECENT_ORDER_STATUSES : ORDER_STATUSES);
         synced += r.synced;
         updated += r.updated;
       } catch (err: any) {
@@ -545,7 +558,9 @@ export class EarningsService {
     return { users: userIds.length, synced, updated };
   }
 
-  private async doSync(userId: string, creds: any): Promise<{ synced: number; updated: number; by_status: Record<string, StatusDiag> }> {
+  private async doSync(
+    userId: string, creds: any, statuses: typeof ORDER_STATUSES = ORDER_STATUSES,
+  ): Promise<{ synced: number; updated: number; by_status: Record<string, StatusDiag> }> {
     const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
     let synced = 0;
     let updated = 0;
@@ -558,7 +573,7 @@ export class EarningsService {
     // assumed.
     let incentiveFieldSeen: string | null = null;
 
-    for (const st of ORDER_STATUSES) {
+    for (const st of statuses) {
       const diag: StatusDiag = { found: 0, new: 0, updated: 0 };
       byStatus[st.api] = diag;
 
@@ -677,8 +692,8 @@ export class EarningsService {
     // Surface failures instead of pretending "0 new orders": only fail loudly when EVERY
     // status errored (bad keys, missing permission, API limit) and nothing synced. A status
     // that simply found 0 orders is a legitimate empty result, not a failure.
-    if (synced === 0 && updated === 0 && ORDER_STATUSES.every((st) => byStatus[st.api]?.error)) {
-      const firstErr = ORDER_STATUSES.map((st) => byStatus[st.api]?.error).find(Boolean);
+    if (synced === 0 && updated === 0 && statuses.every((st) => byStatus[st.api]?.error)) {
+      const firstErr = statuses.map((st) => byStatus[st.api]?.error).find(Boolean);
       throw new BadRequestException(`סנכרון הרווחים נכשל: ${firstErr}`);
     }
 

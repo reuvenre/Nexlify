@@ -309,7 +309,8 @@ Both screens keep themselves current while they are on screen. There is no push 
   - the last click, post and synced order;
   - 7–60 days of daily clicks, posts and commissions (Israel days).
 - **Intervals:** live 20 s, the slower account picture 45 s, monthly overview 60 s, reports 60 s / 30 s. Mind the global throttler (100 requests a minute per IP) before shortening any of them.
-- **Commissions arrive in jumps.** They move only when the earnings sync runs (every 3 h). The screen says so (`NowPanel`) instead of pretending they are live.
+- **Commissions arrive in jumps.** They move only when the earnings sync runs: new paid orders hourly (`syncRecentEarnings`, `RECENT_ORDER_STATUSES`, one call per account), every status every 3 h. The screen says so (`NowPanel`) instead of pretending they are live.
+- **Commissions are on the AliExpress day.** `today.commissions_usd`, `today.orders` and `commission_days` are cut on Asia/Shanghai, the clock the portal, the orders screen and the monthly figures use. Clicks and posts stay on Israel days. On Israel days, an order placed after ~19:00 Israel time was "today" in the portal and on the orders screen but "yesterday" on the tile, so it read $0 while today's orders were listed.
 - **Charts.** One measure per chart (`DailyChart`), never two y-axes. Hues come from `lib/viz.ts`: clicks blue, commissions aqua, posts violet, settled/estimated blue/orange. They were validated per theme with the dataviz palette script.
   - A recharts gradient id must be a plain token (`useId()` stripped). A Hebrew title in the id broke `url(#…)` and the fill fell back to solid black.
 - **Count-up.** `useCountUp` glides from the previous value. Counting up from zero on every refresh made every tile flicker.

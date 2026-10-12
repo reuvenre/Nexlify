@@ -59,6 +59,28 @@ export class CampaignSchedulerService {
   }
 
   /**
+   * Every hour, between the full syncs — only the last two days' new paid orders, one API
+   * call per account (RECENT_ORDER_STATUSES). The full pass alone left a fresh order off the
+   * dashboard for up to 3 hours while the AliExpress portal already showed it. Shares the
+   * full sync's overlap guard, and per account the earnings service refuses a second pass.
+   */
+  @Cron('0 50 * * * *')
+  async syncRecentEarnings() {
+    if (!this.earnings || this.syncingEarnings) return;
+    this.syncingEarnings = true;
+    try {
+      const r = await this.earnings.syncAllUsers(true);
+      if (r.synced || r.updated) {
+        this.logger.log(`Earnings hourly sync: ${r.synced} new, ${r.updated} updated across ${r.users} users`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Earnings hourly sync tick failed: ${err.message}`);
+    } finally {
+      this.syncingEarnings = false;
+    }
+  }
+
+  /**
    * Every half hour — names the supplier products the store has not shown yet.
    *
    * The whole point of the agent is that the shelf keeps itself: a catalog linked today,

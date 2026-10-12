@@ -153,7 +153,7 @@ export default function ReportsPage() {
                 format={nf} total={nf(sum(L.daily.clicks))} />
               <DailyChart title="פוסטים שיצאו" days={L.days} values={L.daily.posts} color={colors.posts} colors={colors}
                 format={nf} total={nf(sum(L.daily.posts))} />
-              <DailyChart title="עמלות ($)" days={L.days} values={L.daily.commissions_usd} color={colors.commissions} colors={colors}
+              <DailyChart title="עמלות ($)" days={L.commission_days ?? L.days} values={L.daily.commissions_usd} color={colors.commissions} colors={colors}
                 format={(v) => `$${Math.round(v)}`} total={`$${sum(L.daily.commissions_usd).toFixed(2)}`} />
             </div>
           )}
