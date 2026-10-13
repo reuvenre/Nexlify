@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Earning } from '../earnings/earning.entity';
+import { PORTAL_TZ as PORTAL_CLOCK } from '../earnings/portal-time';
 import { LinkClick } from '../links/link-click.entity';
 import { Post } from '../posts/post.entity';
 import { RatesService } from '../rates/rates.service';
@@ -42,9 +43,9 @@ const MAX_MONTHS = 24;
  * Everything on the dashboard that moves during the day, in one cheap round trip — the
  * screens poll it (every ~20 s while visible), so it must stay a handful of indexed counts.
  * Clicks and posts are cut on Israel days. Commissions and orders are cut on the AliExpress
- * day (Asia/Shanghai), the clock the portal, the orders screen and the monthly figures all
- * count by: on Israel days, an order placed after ~19:00 was "today" everywhere else and
- * "yesterday" on this tile, which read 0 while the orders screen listed today's orders.
+ * day (US Pacific, earnings/portal-time.ts), the clock the portal, the orders screen and the
+ * monthly figures all count by. It starts at 10:00 Israel time (09:00 in the weeks the two
+ * clocks change DST on different dates).
  */
 export interface LiveStats {
   /** Server time of this snapshot. */
@@ -53,9 +54,8 @@ export interface LiveStats {
   today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number; orders: number };
   /**
    * Commissions and orders of the last 24 hours, by payment time — what the dashboard tile
-   * shows. Any calendar day resets at some hour: the AliExpress day starts at ~19:00 Israel
-   * time, so the tile dropped to $0 every evening with the day's orders sitting on the orders
-   * screen; the Israel day did the same in the morning. A rolling window never resets.
+   * shows. Any calendar day resets at some hour, and the tile then read $0 beside the
+   * portal's orders. A rolling window never resets.
    */
   last_24h: { commissions_usd: number; orders: number };
   last_hour: { clicks: number };
@@ -67,14 +67,14 @@ export interface LiveStats {
   last_order_at: string | null;
   /** Israel days, for clicks and posts. */
   days: string[];
-  /** AliExpress (GMT+8) days, for commissions_usd — the same length, ending on its today. */
+  /** AliExpress (Pacific) days, for commissions_usd — the same length, ending on its today. */
   commission_days: string[];
   daily: { clicks: number[]; posts: number[]; commissions_usd: number[] };
 }
 
 /** AliExpress reports by its platform clock — the commissions figure must match the
  *  portal the owner holds it against, so its months are cut on this timezone. */
-const PORTAL_TZ = 'Asia/Shanghai';
+const PORTAL_TZ = PORTAL_CLOCK;
 /** Clicks and posts are the owner's own activity — their months are cut on his calendar. */
 const LOCAL_TZ = 'Asia/Jerusalem';
 

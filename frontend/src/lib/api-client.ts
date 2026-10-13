@@ -806,7 +806,7 @@ export const pinterestApi = {
 
 /** The numbers that move during the day (backend StatsService.live) — polled by the
  *  dashboards while they are on screen. Times are ISO UTC. Clicks and posts are on Israel
- *  days (`days`); commissions and orders on the AliExpress day (`commission_days`, GMT+8),
+ *  days (`days`); commissions and orders on the AliExpress day (`commission_days`, US Pacific),
  *  the clock the portal and the orders screen count by. */
 export interface LiveStats {
   at: string;

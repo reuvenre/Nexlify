@@ -5,7 +5,9 @@ import { Earning } from './earning.entity';
 import { Post } from '../posts/post.entity';
 import { Campaign } from '../campaigns/campaign.entity';
 import { parsePortalCsv } from './portal-csv';
-import { portalRangeEnd, portalRangeStart } from './portal-time';
+import {
+  dateToPortalWall, portalRangeEnd, portalRangeStart, portalToday, portalWallToDate,
+} from './portal-time';
 import { incentiveCommissionUsd } from './incentive-commission';
 import { CredentialsService } from '../credentials/credentials.service';
 import { RatesService } from '../rates/rates.service';
@@ -52,23 +54,23 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 type StatusDiag = { found: number; new: number; updated: number; error?: string };
 
 /**
- * The API wants 'yyyy-MM-dd HH:mm:ss' (date-only returns code 407 invalid-pattern) —
- * in AliExpress PLATFORM time (GMT+8). The server runs UTC, so formatting local parts
- * put every window 8 hours in the past: orders paid in the last ~8h fell outside
- * end_time on every sync and looked "missing" next to the portal's live count.
+ * The API wants 'yyyy-MM-dd HH:mm:ss' (date-only returns code 407 invalid-pattern), on
+ * the AliExpress PORTAL clock — US Pacific, see portal-time.ts.
  */
 function apiTime(d: Date): string {
-  const t = new Date(d.getTime() + 8 * 3600_000);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
+  return dateToPortalWall(d);
 }
 
-/** Parse an API timestamp ('yyyy-MM-dd HH:mm:ss', GMT+8) to a real Date. Plain
- *  `new Date(s)` read it as server-local (UTC) and stored every order 8h late. */
+/** Parse an API timestamp ('yyyy-MM-dd HH:mm:ss', Pacific) to a real Date. */
 function parseAliTime(s: string | null | undefined): Date | null {
-  if (!s) return null;
-  const d = new Date(`${String(s).trim().replace(' ', 'T')}+08:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
+  return portalWallToDate(s);
+}
+
+/** Two stored dates name a different moment (null vs a date counts as different). */
+function dateMoved(stored: Date | null | undefined, fresh: Date | null): boolean {
+  if (!fresh) return false;
+  if (!stored) return true;
+  return Math.abs(new Date(stored).getTime() - fresh.getTime()) >= 1000;
 }
 
 @Injectable()
@@ -394,10 +396,10 @@ export class EarningsService {
     userId: string, page = 1, limit = 20, status?: string, from?: string, to?: string,
     dateBasis: 'order' | 'paid' = 'order',
   ) {
-    // Boundaries on AliExpress platform time (GMT+8) — the clock the portal counts by and
-    // the one this screen already displays in. Cutting on UTC midnight instead put every
-    // order paid between 00:00 and 08:00 portal-time into the PREVIOUS month, which is
-    // what made August read 66 against the portal's 67 with nothing actually missing.
+    // Boundaries on the portal clock (US Pacific, portal-time.ts), the one this screen
+    // displays in. Cutting on UTC midnight instead moved the orders of the hours between
+    // the two midnights into the neighbouring month, which is what made August read 66
+    // against the portal's 67 with nothing actually missing.
     // `to` is inclusive of the whole day the user picked.
     const fromD = portalRangeStart(from);
     const toD = portalRangeEnd(to);
@@ -632,11 +634,17 @@ export class EarningsService {
                 // Status/commission transitions (estimated → settled/cancelled) — and a
                 // one-time paid_date backfill for rows synced before the column existed.
                 const needsPaidBackfill = !exists.paid_date && !!paidAt;
+                // Rows read on the wrong clock (GMT+8 instead of Pacific) are 15 h early;
+                // the API's own times put every order the sync sees back on real time.
+                const createdAt = parseAliTime(order.created_time);
+                const needsDateFix = dateMoved(exists.order_date, createdAt)
+                  || dateMoved(exists.paid_date, paidAt)
+                  || dateMoved(exists.settlement_date, settleAt);
                 // Rows synced before this column existed carry NULL; fill them in on the
                 // next pass rather than waiting for an unrelated status change.
                 const needsIncentiveBackfill = exists.incentive_commission_usd === null
                   || exists.incentive_commission_usd === undefined;
-                if (needsIncentiveBackfill || exists.status !== st.local || Math.abs((exists.commission_usd || 0) - commissionUsd) > 0.001 || needsPaidBackfill) {
+                if (needsIncentiveBackfill || exists.status !== st.local || Math.abs((exists.commission_usd || 0) - commissionUsd) > 0.001 || needsPaidBackfill || needsDateFix) {
                   exists.status = st.local;
                   exists.order_amount_usd = amountUsd;
                   exists.commission_usd = commissionUsd;
@@ -644,6 +652,7 @@ export class EarningsService {
                   exists.settlement_date = settleAt;
                   exists.incentive_commission_usd = incentive.usd;
                   if (paidAt) exists.paid_date = paidAt;
+                  if (createdAt) exists.order_date = createdAt;
                   await this.repo.save(exists);
                   updated++;
                   diag.updated++;
@@ -704,7 +713,7 @@ export class EarningsService {
     // 'month' = the current CALENDAR month on AliExpress platform time — the same boundary
     // the orders screen filters on, so the dashboard and the portal agree.
     if (period === 'month') {
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+      const today = portalToday();
       return portalRangeStart(`${today.slice(0, 7)}-01`);
     }
     const days = { '7d': 7, '30d': 30, '90d': 90 };

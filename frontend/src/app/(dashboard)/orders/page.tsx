@@ -154,10 +154,9 @@ export default function OrdersPage() {
     return `${from || '…'} — ${to || 'היום'}`;
   })();
 
-  // Dates on the ALIEXPRESS clock (GMT+8) — the owner reconciles this table row-by-row
+  // Dates on the ALIEXPRESS clock (US Pacific) — the owner reconciles this table row-by-row
   // against the AliExpress portal, which logs orders on that clock. Israel-time dates here
-  // made the same order appear a day "early" (a 22:48 IL purchase = next-day 03:48 in the
-  // portal) and read as a wrong date.
+  // put the same order on a different day than the portal and read as a wrong date.
   // Portal reconciliation: the export and our sync count the same thing (one row per
   // SUB-order), so "the portal says 67 and the system says 66" has one concrete answer —
   // which id is in the file and not in the DB. Reading 19-digit numbers by eye is how a
@@ -219,7 +218,7 @@ export default function OrdersPage() {
   };
 
   const fmtDate = (d: string) =>
-    new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
+    new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' });
 
   return (
     <div>

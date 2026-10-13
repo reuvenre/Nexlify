@@ -12,6 +12,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { MailService } from '../mail/mail.service';
 import { ProductsService } from '../products/products.service';
 import { EarningsService } from '../earnings/earnings.service';
+import { PORTAL_TZ } from '../earnings/portal-time';
 import { AiService } from '../ai/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PinterestService } from '../pinterest/pinterest.service';
@@ -1165,7 +1166,7 @@ export class OptimizerService {
     const [clicks] = await q(
       `SELECT count(*)::int AS n FROM link_clicks
        WHERE user_id = $1 AND clicked_at > now() - interval '1 day'`, [userId]);
-    // Orders are counted on the ALIEXPRESS ACCOUNTING DAY that just closed, by the date the
+    // Orders are counted on the ALIEXPRESS ACCOUNTING DAY (US Pacific) that just closed, by the date the
     // ORDER carries — the exact rows the owner sees in the portal, so the two agree.
     //
     // It used to count `created_at > now() - interval '1 day'`: rows OUR SYNC inserted in
@@ -1173,13 +1174,13 @@ export class OptimizerService {
     // yesterday and first seen 25 hours ago fell out of the window, and one placed the day
     // before but discovered late fell in. The owner counted 4 orders in the portal against
     // a digest that said 3.
-    const [day] = await q(`SELECT ((now() AT TIME ZONE 'Asia/Shanghai')::date - 1) AS d`, []);
+    const [day] = await q(`SELECT ((now() AT TIME ZONE '${PORTAL_TZ}')::date - 1) AS d`, []);
     const portalDay: string | null = day?.d
       ? new Date(day.d).toISOString().slice(0, 10)
       : null;
     // order_date is a naive timestamp holding UTC, so it must be DECLARED as UTC before it
     // can be rendered on the portal's clock — one AT TIME ZONE would re-read it as local.
-    const orderDayFilter = `((order_date AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Shanghai')::date = $2::date`;
+    const orderDayFilter = `((order_date AT TIME ZONE 'UTC') AT TIME ZONE '${PORTAL_TZ}')::date = $2::date`;
     const [rev] = portalDay ? await q(
       `SELECT count(*)::int AS orders, coalesce(sum(commission_ils), 0)::float AS ils
        FROM earnings
@@ -1232,7 +1233,7 @@ export class OptimizerService {
       `SELECT count(*)::float / 7 AS orders, coalesce(sum(commission_ils), 0)::float / 7 AS ils
        FROM earnings
        WHERE user_id = $1 AND status <> 'cancelled'
-         AND ((order_date AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Shanghai')::date
+         AND ((order_date AT TIME ZONE 'UTC') AT TIME ZONE '${PORTAL_TZ}')::date
              BETWEEN $2::date - 7 AND $2::date - 1`, [userId, portalDay]) : [];
 
     // Clicks that produced nothing: the shopper went to the page and walked away. Almost
