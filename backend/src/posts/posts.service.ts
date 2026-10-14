@@ -45,7 +45,7 @@ import { occupiesCurrentInterval, pacingIntervalMinutes } from './group-pacing';
 import { platformFilterSql } from './platform-filter';
 import { ImportRowInput, composeImportText, extractAliProductId, extractAliProductIdFromHtml, validImportRow } from './import-rows';
 import { GROUP_FOCUS_SYSTEM, PRODUCT_FIT_SYSTEM, ProductFitContext, ProductFitItem, ProductFitVerdict, buildProductFitPrompt, isStrictFit, parseProductFitVerdicts } from './product-relevance';
-import { FOCUS_MAX_DONORS, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusApplies, focusLabel, openTargets, MIX_TTL_MS, MixEntry, focusMixKey, focusShare, liveMix, mixAllowsOff, offFocusNote, pushMix, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
+import { FOCUS_EXTRA_SEARCHES, FOCUS_MAX_DONORS, focusDonorKeywords, FOCUS_REJECT_TTL_MS, FocusMemory, GroupFocus, REMEMBERED_REASON, focusApplies, focusLabel, openTargets, MIX_TTL_MS, MixEntry, focusMixKey, focusShare, liveMix, mixAllowsOff, offFocusNote, pushMix, focusMemoryKey, liveRejections, mergeRejections } from './group-focus';
 import { hotHours } from '../optimizer/hot-hours';
 import { PriceBand, preferInBand, soldPriceBand } from '../optimizer/sold-price-band';
 import { COPY_VARIANTS, VariantStat, customVariants, pickVariant, variantHint } from './copy-variants';
@@ -3170,6 +3170,8 @@ export class PostsService {
         ? liveMix(await this.memory?.load<MixEntry[]>(focusMixKey(userId, mixGroup.channelId)), Date.now())
         : [];
       const kept: Array<{ product: any; kw: string; only?: string[]; offFocus?: boolean }> = [];
+      // Extra searches spent this run on finding a product inside the focus (FOCUS_EXTRA_SEARCHES).
+      let focusSearches = 0;
       for (let i = 0; i < toPost.length; i++) {
         if (verdicts[i].fits) {
           kept.push(toPost[i]);
@@ -3199,42 +3201,55 @@ export class PostsService {
         // off-audience, and a 3-hourly campaign stretched toward 8 hours between posts.
         let replaced = false;
         const donors = [toPost[i].kw, ...Array.from(poolBy.keys()).filter((k) => k !== toPost[i].kw)];
+        // A focused group rejects often, so its candidates are judged three at a time in one
+        // call — one call per candidate across every keyword could reach thirty calls for a
+        // single slot.
+        const judgeBatch = async (donor: string): Promise<boolean> => {
+          const batch: any[] = [];
+          for (let n = 0; n < 3; n++) { const next = takeFrom(donor); if (!next) break; batch.push(next); }
+          if (!batch.length) return false;
+          const vs = await this.productFitVerdicts(creds, fitCtx, batch.map((p) => fitItem(p, donor)));
+          const at = vs.findIndex((v) => v.fits);
+          if (at < 0) return false;
+          kept.push({ product: batch[at], kw: donor });
+          if (mixGroup) mix = pushMix(mix, false, Date.now());
+          return true;
+        };
+        let donorUsed = '';
         for (const donor of strict ? donors.slice(0, FOCUS_MAX_DONORS) : donors) {
-          if (strict) {
-            // A focused group rejects often, so its candidates are judged three at a time
-            // in one call, over a few donors — one call per candidate across every keyword
-            // could reach thirty calls for a single slot.
-            const batch: any[] = [];
-            for (let n = 0; n < 3; n++) { const next = takeFrom(donor); if (!next) break; batch.push(next); }
-            if (batch.length) {
-              const vs = await this.productFitVerdicts(creds, fitCtx, batch.map((p) => fitItem(p, donor)));
-              const at = vs.findIndex((v) => v.fits);
-              if (at >= 0) {
-                kept.push({ product: batch[at], kw: donor });
-                replaced = true;
-                if (mixGroup) mix = pushMix(mix, false, Date.now());
-              }
-            }
-          }
+          if (strict) replaced = await judgeBatch(donor);
           for (let attempt = 0; !strict && attempt < 3 && !replaced; attempt++) {
             const next = takeFrom(donor);
             if (!next) break;
             const [v] = await this.productFitVerdicts(creds, fitCtx, [fitItem(next, donor)]);
             if (v.fits) { kept.push({ product: next, kw: donor }); replaced = true; }
           }
-          if (replaced) {
-            // A seasonal slot that ends up filled from an ordinary keyword is the one
-            // replacement the owner must be able to see: it was silent (a logger line), and
-            // it reads from outside exactly like a season that never ran — every switch on,
-            // nothing seasonal published, nothing in the run note to say why.
-            const wasSeasonal = seasonalKeywordSet.has(toPost[i].kw.trim().toLowerCase());
-            if (wasSeasonal && !seasonalKeywordSet.has(donor.trim().toLowerCase())) {
-              seasonalSwapped++;
-              result.errors.push(
-                `${guardName} פסל מוצר עונתי "${rejectedTitle}" (${verdicts[i].reason || (strict ? 'מחוץ למיקוד' : 'לא מתאים לקהל')}) — הוחלף במוצר של "${donor}"`,
-              );
-            }
-            break;
+          if (replaced) { donorUsed = donor; break; }
+        }
+        // The run's own keywords had nothing inside the focus: search the campaign's keywords
+        // the focus names, a bounded number per run. A pool built here stays for the next slot.
+        if (strict && !replaced) {
+          const searched = new Set(Array.from(poolBy.keys()).map((k) => k.trim().toLowerCase()));
+          for (const kw of focusDonorKeywords(kwEffective, foci, searched, baseCursor + perPost)) {
+            if (focusSearches >= FOCUS_EXTRA_SEARCHES) break;
+            focusSearches++;
+            const pool = await buildPool(kw, 1);
+            if (!pool) continue;
+            poolBy.set(kw, pool);
+            if (await judgeBatch(kw)) { replaced = true; donorUsed = kw; break; }
+          }
+        }
+        if (replaced) {
+          // A seasonal slot that ends up filled from an ordinary keyword is the one
+          // replacement the owner must be able to see: it was silent (a logger line), and
+          // it reads from outside exactly like a season that never ran — every switch on,
+          // nothing seasonal published, nothing in the run note to say why.
+          const wasSeasonal = seasonalKeywordSet.has(toPost[i].kw.trim().toLowerCase());
+          if (wasSeasonal && !seasonalKeywordSet.has(donorUsed.trim().toLowerCase())) {
+            seasonalSwapped++;
+            result.errors.push(
+              `${guardName} פסל מוצר עונתי "${rejectedTitle}" (${verdicts[i].reason || (strict ? 'מחוץ למיקוד' : 'לא מתאים לקהל')}) — הוחלף במוצר של "${donorUsed}"`,
+            );
           }
         }
         if (!replaced) {

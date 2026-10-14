@@ -94,6 +94,47 @@ export function focusLabel(foci: GroupFocus[]): string {
 export const FOCUS_MAX_DONORS = 4;
 
 /**
+ * How many extra keyword searches one run may spend looking for a product inside the focus.
+ * A run builds pools only for its own slot keywords, and when those are the campaign's
+ * other keywords (a coffee kit, a nail lamp) every donor above is outside the focus too:
+ * the slot was skipped and the owner got "campaign failed" for a run that never looked at
+ * one tactical keyword.
+ */
+export const FOCUS_EXTRA_SEARCHES = 2;
+
+const FOCUS_STOP = new Set(['for', 'and', 'with', 'the', 'set', 'kit', 'mini', 'new', 'pro', 'של', 'עם', 'לכל']);
+const focusWords = (s: string) => String(s || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)
+  .filter((w) => w.length >= 4 && !FOCUS_STOP.has(w));
+
+/**
+ * The campaign keywords to search for a replacement inside the focus, best first: those the
+ * focus text names (the whole phrase, or a word of four letters or more), then the rest of
+ * the rotation. Both in rotation order from `start`, so successive runs reach different ones.
+ * Keywords this run already searched are left out.
+ */
+export function focusDonorKeywords(
+  rotation: string[], foci: Array<Pick<GroupFocus, 'focus'>>, searched: Set<string>, start = 0,
+): string[] {
+  const text = foci.map((f) => String(f.focus || '').toLowerCase()).join(' ');
+  const textWords = new Set(focusWords(text));
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  const n = rotation.length;
+  for (let i = 0; i < n; i++) {
+    const kw = rotation[(((start + i) % n) + n) % n];
+    const key = String(kw || '').trim().toLowerCase();
+    if (!key || seen.has(key) || searched.has(key)) continue;
+    seen.add(key);
+    ordered.push(kw);
+  }
+  const inFocus = (kw: string) => {
+    const k = kw.trim().toLowerCase();
+    return text.includes(k) || focusWords(k).some((w) => textWords.has(w));
+  };
+  return [...ordered.filter(inFocus), ...ordered.filter((k) => !inFocus(k))];
+}
+
+/**
  * A FLYLINK catalog item as the focus judge sees it, or null when there is nothing to judge.
  * Its title is the supplier's code («LUN1526 $56.99»), so the judge reads what the enrichment
  * agent wrote (name, brand, category) and the supplier's description. An item with none of

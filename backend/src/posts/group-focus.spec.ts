@@ -271,3 +271,32 @@ describe('the mix: mostly inside the focus, the rest from the other keywords', (
     expect(r.verdicts[0].fits).toBe(false);
   });
 });
+
+describe('focusDonorKeywords', () => {
+  const { focusDonorKeywords } = jest.requireActual('./group-focus');
+  const rotation = ['outdoor coffee kit bag', 'pistol holster', 'uv nail lamp', 'tactical vest', 'molle pouch'];
+  const foci = [{ focus: 'ציוד טקטי: pistol holster, tactical vest, molle pouch, red dot sight' }];
+
+  it('puts the keywords the focus names first', () => {
+    expect(focusDonorKeywords(rotation, foci, new Set(['outdoor coffee kit bag']), 0))
+      .toEqual(['pistol holster', 'tactical vest', 'molle pouch', 'uv nail lamp']);
+  });
+
+  it('leaves out what the run already searched', () => {
+    const out = focusDonorKeywords(rotation, foci, new Set(['pistol holster', 'uv nail lamp']), 0);
+    expect(out).not.toContain('pistol holster');
+    expect(out[0]).toBe('tactical vest');
+  });
+
+  it('rotates from the run cursor so runs reach different keywords', () => {
+    expect(focusDonorKeywords(rotation, foci, new Set(), 4)[0]).toBe('molle pouch');
+  });
+
+  it('matches a shared word, not only the whole phrase', () => {
+    expect(focusDonorKeywords(['tactical gloves', 'cat toy'], foci, new Set(), 0)).toEqual(['tactical gloves', 'cat toy']);
+  });
+
+  it('falls back to the rest of the rotation when the focus names none', () => {
+    expect(focusDonorKeywords(['cat toy', 'dog bed'], [{ focus: 'ציוד טקטי' }], new Set(), 0)).toEqual(['cat toy', 'dog bed']);
+  });
+});
