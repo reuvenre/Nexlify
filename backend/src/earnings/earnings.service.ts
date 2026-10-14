@@ -173,6 +173,7 @@ export class EarningsService {
     if (!rows.length) {
       return {
         portal_rows: 0, matched: 0, missing: [], extra: [], extra_count: 0, uncounted: [],
+        dates_fixed: 0, paid_date_missing: 0,
         note: 'לא זוהו מזהי הזמנה בקובץ — הדבק את ה-CSV מהפורטל או רשימת מזהים, שורה לכל הזמנה.',
       };
     }
@@ -206,14 +207,47 @@ export class EarningsService {
           portal_status: r.status,
           status: stored!.status,
           stored_paid_at: storedPaidAt(stored!),
+          stored_basis: stored!.paid_date ? 'paid' as const : 'created' as const,
           reason,
+          fixed: false,
         } : null;
       })
       .filter((x): x is NonNullable<typeof x> => !!x);
 
+    // The payment time is the portal's own figure, and its export carries it to the
+    // second. A stored row that disagrees, or never got one (the API may not return it,
+    // and then the screen falls back to the CREATION time: an order placed on Sep 30 and
+    // paid on Oct 1 landed in September), takes the portal's. Only the date: a row the
+    // portal lists and the system lacks is still reported, never inserted.
+    const fixes: Array<{ id: string; at: Date }> = [];
+    for (const r of rows) {
+      const stored = found.get(r.sub_order_id);
+      const at = portalWallToDate(r.paid_at);
+      if (!stored || !at || stored.status === 'cancelled') continue;
+      if (!stored.paid_date || Math.abs(new Date(stored.paid_date).getTime() - at.getTime()) >= 60_000) {
+        fixes.push({ id: r.sub_order_id, at });
+      }
+    }
+    let datesFixed = 0;
+    for (const f of fixes) {
+      const res = await this.repo.query(
+        'UPDATE earnings SET paid_date = $3 WHERE user_id = $1 AND order_id = $2',
+        [userId, f.id, f.at],
+      ).catch(() => null);
+      if (res) datesFixed++;
+    }
+    const fixedIds = new Set(fixes.map((f) => f.id));
+    for (const u of uncounted) if (u.status !== 'cancelled' && fixedIds.has(u.sub_order_id)) u.fixed = true;
+    const paidDateMissing = [...found.values()].filter((o) => !o.paid_date).length;
+    if (datesFixed) {
+      this.logger.log(`Reconcile ${userId}: ${datesFixed} payment dates set from the portal export (${paidDateMissing} had none)`);
+    }
+
     // The other direction: rows the system holds inside the export's date span that the
-    // portal no longer lists (a cancelled order the sync hasn't caught up with).
-    const paidTimes = rows.map((r) => r.paid_at).filter(Boolean).sort();
+    // portal no longer lists (a cancelled order the sync hasn't caught up with). The
+    // export's times are Pacific wall time, so they are converted before comparing.
+    const paidTimes = rows.map((r) => portalWallToDate(r.paid_at)).filter((d): d is Date => !!d)
+      .sort((a, b) => a.getTime() - b.getTime());
     let extra: Array<{ order_id: string; product_id: string; commission_usd: number }> = [];
     if (paidTimes.length) {
       extra = await this.repo.query(
@@ -242,6 +276,8 @@ export class EarningsService {
       extra,
       extra_count: extra.length,
       uncounted,
+      dates_fixed: datesFixed,
+      paid_date_missing: paidDateMissing,
       note: null as string | null,
     };
   }
@@ -630,6 +666,10 @@ export class EarningsService {
     // varies across gateway versions, and this is how the real one gets known rather than
     // assumed.
     let incentiveFieldSeen: string | null = null;
+    // Once per sync: which time fields an order carries. Without a payment time, "by
+    // payment" falls back to the creation time, and an order placed on the last evening
+    // of a month and paid the next morning counts in the wrong month.
+    let timeFieldsLogged = false;
 
     for (const st of statuses) {
       const diag: StatusDiag = { found: 0, new: 0, updated: 0 };
@@ -677,6 +717,11 @@ export class EarningsService {
               // Payment-completed time — the portal's "Completed Payments Time" basis.
               // Field name varies across gateway versions; try the known spellings.
               const paidAt = parseAliTime(order.paid_time || order.pay_time || order.payment_time);
+              if (!timeFieldsLogged) {
+                timeFieldsLogged = true;
+                const timeKeys = Object.keys(order || {}).filter((k) => /time|date/i.test(k));
+                this.logger.log(`Earnings sync: order time fields [${timeKeys.join(', ')}]${paidAt ? '' : ' (no payment time)'}`);
+              }
               // The BONUS the portal paid on this order — its verdict on pool membership,
               // which beats matching our search phrase against the pool's keyword list.
               const incentive = incentiveCommissionUsd(order);

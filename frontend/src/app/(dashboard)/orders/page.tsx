@@ -175,7 +175,10 @@ export default function OrdersPage() {
     setReconcileErr(''); setReconcileRes(null);
     setReconciling(true);
     try {
-      setReconcileRes(await earningsApi.reconcile(text));
+      const res = await earningsApi.reconcile(text);
+      setReconcileRes(res);
+      // Fixed dates move rows into the range; the totals below must follow.
+      if (res.dates_fixed) load(1);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
       setReconcileErr(err?.response?.data?.message || 'ההשוואה נכשלה');
@@ -208,7 +211,10 @@ export default function OrdersPage() {
   const runReconcile = async () => {
     setReconciling(true); setReconcileErr(''); setReconcileRes(null);
     try {
-      setReconcileRes(await earningsApi.reconcile(csvText));
+      const res = await earningsApi.reconcile(csvText);
+      setReconcileRes(res);
+      // Fixed dates move rows into the range; the totals below must follow.
+      if (res.dates_fixed) load(1);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
       setReconcileErr(err?.response?.data?.message || 'ההשוואה נכשלה');
@@ -305,6 +311,12 @@ export default function OrdersPage() {
                 <p className="text-sm text-emerald-300">✓ כל ההזמנות שבקובץ קיימות במערכת.</p>
               )}
 
+              {!!reconcileRes.dates_fixed && (
+                <p className="text-xs text-emerald-300">
+                  ✓ {reconcileRes.dates_fixed === 1 ? 'תאריך תשלום אחד עודכן' : `${reconcileRes.dates_fixed} תאריכי תשלום עודכנו`} לפי הקובץ, כך שהסיכום סופר כמו הפורטל.
+                </p>
+              )}
+
               {!!reconcileRes.uncounted?.length && (
                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3.5 py-3 space-y-2">
                   <p className="text-xs text-amber-200">
@@ -316,6 +328,9 @@ export default function OrdersPage() {
                     <div key={u.sub_order_id}>
                       <p className="text-sm text-white">{u.title || 'ללא כותרת'}</p>
                       <p className="text-xs text-amber-100/80 mt-0.5">{u.reason}</p>
+                      {u.fixed && (
+                        <p className="text-xs text-emerald-300 mt-0.5">✓ תוקן לפי תאריך התשלום שבקובץ, ועכשיו היא נספרת.</p>
+                      )}
                       <p className="text-2xs text-white/40 mt-0.5" dir="ltr">sub-order {u.sub_order_id}</p>
                     </div>
                   ))}

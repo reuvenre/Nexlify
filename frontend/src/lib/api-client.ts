@@ -879,7 +879,11 @@ export const earningsApi = {
       uncounted?: Array<{
         sub_order_id: string; title: string; portal_paid_at: string; portal_status: string;
         status: string; stored_paid_at: string | null; reason: string;
+        stored_basis?: 'paid' | 'created'; fixed?: boolean;
       }>;
+      /** Stored payment dates replaced by the export's own (see EarningsService.reconcile). */
+      dates_fixed?: number;
+      paid_date_missing?: number;
       note: string | null;
     }>('/earnings/reconcile', { csv }, { timeout: 60_000 }).then(extract),
 };
