@@ -169,6 +169,22 @@ Seasonal keywords are **not** weights inside `weightedRotation`. They get a fixe
 
 To see what the season actually did, don't read one run. The run note carries `📊 עונתי ב-3 ימים` from the seasonal ledger (`seasonal-ledger.ts`, `persistent_values` key `seasonal_ledger:<id>`): how many seasonal slots came up, how many were published, skipped by pacing, came back from an empty search, or were swapped by the relevance guard. The seasonal-gap alert carries the same line.
 
+### The big sale days (`common/sale-calendar.ts`, `coupons/sale-readiness.ts`)
+11.11, Black Friday and Cyber Monday are the year's money. Each has a **warm-up** and a **live** phase, every boundary a Pacific midnight (the portal's clock: 11.11 opens at 10:00 Israel time). Black Friday is computed per year (the day after the fourth Thursday of November). Its live phase runs to Cyber Monday, which is live for one day.
+- **Copy by phase** (`saleCopyHint`, through `seasonalCopyHints`' sale line):
+  - Before a sale: "save it to the cart, catch it on the day".
+  - On the day: "it is on now, until tomorrow 10:00".
+  - Every hint ends with: never invent a discount or promise a price drop.
+  - It needs the account's seasonal switch on, like every seasonal line.
+- **Cadence while live** (`salePeakNow`; off with `SALE_PEAK_BOOST_DISABLED=1` or the account's seasonal switch):
+  - `salePostsPerRun` doubles the run (cap 6). It takes the max with the seasonal boost and never writes `posts_per_run`.
+  - `saleIntervalMinutes` halves the group interval (floor `MIN_SALE_INTERVAL_MIN` = 20) in `nextGroupSlotRaw`, the snap check and `claimPacedSend`, so the extra posts fit the day.
+  - The manual queue's drip is unchanged.
+- **Readiness checklist** (`SaleReadinessService`, 09:40 Israel daily; off with `SALE_READINESS_DISABLED=1`):
+  - Goes out 7 and 2 days before 11.11 and Black Friday (Cyber Monday rides Black Friday's). It is sent once each, keyed `sale_ready:<user>:<sale>:<year>:<days>` in `persistent_values`.
+  - It checks coupons whose window overlaps the sale, campaigns whose last run note names a refused key or empty credit (`aiFailureNote`), posts in the last 24 h, and the seasonal switch.
+  - `/sale` in the owner's bot sends it now, for the next sale.
+
 ### Publishing pipeline
 `PostsService.buildPostBody` is the single choke point every platform (Telegram, Facebook, Instagram, WhatsApp, Pinterest) builds its message from. Anything that must apply to *published text* belongs there, at the end — after the footer, coupon, store and trust lines have been appended, so nothing added later can slip past it.
 

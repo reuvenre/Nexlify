@@ -1,3 +1,5 @@
+import { SaleReadinessService } from '../coupons/sale-readiness.service';
+import { nextSale } from '../coupons/sale-readiness';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -68,7 +70,7 @@ const RESULTS_PER_PAGE = 5;
 const HELP = [
   '🛍️ מילת חיפוש ← מוצרים עם כפתור "פרסם לקבוצה"',
   '🧠 שאלה ← המנהל עונה, למשל: למה פינטרסט ירד השבוע?',
-  '/status · /searches · /groups · /resetsearches · /weekly',
+  '/status · /searches · /groups · /resetsearches · /weekly · /sale',
 ].join('\n');
 
 /**
@@ -137,6 +139,7 @@ export class TelegramBotService implements OnModuleInit {
     private readonly memory: PersistentValueStore,
     private readonly videos: VideosService,
     private readonly subscription: SubscriptionService,
+    private readonly saleReadiness: SaleReadinessService,
   ) {}
 
   // ── Entry point ────────────────────────────────────────────────────────────
@@ -499,6 +502,14 @@ export class TelegramBotService implements OnModuleInit {
     }
     if (/^\/groups(@\S+)?$/i.test(text)) {
       await this.reportGroups(chatId);
+      return;
+    }
+    // The pre-sale checklist for the next big sale (11.11, Black Friday), now.
+    if (/^\/sale(@\S+)?$/i.test(text)) {
+      const userId = await this.ownerUserId();
+      if (!userId) return;
+      const { window, days } = nextSale();
+      await this.send(chatId, await this.saleReadiness.report(userId, window, days));
       return;
     }
     // A product Reel of the best post of the last two days, now (videos/).

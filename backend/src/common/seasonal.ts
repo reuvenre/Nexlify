@@ -1,3 +1,5 @@
+import { saleCopyHint } from './sale-calendar';
+
 /**
  * Built-in commercial calendar. Pure data + date math — no DB, no setup: events recur
  * yearly by Gregorian windows (Hebrew-calendar holidays get windows wide enough to cover
@@ -217,7 +219,9 @@ export function seasonalCopyHints(language: string, now = new Date()): SeasonalC
     if (sellsSomething) occasion ??= hint;
     else saleSeason ??= hint;
   }
-  return { occasion, saleSeason };
+  // 11.11, Black Friday and Cyber Monday speak by phase (sale-calendar.ts): "save it to the
+  // cart" before, "it is on now" on the day. The generic line stays for the gaps between.
+  return { occasion, saleSeason: saleCopyHint(language, now) ?? saleSeason };
 }
 
 /** Active + soon-to-open events (any audience) for the dashboard strip. */

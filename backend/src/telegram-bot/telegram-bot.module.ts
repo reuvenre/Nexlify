@@ -26,6 +26,7 @@ import { TenantBotController } from './tenant-bot.controller';
 // OptimizerModule is safe to import outright: its own tree (credentials, subscription,
 // mail, products, earnings, ai, notifications, pinterest) reaches neither UsersModule nor
 // WatchdogModule, so the morning report's buttons don't reopen that circle.
+import { CouponsModule } from '../coupons/coupons.module';
 @Module({
   imports: [
     // Post / ChannelMessage: the members' search also looks through what the channel
@@ -39,6 +40,8 @@ import { TenantBotController } from './tenant-bot.controller';
     ManagerModule, LinksModule,
     // An account's own bot: what it may do follows the account's plan.
     SubscriptionModule,
+    // /sale — the pre-sale checklist on demand.
+    CouponsModule,
   ],
   controllers: [TenantBotController],
   providers: [TelegramBotService],

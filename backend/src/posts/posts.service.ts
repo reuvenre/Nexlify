@@ -83,6 +83,7 @@ import { signAliexpress } from '../common/aliexpress-sign';
 import { seasonalKeywords, seasonalCopyHints, activeSeasonalEvents } from '../common/seasonal';
 import { SeasonalStatus, seasonalRunNote } from './seasonal-status';
 import { seasonalPostsPerRun } from './seasonal-boost';
+import { saleIntervalMinutes, salePeakNow, salePhase, salePostsPerRun } from '../common/sale-calendar';
 import { normalizeTelegramChatId } from '../common/crypto';
 import { assertSafeOutboundUrl } from '../common/ssrf';
 import {
@@ -1930,9 +1931,9 @@ export class PostsService {
     creds: any,
   ): Promise<{ claimed: boolean; blockedAt?: Date; intervalMinutes: number }> {
     const groupId = this.resolveTargets(post).find((t): t is string => !!t);
-    const intervalMinutes = (groupId
+    const intervalMinutes = saleIntervalMinutes((groupId
       ? await this.channels.getIntervalMinutes(post.user_id, groupId).catch(() => null)
-      : null) ?? creds?.schedule_interval_minutes ?? 60;
+      : null) ?? creds?.schedule_interval_minutes ?? 60, salePeakNow() && creds?.seasonal_enabled !== false);
     const claim = (m: EntityManager) => m.createQueryBuilder()
       .update(Post).set({ status: 'pending', pending_at: () => 'NOW()' })
       .where('id = :id AND status = :from', { id: post.id, from })
@@ -2418,7 +2419,8 @@ export class PostsService {
     // Before accepting the snap, check the group's calendar around the snapped time — if a
     // pending post already sits within one interval of it, keep the natural slot instead:
     // the golden hour is taken, and natural pacing beats a double-post.
-    const snapIntervalMin = (await this.channels.getIntervalMinutes(userId, groupId).catch(() => null)) ?? 60;
+    const snapIntervalMin = saleIntervalMinutes(
+      (await this.channels.getIntervalMinutes(userId, groupId).catch(() => null)) ?? 60, salePeakNow());
     const snapIntervalMs = snapIntervalMin * 60_000;
     const clash = await this.repo.createQueryBuilder('p')
       .where('p.user_id = :userId', { userId })
@@ -2446,10 +2448,11 @@ export class PostsService {
     // chain, and the two must agree or the same group paces differently depending on which
     // path released the post.
     const creds = await this.credentials.getRaw(userId).catch(() => null);
-    const intervalMin = pacingIntervalMinutes(
+    // A live sale day halves it (sale-calendar.ts), the other half of the doubled run.
+    const intervalMin = saleIntervalMinutes(pacingIntervalMinutes(
       await this.channels.getIntervalMinutes(userId, groupId).catch(() => null),
       creds?.schedule_interval_minutes,
-    );
+    ), salePeakNow() && creds?.seasonal_enabled !== false);
     const now = Date.now();
     const recentSentCutoff = new Date(now - intervalMin * 60_000);
 
@@ -2762,7 +2765,17 @@ export class PostsService {
     // An open event window buys one extra post per run — the owner's own posts_per_run is
     // never touched, so the optimizer's ±1-from-owner bound stays honest and the boost ends
     // with the window.
-    const perPost = seasonalPostsPerRun(campaign.posts_per_run, seasonalInRotation.length > 0);
+    // A live sale day (11.11, Black Friday, Cyber Monday) doubles the run, paired with a
+    // halved group interval (nextGroupSlotRaw), so the extra posts fit the day instead of
+    // spilling past the next run. Same rule as above: the owner's column is never touched.
+    const salePeak = salePeakNow() && creds.seasonal_enabled !== false;
+    const perPost = Math.max(
+      seasonalPostsPerRun(campaign.posts_per_run, seasonalInRotation.length > 0),
+      salePostsPerRun(campaign.posts_per_run, salePeak),
+    );
+    if (salePeak) {
+      this.logger.log(`campaign ${campaign.id}: ${salePhase()?.window.name} live — ${perPost} posts this run`);
+    }
     if (perPost !== Math.max(1, campaign.posts_per_run)) {
       this.logger.log(`campaign ${campaign.id}: seasonal window open — ${perPost} posts this run`
         + ` (owner's ${campaign.posts_per_run}) · ${seasonalInRotation.join(', ')}`);
