@@ -875,6 +875,11 @@ export const earningsApi = {
       }>;
       extra: Array<{ order_id: string; product_id: string; commission_usd: number }>;
       extra_count: number;
+      /** In the file and in the DB, but not counted on the orders screen, with why. */
+      uncounted?: Array<{
+        sub_order_id: string; title: string; portal_paid_at: string; portal_status: string;
+        status: string; stored_paid_at: string | null; reason: string;
+      }>;
       note: string | null;
     }>('/earnings/reconcile', { csv }, { timeout: 60_000 }).then(extract),
 };

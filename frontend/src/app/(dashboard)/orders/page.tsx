@@ -305,6 +305,23 @@ export default function OrdersPage() {
                 <p className="text-sm text-emerald-300">✓ כל ההזמנות שבקובץ קיימות במערכת.</p>
               )}
 
+              {!!reconcileRes.uncounted?.length && (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3.5 py-3 space-y-2">
+                  <p className="text-xs text-amber-200">
+                    {reconcileRes.uncounted.length === 1
+                      ? 'הזמנה אחת מהקובץ קיימת במערכת אבל לא נספרת בסיכום שלמטה:'
+                      : `${reconcileRes.uncounted.length} הזמנות מהקובץ קיימות במערכת אבל לא נספרות בסיכום שלמטה:`}
+                  </p>
+                  {reconcileRes.uncounted.map((u) => (
+                    <div key={u.sub_order_id}>
+                      <p className="text-sm text-white">{u.title || 'ללא כותרת'}</p>
+                      <p className="text-xs text-amber-100/80 mt-0.5">{u.reason}</p>
+                      <p className="text-2xs text-white/40 mt-0.5" dir="ltr">sub-order {u.sub_order_id}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {reconcileRes.missing.map((m) => (
                 <div key={m.sub_order_id} className="rounded-xl border border-red-500/25 bg-red-500/[0.07] px-3.5 py-3">
                   <p className="text-sm text-white font-medium">{m.title || 'ללא כותרת'}</p>

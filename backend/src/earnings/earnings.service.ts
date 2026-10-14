@@ -73,6 +73,41 @@ function dateMoved(stored: Date | null | undefined, fresh: Date | null): boolean
   return Math.abs(new Date(stored).getTime() - fresh.getTime()) >= 1000;
 }
 
+/** A stored row, as the portal reconciliation reads it. */
+interface StoredOrder {
+  order_id: string;
+  status: string;
+  paid_date: Date | null;
+  order_date: Date | null;
+}
+
+const storedPaidAt = (o: StoredOrder): string | null => {
+  const d = o.paid_date || o.order_date;
+  return d ? dateToPortalWall(new Date(d)) : null;
+};
+
+/**
+ * Why a row the portal lists, and the system holds, still does not count on the orders
+ * screen: it is cancelled here, or its stored payment day is not the portal's. Null when
+ * it counts the same on both sides.
+ */
+export function uncountedReason(
+  portal: { paid_at: string; status: string },
+  stored: StoredOrder,
+): string | null {
+  if (stored.status === 'cancelled') {
+    return /invalid|cancel|בוטל/i.test(portal.status)
+      ? 'מבוטלת גם בפורטל, ולכן לא נספרת בסיכום'
+      : `בוטלה במערכת, ובפורטל הסטטוס «${portal.status || 'לא ידוע'}»`;
+  }
+  const portalDay = String(portal.paid_at || '').trim().slice(0, 10);
+  const ours = storedPaidAt(stored);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(portalDay) && ours && ours.slice(0, 10) !== portalDay) {
+    return `תאריך התשלום שונה: בפורטל ${portalDay}, במערכת ${ours.slice(0, 10)}`;
+  }
+  return null;
+}
+
 @Injectable()
 export class EarningsService {
   private readonly logger = new Logger(EarningsService.name);
@@ -137,24 +172,44 @@ export class EarningsService {
     const rows = parsePortalCsv(csv);
     if (!rows.length) {
       return {
-        portal_rows: 0, matched: 0, missing: [], extra: [], extra_count: 0,
+        portal_rows: 0, matched: 0, missing: [], extra: [], extra_count: 0, uncounted: [],
         note: 'לא זוהו מזהי הזמנה בקובץ — הדבק את ה-CSV מהפורטל או רשימת מזהים, שורה לכל הזמנה.',
       };
     }
 
     const ids = rows.map((r) => r.sub_order_id);
-    const found = new Set<string>();
+    const found = new Map<string, StoredOrder>();
     // Chunked so a year's export doesn't build one enormous IN (...) list.
     for (let i = 0; i < ids.length; i += 500) {
       const slice = ids.slice(i, i + 500);
-      const hits: Array<{ order_id: string }> = await this.repo.query(
-        'SELECT order_id FROM earnings WHERE user_id = $1 AND order_id = ANY($2::text[])',
+      const hits: StoredOrder[] = await this.repo.query(
+        `SELECT order_id, status, paid_date,
+                (order_date AT TIME ZONE 'UTC') AS order_date
+         FROM earnings WHERE user_id = $1 AND order_id = ANY($2::text[])`,
         [userId, slice],
       ).catch(() => []);
-      for (const h of hits) found.add(String(h.order_id));
+      for (const h of hits) found.set(String(h.order_id), h);
     }
 
     const missing = rows.filter((r) => !found.has(r.sub_order_id));
+    // Found is not the same as counted: the orders screen leaves out cancelled rows and
+    // cuts by the stored payment date. "106 in the file, all found, 105 on the screen"
+    // has an answer too, and it is one of these rows.
+    const uncounted = rows
+      .map((r) => {
+        const stored = found.get(r.sub_order_id);
+        const reason = stored ? uncountedReason(r, stored) : null;
+        return reason ? {
+          sub_order_id: r.sub_order_id,
+          title: r.title,
+          portal_paid_at: r.paid_at,
+          portal_status: r.status,
+          status: stored!.status,
+          stored_paid_at: storedPaidAt(stored!),
+          reason,
+        } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x);
 
     // The other direction: rows the system holds inside the export's date span that the
     // portal no longer lists (a cancelled order the sync hasn't caught up with).
@@ -186,6 +241,7 @@ export class EarningsService {
       })),
       extra,
       extra_count: extra.length,
+      uncounted,
       note: null as string | null,
     };
   }
