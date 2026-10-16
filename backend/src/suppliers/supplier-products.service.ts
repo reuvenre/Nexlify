@@ -26,6 +26,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { RatesService } from '../rates/rates.service';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 import { flylinkFitItem, focusLabel, offFocusNote } from '../posts/group-focus';
+import { stripReplicaWord } from '../posts/flylink-trust';
 
 // store_name / store_category / store_brand are here so the owner can overrule the
 // enrichment agent — it proposes, he decides, and the correction stands because
@@ -696,6 +697,9 @@ export class SupplierProductsService {
       undefined,
       opts?.copyHint, // the bandit's angle nudge (campaign runs) — suppressed under a template
     );
+    // The owner never sees «רפליקה» in a draft: what he approves is what goes out, and the
+    // send-time filter would drop that line anyway (flylink-trust.ts).
+    if (result?.generated_text) result.generated_text = stripReplicaWord(result.generated_text);
     await videosReady;
     return { ...result, gallery, videos: parseVideos(p.videos_json), vision_used: visionUsed };
   }

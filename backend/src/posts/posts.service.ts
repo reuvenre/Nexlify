@@ -35,7 +35,7 @@ import { manualQueueTurn } from './queue-fairness';
 import { chatCollision, chatGapMinutes, postChats } from './chat-collision';
 import { notReadyVerdict, publishTimeoutVerdict } from './ig-container-status';
 import { bonusCopyHint } from './bonus-copy';
-import { compactHiddenProductNotice, flylinkTrustBlock, isFlylinkPost, PostPlatform } from './flylink-trust';
+import { compactHiddenProductNotice, flylinkTrustBlock, isFlylinkPost, PostPlatform, stripReplicaWord } from './flylink-trust';
 import { BRAND_PLUS_MARK, brandPlusLine } from './brand-plus';
 import { mergeDeliveredChannels } from './delivered-channels';
 import { cronTypicalIntervalMin } from '../watchdog/cron-interval';
@@ -4047,11 +4047,12 @@ export class PostsService {
     // FLYLINK trust trailer — the hesitation on hidden products is trust, not interest.
     // Code-built like the price block (fixed wording, can never over-promise), attached at
     // send time so verbatim re-posts and already-queued posts get it too. Mirrors the
-    // coupon rule above: source inferred from the link. The block's replica line rides
-    // along on the owner's own group channels only (see flylink-trust.ts).
+    // coupon rule above: source inferred from the link.
     // Each line is added only when the post does not already say it (flylink-trust.ts).
+    // The word «רפליקה» never goes out, whoever wrote it — model, template or an old
+    // queued post (stripReplicaWord).
     if (isFlylinkPost(post.affiliate_url)) {
-      body = compactHiddenProductNotice(body);
+      body = stripReplicaWord(compactHiddenProductNotice(body));
       const trailer = flylinkTrustBlock(platform, body);
       if (trailer) body = `${body}\n\n${trailer}`;
     }

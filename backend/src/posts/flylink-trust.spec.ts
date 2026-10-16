@@ -1,6 +1,6 @@
 import {
-  FLYLINK_LEGACY_MARKS, FLYLINK_REPLICA_LINE, FLYLINK_TRUST_MARK, flylinkTrustBlock,
-  hasFlylinkTrustBlock, isFlylinkPost, showsReplicaLine, compactHiddenProductNotice, HIDDEN_PRODUCT_NOTICE,
+  FLYLINK_LEGACY_MARKS, FLYLINK_TRUST_MARK, flylinkTrustBlock,
+  hasFlylinkTrustBlock, isFlylinkPost, stripReplicaWord, compactHiddenProductNotice, HIDDEN_PRODUCT_NOTICE,
 } from './flylink-trust';
 
 describe('flylink trust trailer', () => {
@@ -15,26 +15,14 @@ describe('flylink trust trailer', () => {
     expect(flylinkTrustBlock().startsWith(FLYLINK_TRUST_MARK)).toBe(true);
   });
 
-  it('says out loud what the product is, on the owner\'s own channels', () => {
-    expect(flylinkTrustBlock('telegram')).toContain(FLYLINK_REPLICA_LINE);
-    expect(flylinkTrustBlock('whatsapp')).toContain(FLYLINK_REPLICA_LINE);
-  });
-
-  it('keeps the word off the platforms that ban replicas outright', () => {
-    // Meta and Pinterest prohibit replica goods, and "רפליקה" in plain Hebrew is the
-    // easiest possible match for their enforcement — the line that protects the buyer
-    // would be the thing that costs the owner his page.
-    for (const p of ['facebook', 'instagram', 'pinterest'] as const) {
+  it('never says «רפליקה», on any platform (the owner asked for the word to go)', () => {
+    for (const p of ['telegram', 'whatsapp', 'facebook', 'instagram', 'pinterest', undefined] as const) {
       expect(flylinkTrustBlock(p)).not.toContain('רפליקה');
     }
-    // Unknown platform is treated the same way: we cannot tell where this is going.
-    expect(flylinkTrustBlock()).not.toContain('רפליקה');
-    expect(showsReplicaLine(undefined)).toBe(false);
   });
 
-  it('keeps the rest of the block identical on every platform', () => {
-    const groups = flylinkTrustBlock('telegram').split('\n').filter((l) => l !== FLYLINK_REPLICA_LINE);
-    expect(groups).toEqual(flylinkTrustBlock('facebook').split('\n'));
+  it('is the same block on every platform', () => {
+    expect(flylinkTrustBlock('telegram')).toBe(flylinkTrustBlock('facebook'));
   });
 
   it('never over-promises — no delivery times, no authenticity claims', () => {
@@ -103,11 +91,8 @@ describe('flylinkTrustBlock against a post that already makes its points', () =>
     '‏🛒 לרכישה — לחצו כאן 🛒',
   ].join('\n');
 
-  it('adds only what the template does not say — the replica line', () => {
-    expect(flylinkTrustBlock('telegram', TEMPLATE_BODY)).toBe(FLYLINK_REPLICA_LINE);
-  });
-
-  it('adds nothing on a platform without the replica line', () => {
+  it('adds nothing when the template already says it all', () => {
+    expect(flylinkTrustBlock('telegram', TEMPLATE_BODY)).toBe('');
     expect(flylinkTrustBlock('facebook', TEMPLATE_BODY)).toBe('');
   });
 
@@ -144,5 +129,35 @@ describe('compactHiddenProductNotice', () => {
   it('is idempotent and leaves posts without the notice alone', () => {
     expect(compactHiddenProductNotice(HIDDEN_PRODUCT_NOTICE)).toBe(HIDDEN_PRODUCT_NOTICE);
     expect(compactHiddenProductNotice('סתם פוסט')).toBe('סתם פוסט');
+  });
+});
+
+describe('stripReplicaWord', () => {
+  it('drops the retired trailer line from an already-queued post', () => {
+    const body = 'שורה ראשונה\n🏷️ המוצר הינו רפליקה של המקור באיכות גבוהה\n📦 מספר מעקב';
+    expect(stripReplicaWord(body)).toBe('שורה ראשונה\n📦 מספר מעקב');
+  });
+
+  it('catches the word with a prefix, in the plural, and in English', () => {
+    expect(stripReplicaWord('א\nזו הרפליקה הכי טובה\nב')).toBe('א\nב');
+    expect(stripReplicaWord('א\nרפליקות במחיר מעולה\nב')).toBe('א\nב');
+    expect(stripReplicaWord('א\nTop Replica quality\nב')).toBe('א\nב');
+  });
+
+  it('leaves a word that only contains the letters alone', () => {
+    // A boundary that is not checked would eat any word with "רפליק" inside it.
+    expect(stripReplicaWord('ארפליקציה')).toBe('ארפליקציה');
+    expect(stripReplicaWord('replicate the look')).toBe('replicate the look');
+  });
+
+  it('never drops a line because its link happens to contain the word', () => {
+    const line = '🛒 לרכישה: https://s.flylinking.com/replica-watch-123';
+    expect(stripReplicaWord(line)).toBe(line);
+    const html = '<a href="https://x.example/replica">לרכישה</a>';
+    expect(stripReplicaWord(html)).toBe(html);
+  });
+
+  it('does not leave a gap of blank lines behind', () => {
+    expect(stripReplicaWord('א\n\nרפליקה\n\nב')).toBe('א\n\nב');
   });
 });

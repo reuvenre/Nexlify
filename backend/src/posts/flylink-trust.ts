@@ -41,28 +41,33 @@ export function hasFlylinkTrustBlock(body: string): boolean {
   return text.includes(FLYLINK_TRUST_MARK) || FLYLINK_LEGACY_MARKS.some((m) => text.includes(m));
 }
 
-/** Where a post is going. Decides whether the replica line rides along. */
+/** Where a post is going. */
 export type PostPlatform = 'telegram' | 'whatsapp' | 'facebook' | 'instagram' | 'pinterest';
 
 /**
- * The owner's own wording. Says the thing out loud rather than letting a buyer discover
- * it after payment — the single biggest source of "this isn't what I ordered".
- */
-export const FLYLINK_REPLICA_LINE = '🏷️ המוצר הינו רפליקה של המקור באיכות גבוהה';
-
-/**
- * Which platforms carry the replica line.
+ * The word "רפליקה" never goes out in a FLYLINK post, on any platform.
  *
- * Only the owner's own group channels. Meta and Pinterest prohibit counterfeit and
- * replica goods outright, and a post that says "רפליקה" in plain Hebrew is the easiest
- * possible match for their automated enforcement — the line meant to protect the buyer
- * would be the thing that costs him the page. Unknown platform is treated as one of
- * those: the safe answer when we cannot tell where a post is going.
+ * The trailer used to carry the owner's own line «🏷️ המוצר הינו רפליקה של המקור באיכות
+ * גבוהה» on the group channels; he asked for the word to be gone from the posts. The line
+ * is retired, and since the model or a saved template can still write the word, every
+ * FLYLINK body is filtered at send time (buildPostBody) and in the composer's draft.
+ *
+ * A whole LINE carrying the word is dropped, not just the word: "המוצר הינו של המקור
+ * באיכות גבוהה" is gibberish, and a FLYLINK post is short emoji lines anyway. Hebrew
+ * boundaries are explicit lookarounds (JavaScript's \b is ASCII-only), the one-letter
+ * prefixes are allowed (הרפליקה, ברפליקה), and the test runs on the line with its links and
+ * markup removed, so a URL that happens to contain "replica" never costs the buy link.
  */
-const REPLICA_PLATFORMS = new Set<PostPlatform>(['telegram', 'whatsapp']);
+const REPLICA_WORD = /(?<![\u0590-\u05FF])[הובלמשכ]?רפליק(?:ה|ות|ת)(?![\u0590-\u05FF])|\breplicas?\b/i;
 
-export function showsReplicaLine(platform?: PostPlatform): boolean {
-  return !!platform && REPLICA_PLATFORMS.has(platform);
+export function stripReplicaWord(body: string): string {
+  const text = String(body || '');
+  if (!text) return text;
+  const kept = text.split('\n').filter((line) => {
+    const visible = line.replace(/<[^>]*>/g, ' ').replace(/https?:\/\/\S+/gi, ' ');
+    return !REPLICA_WORD.test(visible);
+  });
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**
@@ -79,20 +84,16 @@ export function showsReplicaLine(platform?: PostPlatform): boolean {
  * (the warehouse may well be the manufacturer's), not a count of photos (a post can carry
  * one), not a delivery estimate. Every line here has to survive a buyer quoting it back.
  */
-export function flylinkTrustBlock(platform?: PostPlatform, existingBody = ''): string {
+export function flylinkTrustBlock(_platform?: PostPlatform, existingBody = ''): string {
   const lines: Array<{ text: string; covered: RegExp }> = [
     { text: `${FLYLINK_TRUST_MARK} — אותו פריט, אותו צבע, אותם פרטים`, covered: /מה שבתמונה|מה שרואים בתמונות/ },
     { text: '📸 אלה צילומי המחסן של הפריט הזה, לא תמונות קטלוג', covered: /צילומי המחסן|תמונות קטלוג|מהמפעל ישירות/ },
-    // Right after the photo promise and before logistics: this is where a buyer decides
-    // what he is actually buying.
-    ...(showsReplicaLine(platform) ? [{ text: FLYLINK_REPLICA_LINE, covered: /רפליקה/ }] : []),
     { text: '📦 מספר מעקב ישירות למייל · משלוח מהיר', covered: /מספר מעקב/ },
     { text: '💬 שאלה לפני ההזמנה? שלחו הודעה לפרטי ונענה בשמחה', covered: /הודעה לפרטי/ },
   ];
   // A line whose point the post already makes is left out. FLYLINK templates carry their
   // own tracking/DM/photo lines, and stacking this block under them said everything twice
-  // (the owner: "אורך מוגזם"). Every line is checked on its own, so the replica line —
-  // the one fact a template never states — still goes out. Empty when nothing is missing.
+  // (the owner: "אורך מוגזם"). Every line is checked on its own. Empty when nothing is missing.
   const body = String(existingBody || '');
   return lines.filter((l) => !l.covered.test(body)).map((l) => l.text).join('\n');
 }

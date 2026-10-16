@@ -101,8 +101,8 @@ export const TRUST_VARIANT: CopyVariant = {
   id: 'trust',
   label: 'ביטחון',
   hint: {
-    he: 'זווית כתיבה: פנה/י בביטחון ובלי התנצלות לשאלה שהקורא שואל בלב — "מה באמת יגיע לי?". הדגש/י את איכות הגרסה, את זה שהתמונות הן של הפריט עצמו, ואת הפער האדיר מול מחיר המקור. אסור לטעון שהמוצר מקורי, אסור להבטיח "זהה למקור", ואסור להציג מותג כמקור המוצר.',
-    en: 'Copy angle: address the reader\'s unspoken question — "what will I actually get?" — with confidence, not apology. Stress the version\'s quality, that the photos show the actual item, and the gap versus the original\'s price. Never claim it is original, never promise "identical to the original", never present a brand as the source.',
+    he: 'זווית כתיבה: פנה/י בביטחון ובלי התנצלות לשאלה שהקורא שואל בלב — "מה באמת יגיע לי?". הדגש/י את איכות הגרסה, את זה שהתמונות הן של הפריט עצמו, ואת הפער האדיר מול מחיר המקור. אסור לטעון שהמוצר מקורי, אסור להבטיח "זהה למקור", ואסור להציג מותג כמקור המוצר. אל תשתמש/י במילה "רפליקה".',
+    en: 'Copy angle: address the reader\'s unspoken question — "what will I actually get?" — with confidence, not apology. Stress the version\'s quality, that the photos show the actual item, and the gap versus the original\'s price. Never claim it is original, never promise "identical to the original", never present a brand as the source. Never use the word "replica".',
     ar: 'زاوية الكتابة: أجب بثقة وبلا اعتذار عن سؤال القارئ الصامت — "ماذا سيصلني فعلاً؟". أبرز جودة النسخة وأن الصور للقطعة نفسها والفارق مقابل سعر الأصلي. لا تدّعِ أبداً أن المنتج أصلي ولا تعد بأنه "مطابق للأصل".',
   },
 };
