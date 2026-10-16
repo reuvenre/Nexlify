@@ -197,10 +197,16 @@ export class Post {
   @Column({ nullable: true, type: 'text' })
   product_video: string | null;
 
-  /** The owner chose, on this one post, to publish product_video instead of the photos
-   *  (a supplier album's video, picked in the composer) — whatever the account setting. */
+  /** The owner picked only videos for this post (no photos): Telegram sends just them and
+   *  WhatsApp sends product_video, whatever the account setting. */
   @Column({ default: false })
   send_as_video: boolean;
+
+  /** Videos the owner picked into the album, `[{ url, at }]` with `at` their place in his
+   *  selection (album-videos.ts). Kept out of gallery_json, which every non-Telegram
+   *  platform reads as photos. NULL = no video picked. */
+  @Column({ nullable: true, type: 'text' })
+  album_videos: string | null;
 
   /** AliExpress Brand+ ("Certified Original") listing — an official brand-store product.
    *  Detected from the affiliate API's platform_product_type; buildPostBody turns it into

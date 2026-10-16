@@ -5,7 +5,7 @@ import {
   Store, Plus, Loader2, Trash2, Link2, Sparkles, X,
   Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, Images, Wand2,
   Globe, FileText, CheckCheck, ShoppingBag, Layers,
-  Maximize2, ChevronLeft, ChevronRight, Check, Bot, BotOff, EyeOff, Eye, Film,
+  Maximize2, ChevronLeft, ChevronRight, Check, Bot, BotOff, EyeOff, Eye, Film, Play,
 } from 'lucide-react';
 import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } from '@/lib/api-client';
 import { PostPreview } from '@/components/products/PostPreview';
@@ -613,8 +613,6 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const hintRef = useRef('');
   useEffect(() => { hintRef.current = hint; }, [hint]);
   const [pv, setPv] = useState<(PostPreviewType & { gallery: string[]; videos?: SupplierVideo[]; vision_used?: boolean }) | null>(null);
-  // The album video to publish instead of the photos (Telegram / WhatsApp), or null = photos.
-  const [video, setVideo] = useState<string | null>(null);
   const videos = pv?.videos || [];
   const [selected, setSelected] = useState<string[]>([]); // ordered manual image selection for the album
   const [lightbox, setLightbox] = useState<number | null>(null); // index into gallery for the enlarged viewer
@@ -641,6 +639,10 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
 
   // First N images selected by default; the gallery is stable across text regenerations.
   const gallery = pv?.gallery || [];
+  // Photos and the album's videos in one picker. Videos lead so they are seen, but none is
+  // selected by default — a video goes out only when the owner picks it, like a photo.
+  const media = [...videos.map((v) => v.url), ...gallery];
+  const videoByUrl = new Map(videos.map((v) => [v.url, v]));
   useEffect(() => {
     if (!galleryInited.current && gallery.length) {
       galleryInited.current = true;
@@ -721,20 +723,20 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const targetChannels = () => (channelIds.length ? channelIds : undefined);
   const onPost = async (text: string) => {
     setPosting(true); setDone(null); setErr(null);
-    try { const r = await suppliersApi.send(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels(), video || undefined); setDone(`✓ נשלח (${chLabel(r.channels)})`); onSent?.(); }
+    try { const r = await suppliersApi.send(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels()); setDone(`✓ נשלח (${chLabel(r.channels)})`); onSent?.(); }
     catch (e: any) { setErr(e?.response?.data?.message || 'השליחה נכשלה — נסה שוב'); }
     finally { setPosting(false); }
   };
   const onSchedule = async (text: string, at: string) => {
     try {
-      const r = await suppliersApi.schedule(productId, at, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels(), video || undefined);
+      const r = await suppliersApi.schedule(productId, at, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels());
       const when = new Date(at).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       setDone(`✓ תוזמן ל-${when} (${chLabel(r.channels)}) — צפייה ב"פוסטים → מתוזמן"`); onSent?.();
     }
     catch (e: any) { setErr(e?.response?.data?.message || 'התזמון נכשל — נסה שוב'); throw e; }
   };
   const onQueue = async (text: string) => {
-    const r = await suppliersApi.queue(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels(), video || undefined);
+    const r = await suppliersApi.queue(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels());
     onSent?.();
     return { queue_active: r.queue_active, interval_minutes: r.interval_minutes };
   };
@@ -749,20 +751,10 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
     <div className="flex flex-col lg:flex-row gap-4 items-start">
       {/* Left: gallery + channel + template panel */}
       <div className="w-full lg:w-64 shrink-0 space-y-3">
-        {videos.length > 0 && (
-          <div className="bg-surface-secondary border border-edge rounded-xl p-3">
-            <VideoStrip videos={videos} picked={video} onPick={setVideo} />
-            <p className="text-2xs text-white/25 mt-1.5">
-              {video
-                ? 'בטלגרם ובוואטסאפ יתפרסם הסרטון עם הטקסט, במקום התמונות. בפייסבוק, באינסטגרם ובפינטרסט — התמונה הראשית.'
-                : 'בלי בחירה הפוסט יוצא עם התמונות. הסרטון נשמר על הפוסט, כך שאם ההגדרה "העדף סרטון מוצר" פעילה הוא יתפרסם בכל מקרה, וגם הרילס ישתמש בו.'}
-            </p>
-          </div>
-        )}
-        {gallery.length > 1 && (
+        {media.length > 1 && (
           <div className="bg-surface-secondary border border-edge rounded-xl p-3">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-2xs text-white/40 flex items-center gap-1"><Images size={11} /> בחר תמונות</p>
+              <p className="text-2xs text-white/40 flex items-center gap-1"><Images size={11} /> {videos.length ? 'בחר תמונות וסרטונים' : 'בחר תמונות'}</p>
               <span className={`text-2xs ${selected.length >= maxImages ? 'text-amber-400' : 'text-white/40'}`}>{selected.length}/{maxImages}</span>
             </div>
 
@@ -791,17 +783,32 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
             </div>
 
             <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-0.5">
-              {gallery.map((g, i) => {
+              {media.map((g, i) => {
                 const idx = selected.indexOf(g);
                 const on = idx !== -1;
                 const atMax = selected.length >= maxImages;
+                const vid = videoByUrl.get(g);
                 return (
                   <div key={i}
                     className={`group/th relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${on ? 'border-blue-500' : 'border-transparent'}`}>
                     {/* Click the image to open it large (some photos carry the product code) */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={g} alt="" onClick={() => setLightbox(i)}
-                      className="w-full h-full object-cover cursor-zoom-in" loading="lazy" />
+                    {vid ? (
+                      <button type="button" onClick={() => setLightbox(i)} title="צפה בסרטון"
+                        className="w-full h-full bg-black flex items-center justify-center cursor-zoom-in">
+                        {vid.thumb
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          ? <img src={vid.thumb} alt="" className="w-full h-full object-cover" loading="lazy" />
+                          : <Film size={18} className="text-white/40" />}
+                        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <span className="w-7 h-7 rounded-full bg-black/60 flex items-center justify-center"><Play size={13} className="text-white ml-0.5" /></span>
+                        </span>
+                        <span className="absolute bottom-1 right-1 px-1 rounded bg-rose-600/90 text-[9px] text-white font-medium pointer-events-none">סרטון</span>
+                      </button>
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={g} alt="" onClick={() => setLightbox(i)}
+                        className="w-full h-full object-cover cursor-zoom-in" loading="lazy" />
+                    )}
                     {!on && <span className="absolute inset-0 bg-black/30 pointer-events-none" />}
                     {/* Quick select/deselect toggle */}
                     {/* #1 is not just first in line — it IS the post's main image: the album
@@ -822,6 +829,11 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
               })}
             </div>
             <p className="text-2xs text-white/25 mt-1.5">הבחירה הראשונה (1, בכתום) היא התמונה הראשית — פותחת את האלבום ומשמשת בפייסבוק ובאינסטגרם · הסדר = סדר הבחירה{collage ? ' · קולאז\' עד 30' : ' · אלבום עד 10'}.</p>
+            {videos.length > 0 && (
+              <p className="text-2xs text-white/25 mt-1">
+                סרטון יוצא רק אם בחרת אותו. בטלגרם הוא נכנס לאלבום יחד עם התמונות, בסדר הבחירה. בפייסבוק, באינסטגרם ובפינטרסט יוצאות התמונות בלבד. אם בחרת רק סרטונים, וואטסאפ ישלח את הראשון.
+              </p>
+            )}
           </div>
         )}
         <div className="bg-surface-secondary border border-edge rounded-xl p-3">
@@ -890,9 +902,10 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
         ) : null}
       </div>
 
-      {lightbox !== null && gallery[lightbox] && (
+      {lightbox !== null && media[lightbox] && (
         <ImageLightbox
-          images={gallery}
+          images={media}
+          videos={videos}
           index={lightbox}
           selected={selected}
           maxAlbum={maxImages}
@@ -906,11 +919,12 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
 }
 
 // ─── Enlarged image viewer with select/deselect + navigation ───────────────────
-function ImageLightbox({ images, index, selected, maxAlbum, onIndex, onToggle, onClose }: {
-  images: string[]; index: number; selected: string[]; maxAlbum: number;
+function ImageLightbox({ images, videos, index, selected, maxAlbum, onIndex, onToggle, onClose }: {
+  images: string[]; videos?: SupplierVideo[]; index: number; selected: string[]; maxAlbum: number;
   onIndex: (i: number) => void; onToggle: (url: string) => void; onClose: () => void;
 }) {
   const url = images[index];
+  const video = videos?.find((v) => v.url === url);
   const order = selected.indexOf(url);
   const on = order !== -1;
   const atMax = selected.length >= maxAlbum;
@@ -941,8 +955,13 @@ function ImageLightbox({ images, index, selected, maxAlbum, onIndex, onToggle, o
         className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><ChevronLeft size={22} /></button>
 
       <div className="flex flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="" className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg" />
+        {video ? (
+          <video key={url} src={url} poster={video.thumb || undefined} controls autoPlay playsInline
+            className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg bg-black" />
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={url} alt="" className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg" />
+        )}
         <button onClick={() => onToggle(url)} disabled={!on && atMax}
           className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${on ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
           {on ? <><Check size={15} /> נבחרה (#{order + 1}) — הסר</> : atMax ? `הגעת ל-${maxAlbum} תמונות` : <><Plus size={15} /> הוסף לאלבום</>}
@@ -954,30 +973,19 @@ function ImageLightbox({ images, index, selected, maxAlbum, onIndex, onToggle, o
 
 // ─── The videos of a Yupoo album ──────────────────────────────────────────────
 // Played straight from Yupoo's video host (uvd.yupoo.com): unlike the photos it is not
-// hotlink-protected, so no proxy is needed. `pick`/`picked` turn the strip into the
-// composer's "publish as this video" choice.
-function VideoStrip({ videos, picked, onPick }: {
-  videos: SupplierVideo[]; picked?: string | null; onPick?: (url: string | null) => void;
-}) {
+// hotlink-protected, so no proxy is needed. Picking one for a post happens in the
+// composer's gallery, with the photos.
+function VideoStrip({ videos }: { videos: SupplierVideo[] }) {
   return (
     <div className="space-y-2">
       <p className="text-2xs text-white/40 flex items-center gap-1"><Film size={11} /> {videos.length === 1 ? 'סרטון מהאלבום' : `${videos.length} סרטונים מהאלבום`}</p>
       <div className={`grid gap-2 ${videos.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        {videos.map((v) => {
-          const on = picked === v.url;
-          return (
-            <div key={v.url} className={`rounded-lg overflow-hidden border-2 bg-black ${on ? 'border-rose-500' : 'border-edge'}`}>
-              <video src={v.url} poster={v.thumb || undefined} controls playsInline preload="metadata"
-                className="w-full max-h-72 object-contain bg-black" />
-              {onPick && (
-                <button type="button" onClick={() => onPick(on ? null : v.url)}
-                  className={`w-full py-1.5 text-2xs font-medium transition-all ${on ? 'bg-rose-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>
-                  {on ? '✓ הפוסט יתפרסם כסרטון הזה' : 'פרסם כסרטון'}
-                </button>
-              )}
-            </div>
-          );
-        })}
+        {videos.map((v) => (
+          <div key={v.url} className="rounded-lg overflow-hidden border-2 border-edge bg-black">
+            <video src={v.url} poster={v.thumb || undefined} controls playsInline preload="metadata"
+              className="w-full max-h-72 object-contain bg-black" />
+          </div>
+        ))}
       </div>
     </div>
   );

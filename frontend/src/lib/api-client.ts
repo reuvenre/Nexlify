@@ -1177,18 +1177,18 @@ export const suppliersApi = {
   preview: (id: string, opts?: { language?: string; template?: string; vision?: boolean; hint?: string }) =>
     http.post<PostPreview & { gallery: string[]; videos?: SupplierVideo[]; vision_used: boolean }>(`/suppliers/products/${id}/preview`, opts || {}, { timeout: AI_TIMEOUT }).then(extract),
 
-  /** `video`: one of the product's own video URLs — the post then goes out as that video. */
-  queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) =>
+  /** `images` may include the product's own video URLs (album videos), in the album order. */
+  queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
     http.post<{ queued: boolean; post_id: string; channels: string[]; queue_active: boolean; interval_minutes: number }>(
-      `/suppliers/products/${id}/queue`, { channel_id: channelId, channels, text, images, collage_cells: collageCells, video }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/queue`, { channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 
-  send: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) =>
+  send: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
     http.post<{ sent: boolean; post_id: string; channels: string[] }>(
-      `/suppliers/products/${id}/send`, { channel_id: channelId, channels, text, images, collage_cells: collageCells, video }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/send`, { channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 
-  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) =>
+  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
     http.post<{ scheduled: boolean; post_id: string; channels: string[]; at: string }>(
-      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, channels, text, images, collage_cells: collageCells, video }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
 };
 
 export default http;

@@ -25,6 +25,7 @@ import { cursorGiveBack } from './keyword-cursor';
 import { appendSeasonalRun, seasonalLedgerKey, seasonalLedgerLine, sumSeasonalRuns, SEASONAL_LEDGER_WINDOW_MS, SeasonalLedgerEntry } from './seasonal-ledger';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import { isTelegramConnectionError, telegramErrorText } from './telegram-retry';
+import { AlbumVideo, mergeAlbum, parseAlbumVideos } from './album-videos';
 import { tagShortLinks } from '../links/click-source';
 import { stripInlineLink } from './strip-inline-link';
 import { toWhatsAppText } from './whatsapp-format';
@@ -980,16 +981,26 @@ export class PostsService {
   // text, image(s), affiliate link and target channel. Reuses the shared queue /
   // scheduler / Telegram pipeline (incl. the media-group album for multiple images).
 
+  /** The post columns for the videos the owner picked into an album (none by default). */
+  private albumVideoFields(videos: AlbumVideo[] | undefined, videosOnly?: boolean) {
+    const picked = (videos || []).filter((v) => v?.url);
+    return {
+      album_videos: picked.length ? JSON.stringify(picked) : null,
+      // The first picked clip also serves WhatsApp (one file per message) and the Reels.
+      product_video: picked[0]?.url || null,
+      send_as_video: !!(videosOnly && picked.length),
+    };
+  }
+
   private buildCustomPost(userId: string, data: {
     productId: string; title: string; image: string; images?: string[];
     affiliateUrl: string; text: string; priceIls?: number; channelOverride?: string;
     channels?: string[]; // target group(s) — fan out to several at once (1 credit)
     collageCells?: number; // when set, images are composed into collage sheets (allows up to 30 images)
-    /** The product's own video (a supplier album clip). Stored on the post so the account's
-     *  "prefer the video" setting and the Reels can use it. */
-    video?: string | null;
-    /** Publish this post as the video, whatever the account setting (the owner picked it). */
-    sendAsVideo?: boolean;
+    /** Videos the owner picked into the album (album-videos.ts). None unless picked. */
+    albumVideos?: AlbumVideo[];
+    /** The pick was videos only — no photos go to Telegram. */
+    videosOnly?: boolean;
   }): Post {
     // A normal album caps at 10 images; a collage post can carry up to 30 source images
     // (composed into ≤10 sheets at send time).
@@ -999,8 +1010,7 @@ export class PostsService {
       product_id: data.productId,
       product_title: data.title,
       product_image: data.image,
-      product_video: data.video || null,
-      send_as_video: !!(data.sendAsVideo && data.video),
+      ...this.albumVideoFields(data.albumVideos, data.videosOnly),
       affiliate_url: data.affiliateUrl,
       original_price_usd: 0,
       sale_price_usd: 0,
@@ -1074,7 +1084,11 @@ export class PostsService {
      * by campaigns, whose own cron is the cadence — see runCampaign / runFlylinkCampaign.
      * `campaignId` links the post back to its campaign.
      */
-    opts?: { scheduledAt?: Date; campaignId?: string; keyword?: string; copyVariant?: string; sendAsVideo?: boolean },
+    opts?: {
+      scheduledAt?: Date; campaignId?: string; keyword?: string; copyVariant?: string;
+      /** Videos the owner picked into the album (supplier composer, or a recycled post's). */
+      albumVideos?: AlbumVideo[]; videosOnly?: boolean;
+    },
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
 
@@ -1146,7 +1160,7 @@ export class PostsService {
       product_title: product.title,
       product_image: product.image_url,
       product_video: product.video_url || null,
-      send_as_video: !!(opts?.sendAsVideo && product.video_url),
+      ...(opts?.albumVideos?.length ? this.albumVideoFields(opts.albumVideos, opts.videosOnly) : {}),
       is_brand_plus: !!product.brand_plus,
       affiliate_url: product.affiliate_url,
       original_price_usd: origUsd,
@@ -3780,6 +3794,7 @@ export class PostsService {
         // drops them republishes the winner in a weaker form than the one that won.
         product_video: original.product_video || null,
         send_as_video: !!original.send_as_video,
+        album_videos: original.album_videos || null,
         is_brand_plus: !!original.is_brand_plus,
         affiliate_url: original.affiliate_url,
         original_price_usd: parts.origUsd || original.original_price_usd,
@@ -5107,6 +5122,21 @@ export class PostsService {
     // Last chance to find the clip for a post whose row doesn't carry one yet.
     await this.ensureProductVideo(post, creds);
 
+    // Videos the owner picked into this album, in his order among the photos. Same
+    // fallback doctrine as the clip below: only a provable rejection drops back to the
+    // photos-only album.
+    const albumVideos = parseAlbumVideos(post.album_videos);
+    if (albumVideos.length) {
+      try {
+        await this.sendAlbumWithVideos(token, channel, m, albumVideos, !!post.send_as_video, mediaCaption, post);
+        await sendOverflow();
+        return;
+      } catch (err: any) {
+        if (!err?.response && !isTelegramConnectionError(err)) throw err;
+        this.logger.warn(`post ${post.id}: album with videos rejected (${err?.response?.data?.description || err?.code || err?.message}) — sending the photos`);
+      }
+    }
+
     if ((creds?.prefer_product_video || post.send_as_video) && post.product_video) {
       try {
         await this.sendTelegramVideo(token, channel, post.product_video, mediaCaption, post);
@@ -5261,6 +5291,59 @@ export class PostsService {
           chat_id: channel, text: text.replace(/<[^>]+>/g, ''), disable_web_page_preview: true,
         }, { timeout: 15000 });
         this.assertTelegramDelivered(res, 'text');
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * One album of the owner's photos and videos, in his order (album-videos.ts). Photos
+   * come as prepared (URLs, or uploaded buffers after collage/enhance); videos always go
+   * by URL — Telegram fetches them itself, so a mixed multipart album is fine. A single
+   * item that is a video goes out as a plain video message.
+   */
+  private async sendAlbumWithVideos(
+    token: string, channel: string, m: TgMedia, videos: AlbumVideo[], videosOnly: boolean, caption: string, post: Post,
+  ) {
+    type Item = { type: 'photo' | 'video'; url?: string; buf?: Buffer };
+    const photos: Item[] = videosOnly ? []
+      : m.kind === 'buffers' ? m.buffers.map((buf) => ({ type: 'photo' as const, buf }))
+        : m.kind === 'album' ? m.images.map((url) => ({ type: 'photo' as const, url }))
+          : (m.image ? [{ type: 'photo' as const, url: m.image }] : []);
+    const items = mergeAlbum<Item>(photos, videos, (url) => ({ type: 'video', url }));
+    if (items.length === 1 && items[0].type === 'video') {
+      await this.sendTelegramVideo(token, channel, items[0].url!, caption, post);
+      return;
+    }
+
+    const url = `https://api.telegram.org/bot${token}/sendMediaGroup`;
+    const uploads = items.some((it) => it.buf);
+    const send = (withHtml: boolean) => {
+      const cap = withHtml ? caption : caption.replace(/<[^>]+>/g, '');
+      const media = items.map((it, i) => ({
+        type: it.type,
+        media: it.buf ? `attach://file${i}` : it.url,
+        ...(it.type === 'video' ? { supports_streaming: true } : {}),
+        ...(i === 0 ? { caption: cap, ...(withHtml ? { parse_mode: 'HTML' } : {}) } : {}),
+      }));
+      if (!uploads) return axios.post(url, { chat_id: channel, media }, { timeout: 90_000 });
+      const form = new FormData();
+      form.append('chat_id', channel);
+      form.append('media', JSON.stringify(media));
+      items.forEach((it, i) => { if (it.buf) form.append(`file${i}`, it.buf, { filename: `file${i}.jpg`, contentType: 'image/jpeg' }); });
+      return axios.post(url, form, { headers: form.getHeaders(), timeout: 120_000, maxBodyLength: Infinity, maxContentLength: Infinity });
+    };
+    try {
+      const res = await this.tgRetryOnce('album-videos', () => send(true));
+      this.assertTelegramDelivered(res, 'album-videos');
+      post.telegram_message_id = res.data?.result?.[0]?.message_id;
+    } catch (err: any) {
+      const desc: string = err?.response?.data?.description || '';
+      if (err?.response?.status === 400 && /parse|entit|tag/i.test(desc)) {
+        const res = await send(false);
+        this.assertTelegramDelivered(res, 'album-videos');
+        post.telegram_message_id = res.data?.result?.[0]?.message_id;
         return;
       }
       throw err;

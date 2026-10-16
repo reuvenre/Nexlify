@@ -10,7 +10,8 @@ import { normalizeSku } from './sku-match.util';
 import { openPostClash } from './flylink-dedup';
 import { coverFirst } from './gallery-order';
 import { dedupeProductImages, yupooPhotoKey } from './yupoo-image';
-import { YupooVideo, isYupooVideoUrl, parseVideos } from './yupoo-video';
+import { YupooVideo, parseVideos } from './yupoo-video';
+import { AlbumVideo, parseAlbumVideos, splitSelection } from '../posts/album-videos';
 import { handPickedElsewhere } from './hand-picked-lock';
 import { catalogsForCampaign } from './catalog-scope';
 import { codeFromResolvedUrl, codesFromTitle, parseBulkLinks, titleFromHtml } from './flylink-bulk';
@@ -612,9 +613,6 @@ export class SupplierProductsService {
       orders_count: 0,
       rating: 0,
       price_ils: price,
-      // The album's first video rides on every post: the account's "prefer the video"
-      // setting and the Reels both read it from the post.
-      video_url: parseVideos(p.videos_json)[0]?.url,
     };
   }
 
@@ -643,14 +641,21 @@ export class SupplierProductsService {
   }
 
   /**
-   * The video the owner picked for this post, checked against the product's own album —
-   * the request carries a URL, and only one of this product's videos may become the clip.
+   * The owner's pick for a post, split into photos and videos. Videos are recognised only
+   * as this product's own album videos, and none is ever added by default — a post carries
+   * a video only when it was picked, like any photo.
    */
-  private chosenVideo(p: SupplierProduct, video?: string): string | undefined {
-    if (!video) return undefined;
-    const own = parseVideos(p.videos_json).find((v) => v.url === video);
-    if (!own || !isYupooVideoUrl(own.url)) throw new BadRequestException('הסרטון שנבחר לא שייך למוצר הזה');
-    return own.url;
+  private async pickMedia(userId: string, p: SupplierProduct, images: string[] | undefined, max: number): Promise<{
+    gallery: string[]; image: string; albumVideos: AlbumVideo[]; videosOnly: boolean;
+  }> {
+    const { photos, videos } = splitSelection(images, parseVideos(p.videos_json).map((v) => v.url));
+    const videosOnly = videos.length > 0 && photos.length === 0;
+    // Videos only: the photo columns still need the cover (Facebook, Instagram and the
+    // store read them), but not the whole album the default would bring.
+    const gallery = videosOnly
+      ? this.selectGallery(p, undefined, 1)
+      : await this.resolveGallery(userId, p, photos.length ? photos : undefined, max);
+    return { gallery, image: gallery[0] || this.proxyImage(p.image_url) || '', albumVideos: videos, videosOnly };
   }
 
   /**
@@ -826,14 +831,12 @@ export class SupplierProductsService {
   }
 
   /** Send now — to one group or several at once (a single credit for the action). */
-  async send(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) {
+  async send(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
     const p = await this.get(userId, id);
-    const picked = this.chosenVideo(p, video);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
-    const gallery = await this.resolveGallery(userId, p, images, collageCells ? 30 : 10);
-    const image = gallery[0] || this.proxyImage(p.image_url) || '';
+    const { gallery, image, albumVideos, videosOnly } = await this.pickMedia(userId, p, images, collageCells ? 30 : 10);
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
     const targets = await this.targetChannels(p, channels, channelId);
     const { price } = await this.pricing(userId, p.price);
@@ -842,7 +845,7 @@ export class SupplierProductsService {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
       affiliateUrl: p.flylink_url, text: finalText, priceIls: price,
       channelOverride: targets[0], channels: targets, collageCells,
-      video: picked || parseVideos(p.videos_json)[0]?.url, sendAsVideo: !!picked,
+      albumVideos, videosOnly,
     });
     p.has_post = true;
     p.last_posted_at = new Date(); // advance the campaign rotation cursor — a manual publish counts
@@ -851,17 +854,15 @@ export class SupplierProductsService {
   }
 
   /** Schedule for a specific time — to one group or several at once. */
-  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) {
+  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
     const p = await this.get(userId, id);
-    const picked = this.chosenVideo(p, video);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
     const targets = await this.targetChannels(p, channels, channelId);
     await this.assertNotAlreadyPending(userId, p, targets);
 
-    const gallery = await this.resolveGallery(userId, p, images, collageCells ? 30 : 10);
-    const image = gallery[0] || this.proxyImage(p.image_url) || '';
+    const { gallery, image, albumVideos, videosOnly } = await this.pickMedia(userId, p, images, collageCells ? 30 : 10);
     const finalText = text?.trim() || (await this.preview(userId, id)).generated_text;
     const { price } = await this.pricing(userId, p.price);
 
@@ -869,7 +870,7 @@ export class SupplierProductsService {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
       affiliateUrl: p.flylink_url, text: finalText, priceIls: price,
       channelOverride: targets[0], channels: targets, collageCells,
-      video: picked || parseVideos(p.videos_json)[0]?.url, sendAsVideo: !!picked,
+      albumVideos, videosOnly,
     }, scheduledAt);
     p.has_post = true;
     p.last_posted_at = new Date(); // advance the campaign rotation cursor — a manual publish counts
@@ -881,31 +882,27 @@ export class SupplierProductsService {
    * Publish: push the supplier product into the SHARED post queue, routed to the
    * chosen group (or the catalog's default). Reuses the entire existing pipeline.
    */
-  async queue(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) {
+  async queue(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
     const p = await this.get(userId, id);
-    const picked = this.chosenVideo(p, video);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
     const targets = await this.targetChannels(p, channels, channelId);
     await this.assertNotAlreadyPending(userId, p, targets);
 
-    const gallery = await this.resolveGallery(userId, p, images, collageCells ? 30 : 10);
-    const image = gallery[0] || this.proxyImage(p.image_url) || '';
+    const { gallery, image, albumVideos, videosOnly } = await this.pickMedia(userId, p, images, collageCells ? 30 : 10);
     const { price, currency } = await this.pricing(userId, p.price);
 
-    const postProduct = this.toPostProduct(p, image, price, currency);
-    if (picked) postProduct.video_url = picked;
     const post = await this.posts.createQueuedPost(
       userId,
-      postProduct,
+      this.toPostProduct(p, image, price, currency),
       undefined,
       text?.trim() || p.description || undefined,
       targets[0],
       gallery,
       collageCells,
       targets,
-      picked ? { sendAsVideo: true } : undefined,
+      albumVideos.length ? { albumVideos, videosOnly } : undefined,
     );
     p.has_post = true;
     p.last_posted_at = new Date(); // advance the campaign rotation cursor — a manual publish counts
@@ -1130,10 +1127,12 @@ export class SupplierProductsService {
             discount_percent: 0,
             orders_count: 0,
             rating: 0,
-            video_url: original.product_video || parseVideos(p.videos_json)[0]?.url,
+            // A re-run is an exact repeat of the first post — its picked videos included,
+            // and nothing the owner did not pick.
+            video_url: original.product_video || undefined,
           };
           await this.posts.createQueuedPost(userId, product, undefined, original.generated_text || undefined, tgs[0], origGallery, undefined, tgs,
-            { scheduledAt: slot, campaignId: campaign.id, sendAsVideo: !!original.send_as_video });
+            { scheduledAt: slot, campaignId: campaign.id, albumVideos: parseAlbumVideos(original.album_videos), videosOnly: !!original.send_as_video });
         } else {
           // FIRST TIME for this product: write fresh AI copy in the group's voice (one
           // generation credit; createQueuedPost reuses it via textOverride, not twice). Use

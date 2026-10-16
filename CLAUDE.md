@@ -144,10 +144,15 @@ Albums mix photos and videos, and only the photos were read. A video is an `<img
 - **Storage.** `videos_json` = `[{url, thumb}]`. NULL means never read; `'[]'` means read and empty.
   - Filled on link and by the 6-hourly sync.
   - Products linked before this get theirs the first time their composer opens (`ensureVideos`, alongside the AI call, 20 s cap).
-- **Publishing.**
-  - Every FLYLINK post carries the album's first video as `product_video`, so the account's «העדף סרטון מוצר» and the Reels use it.
-  - In the composer the owner can pick a video for one post («פרסם כסרטון»). That sets `posts.send_as_video`, and Telegram and WhatsApp send the video instead of the photos whatever the account setting.
-  - The picked URL must be one of the product's own videos (`chosenVideo`).
+- **Publishing (`posts/album-videos.ts`): a video goes out only when the owner picks it.**
+  - Nothing is attached by default, campaigns included. The first version put the album's first video on every post, and the owner asked for a picker that works like the photos.
+  - The composer shows the videos in the same numbered gallery as the photos (`▶ סרטון`). The selection (`images`) carries both, in his order.
+  - `pickMedia` → `splitSelection` counts a URL as a video only when it is one of the product's own `videos_json`.
+  - Videos are kept **out of `gallery_json`**, which Facebook, Instagram, Pinterest, the store, the Reels and the de-dup all read as photos. They go to `posts.album_videos` (`[{url, at}]`, where `at` is the place in his selection).
+  - `sendAlbumWithVideos` weaves them back in for Telegram (`mergeAlbum`, ≤ 10). Videos go by URL and photos as URLs or uploaded buffers (collage or enhance). A single video is sent with `sendVideo`. A rejection falls back to the photos-only album.
+  - Videos only → `send_as_video`: Telegram sends just the videos, and WhatsApp sends the first one (`product_video`). The cover is still stored for the photo platforms.
+  - The first picked video is `product_video`, so the Reels open with it.
+  - A recycled post repeats the original's picks.
 
 ### A group's core focus (`posts/group-focus.ts`, `channels.core_focus`)
 The relevance guard (`product-relevance.ts`) accepts anything plausible and rejects only a clear misfit, so טקטי בקליק still received an ordinary flashlight or general camping gear. A group can now carry a **core focus** in the owner's words (groups screen → edit → «🎯 מיקוד ליבה»). When any target group has one, the question turns strict (`GROUP_FOCUS_SYSTEM`): only a product clearly inside the focus passes, unsure is no, and a parsed reply must say `fits: true` explicitly.
