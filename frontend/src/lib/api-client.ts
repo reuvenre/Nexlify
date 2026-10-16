@@ -43,6 +43,7 @@ import type {
   BillingCycle,
   SupplierCatalog,
   SupplierProduct,
+  SupplierVideo,
   BulkLinkResult,
   StoreMeta,
   StorePage,
@@ -1138,7 +1139,7 @@ export const suppliersApi = {
     http.get<SupplierProduct[]>('/suppliers/products', { params: catalogId ? { catalog_id: catalogId } : undefined }).then(extract),
   link: (data: {
     catalogId: string; yupooUrl: string; flylinkUrl: string; code?: string;
-    album?: { code?: string; price?: number; currency?: string; description?: string; title?: string; images?: string[]; album_url?: string };
+    album?: { code?: string; price?: number; currency?: string; description?: string; title?: string; images?: string[]; album_url?: string; videos?: SupplierVideo[] };
   }) =>
     http.post<SupplierProduct & { sku_verified: boolean }>('/suppliers/products/link', data, { timeout: 50_000 }).then(extract),
   /**
@@ -1168,23 +1169,26 @@ export const suppliersApi = {
     http.post<{
       code: string; price: number; currency: string; source_price?: number; source_currency?: string;
       description: string; title: string; images: string[]; raw_images: string[]; album_url: string;
+      /** The album's videos — playable mp4 + cover frame. */
+      videos: SupplierVideo[];
     }>('/suppliers/album/preview', { catalogId, url }, { timeout: 30_000 }).then(extract),
 
   /** AI-generate / regenerate the post text (quick-post preview) for a saved product — same Gemini + template flow as AliExpress. `vision` lets the AI write from the product photos; `hint` is an authoritative product-type override. */
   preview: (id: string, opts?: { language?: string; template?: string; vision?: boolean; hint?: string }) =>
-    http.post<PostPreview & { gallery: string[]; vision_used: boolean }>(`/suppliers/products/${id}/preview`, opts || {}, { timeout: AI_TIMEOUT }).then(extract),
+    http.post<PostPreview & { gallery: string[]; videos?: SupplierVideo[]; vision_used: boolean }>(`/suppliers/products/${id}/preview`, opts || {}, { timeout: AI_TIMEOUT }).then(extract),
 
-  queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
+  /** `video`: one of the product's own video URLs — the post then goes out as that video. */
+  queue: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) =>
     http.post<{ queued: boolean; post_id: string; channels: string[]; queue_active: boolean; interval_minutes: number }>(
-      `/suppliers/products/${id}/queue`, { channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/queue`, { channel_id: channelId, channels, text, images, collage_cells: collageCells, video }, { timeout: AI_TIMEOUT }).then(extract),
 
-  send: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
+  send: (id: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) =>
     http.post<{ sent: boolean; post_id: string; channels: string[] }>(
-      `/suppliers/products/${id}/send`, { channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/send`, { channel_id: channelId, channels, text, images, collage_cells: collageCells, video }, { timeout: AI_TIMEOUT }).then(extract),
 
-  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[]) =>
+  schedule: (id: string, scheduledAt: string, channelId?: string, text?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) =>
     http.post<{ scheduled: boolean; post_id: string; channels: string[]; at: string }>(
-      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, channels, text, images, collage_cells: collageCells }, { timeout: AI_TIMEOUT }).then(extract),
+      `/suppliers/products/${id}/schedule`, { scheduled_at: scheduledAt, channel_id: channelId, channels, text, images, collage_cells: collageCells, video }, { timeout: AI_TIMEOUT }).then(extract),
 };
 
 export default http;

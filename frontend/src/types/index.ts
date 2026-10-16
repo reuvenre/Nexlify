@@ -375,6 +375,23 @@ export interface SupplierCatalog {
   created_at: string;
 }
 
+/** A video from a supplier's Yupoo album: a playable mp4 and its cover frame. */
+export interface SupplierVideo {
+  url: string;
+  thumb: string;
+}
+
+/** The videos stored on a supplier product (videos_json), tolerant of null and junk. */
+export function supplierVideos(p: { videos_json?: string | null }): SupplierVideo[] {
+  if (!p.videos_json) return [];
+  try {
+    const v = JSON.parse(p.videos_json);
+    return Array.isArray(v) ? v.filter((x) => x && typeof x.url === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export interface SupplierProduct {
   id: string;
   supplier_catalog_id: string;
@@ -383,6 +400,8 @@ export interface SupplierProduct {
   description?: string;
   image_url?: string;
   gallery_json?: string;
+  /** JSON array of SupplierVideo — the album's videos. NULL = not read yet, '[]' = none. */
+  videos_json?: string | null;
   price: number;
   currency: string;
   price_ils?: number;        // price converted to the user's currency (from the list endpoint)

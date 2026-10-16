@@ -10,6 +10,7 @@ import { normalizeSku } from './sku-match.util';
 import { openPostClash } from './flylink-dedup';
 import { coverFirst } from './gallery-order';
 import { dedupeProductImages, yupooPhotoKey } from './yupoo-image';
+import { YupooVideo, isYupooVideoUrl, parseVideos } from './yupoo-video';
 import { handPickedElsewhere } from './hand-picked-lock';
 import { catalogsForCampaign } from './catalog-scope';
 import { codeFromResolvedUrl, codesFromTitle, parseBulkLinks, titleFromHtml } from './flylink-bulk';
@@ -159,7 +160,10 @@ export class SupplierProductsService {
    */
   async link(userId: string, dto: {
     catalogId: string; yupooUrl: string; flylinkUrl: string; code?: string;
-    album?: { code?: string; price?: number; currency?: string; description?: string; title?: string; images?: string[]; album_url?: string };
+    album?: {
+      code?: string; price?: number; currency?: string; description?: string; title?: string; images?: string[]; album_url?: string;
+      videos?: YupooVideo[];
+    };
   }) {
     if (!dto.yupooUrl?.trim() || !dto.flylinkUrl?.trim()) {
       throw new BadRequestException('חסר קישור Yupoo או FLYLINK');
@@ -177,6 +181,8 @@ export class SupplierProductsService {
           description: dto.album.description || '',
           title: dto.album.title || dto.album.code || '',
           images: dto.album.images,
+          // Only what the preview read from Yupoo — a client cannot plant a foreign URL.
+          videos: parseVideos(JSON.stringify(dto.album.videos || [])),
           album_url: dto.album.album_url || dto.yupooUrl.trim(),
         }
       : await this.yupoo.fetchAlbum(dto.yupooUrl.trim(), this.catalogs.catalogPassword(catalog));
@@ -218,8 +224,10 @@ export class SupplierProductsService {
       where: { user_id: userId, supplier_catalog_id: catalog.id, yupoo_url: albumUrl },
     });
     if (existing) {
-      if (newLink && newLink !== existing.flylink_url) {
-        existing.flylink_url = newLink;
+      const videosJson = JSON.stringify(item.videos);
+      if ((newLink && newLink !== existing.flylink_url) || videosJson !== existing.videos_json) {
+        if (newLink) existing.flylink_url = newLink;
+        existing.videos_json = videosJson;
         await this.repo.save(existing);
       }
       return { ...existing, sku_verified };
@@ -249,6 +257,7 @@ export class SupplierProductsService {
       description: item.description || null,
       image_url: item.images[0] || null,
       gallery_json: item.images.length ? JSON.stringify(item.images) : null,
+      videos_json: JSON.stringify(item.videos),
       price: item.price,
       currency: item.currency,
       yupoo_url: item.album_url,
@@ -603,7 +612,45 @@ export class SupplierProductsService {
       orders_count: 0,
       rating: 0,
       price_ils: price,
+      // The album's first video rides on every post: the account's "prefer the video"
+      // setting and the Reels both read it from the post.
+      video_url: parseVideos(p.videos_json)[0]?.url,
     };
+  }
+
+  /**
+   * Read the album's videos once for a product that has never had them read
+   * (videos_json NULL; '[]' means read and none). Never throws and never blocks for long:
+   * a Yupoo hiccup leaves the column NULL and the next open tries again.
+   */
+  private async ensureVideos(p: SupplierProduct): Promise<void> {
+    if (p.videos_json !== null || !p.yupoo_url) return;
+    try {
+      let pw: string | undefined;
+      try {
+        pw = this.catalogs.catalogPassword(await this.catalogs.get(p.user_id, p.supplier_catalog_id));
+      } catch { /* catalog gone — try public */ }
+      const item = await Promise.race([
+        this.yupoo.fetchAlbum(p.yupoo_url, pw),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+      ]);
+      if (!item) return;
+      p.videos_json = JSON.stringify(item.videos);
+      await this.repo.update({ id: p.id }, { videos_json: p.videos_json });
+    } catch (err: any) {
+      this.logger.warn(`videos for ${p.id} not read: ${err?.message}`);
+    }
+  }
+
+  /**
+   * The video the owner picked for this post, checked against the product's own album —
+   * the request carries a URL, and only one of this product's videos may become the clip.
+   */
+  private chosenVideo(p: SupplierProduct, video?: string): string | undefined {
+    if (!video) return undefined;
+    const own = parseVideos(p.videos_json).find((v) => v.url === video);
+    if (!own || !isYupooVideoUrl(own.url)) throw new BadRequestException('הסרטון שנבחר לא שייך למוצר הזה');
+    return own.url;
   }
 
   /**
@@ -617,6 +664,9 @@ export class SupplierProductsService {
     const p = await this.get(userId, id);
     const gallery = this.proxiedGallery(p);
     const image = this.proxyImage(p.image_url) || gallery[0] || '';
+    // Runs alongside the AI call below, so a product linked before videos were read gets
+    // them the first time its composer opens instead of waiting for the slow sync.
+    const videosReady = this.ensureVideos(p);
 
     // Vision: fetch SEVERAL of the real product photos so the AI can identify the item
     // reliably — a single first image is often a cover/size-chart/logo and makes the model
@@ -641,7 +691,8 @@ export class SupplierProductsService {
       undefined,
       opts?.copyHint, // the bandit's angle nudge (campaign runs) — suppressed under a template
     );
-    return { ...result, gallery, vision_used: visionUsed };
+    await videosReady;
+    return { ...result, gallery, videos: parseVideos(p.videos_json), vision_used: visionUsed };
   }
 
   /**
@@ -775,8 +826,9 @@ export class SupplierProductsService {
   }
 
   /** Send now — to one group or several at once (a single credit for the action). */
-  async send(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
+  async send(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) {
     const p = await this.get(userId, id);
+    const picked = this.chosenVideo(p, video);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
@@ -790,6 +842,7 @@ export class SupplierProductsService {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
       affiliateUrl: p.flylink_url, text: finalText, priceIls: price,
       channelOverride: targets[0], channels: targets, collageCells,
+      video: picked || parseVideos(p.videos_json)[0]?.url, sendAsVideo: !!picked,
     });
     p.has_post = true;
     p.last_posted_at = new Date(); // advance the campaign rotation cursor — a manual publish counts
@@ -798,8 +851,9 @@ export class SupplierProductsService {
   }
 
   /** Schedule for a specific time — to one group or several at once. */
-  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
+  async schedule(userId: string, id: string, scheduledAt: Date, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) {
     const p = await this.get(userId, id);
+    const picked = this.chosenVideo(p, video);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
@@ -815,6 +869,7 @@ export class SupplierProductsService {
       productId: p.sku || p.id, title: p.title, image, images: gallery,
       affiliateUrl: p.flylink_url, text: finalText, priceIls: price,
       channelOverride: targets[0], channels: targets, collageCells,
+      video: picked || parseVideos(p.videos_json)[0]?.url, sendAsVideo: !!picked,
     }, scheduledAt);
     p.has_post = true;
     p.last_posted_at = new Date(); // advance the campaign rotation cursor — a manual publish counts
@@ -826,8 +881,9 @@ export class SupplierProductsService {
    * Publish: push the supplier product into the SHARED post queue, routed to the
    * chosen group (or the catalog's default). Reuses the entire existing pipeline.
    */
-  async queue(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[]) {
+  async queue(userId: string, id: string, text?: string, channelId?: string, images?: string[], collageCells?: number, channels?: string[], video?: string) {
     const p = await this.get(userId, id);
+    const picked = this.chosenVideo(p, video);
     if (p.in_stock === false) throw new BadRequestException('המוצר לא זמין (קישור FLYLINK מת)');
     if (!p.flylink_url) throw new BadRequestException('חסר קישור FLYLINK למוצר');
 
@@ -838,15 +894,18 @@ export class SupplierProductsService {
     const image = gallery[0] || this.proxyImage(p.image_url) || '';
     const { price, currency } = await this.pricing(userId, p.price);
 
+    const postProduct = this.toPostProduct(p, image, price, currency);
+    if (picked) postProduct.video_url = picked;
     const post = await this.posts.createQueuedPost(
       userId,
-      this.toPostProduct(p, image, price, currency),
+      postProduct,
       undefined,
       text?.trim() || p.description || undefined,
       targets[0],
       gallery,
       collageCells,
       targets,
+      picked ? { sendAsVideo: true } : undefined,
     );
     p.has_post = true;
     p.last_posted_at = new Date(); // advance the campaign rotation cursor — a manual publish counts
@@ -1071,9 +1130,10 @@ export class SupplierProductsService {
             discount_percent: 0,
             orders_count: 0,
             rating: 0,
+            video_url: original.product_video || parseVideos(p.videos_json)[0]?.url,
           };
           await this.posts.createQueuedPost(userId, product, undefined, original.generated_text || undefined, tgs[0], origGallery, undefined, tgs,
-            { scheduledAt: slot, campaignId: campaign.id });
+            { scheduledAt: slot, campaignId: campaign.id, sendAsVideo: !!original.send_as_video });
         } else {
           // FIRST TIME for this product: write fresh AI copy in the group's voice (one
           // generation credit; createQueuedPost reuses it via textOverride, not twice). Use
@@ -1131,6 +1191,7 @@ export class SupplierProductsService {
       title: item.title,
       images: item.images.map((u) => this.proxyImage(u)),
       raw_images: item.images,
+      videos: item.videos,
       album_url: item.album_url,
     };
   }
@@ -1147,6 +1208,9 @@ export class SupplierProductsService {
         } catch { /* catalog gone — try public */ }
         const item = await this.yupoo.fetchAlbum(product.yupoo_url, pw);
         if (item.price > 0) product.price = item.price;
+        // The album was read in full, so its video list is authoritative — this is also
+        // how products linked before videos were read get theirs.
+        product.videos_json = JSON.stringify(item.videos);
       }
     } catch { /* keep old price on fetch failure */ }
     // FLYLINK liveness — the only availability signal we have.

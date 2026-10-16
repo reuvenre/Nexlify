@@ -5,14 +5,15 @@ import {
   Store, Plus, Loader2, Trash2, Link2, Sparkles, X,
   Package, CheckCircle2, AlertTriangle, Search, Pencil, Grid3x3, Images, Wand2,
   Globe, FileText, CheckCheck, ShoppingBag, Layers,
-  Maximize2, ChevronLeft, ChevronRight, Check, Bot, BotOff, EyeOff, Eye,
+  Maximize2, ChevronLeft, ChevronRight, Check, Bot, BotOff, EyeOff, Eye, Film,
 } from 'lucide-react';
 import { suppliersApi, channelsApi, credentialsApi, templatesApi, yupooImg } from '@/lib/api-client';
 import { PostPreview } from '@/components/products/PostPreview';
 import { ProductSourceTabs } from '@/components/products/ProductSourceTabs';
 import { TemplatePanel, BUILTIN as BUILTIN_BODY_TEMPLATES } from '@/components/templates/TemplatePanel';
 import { GroupMultiSelect } from '@/components/GroupMultiSelect';
-import type { SupplierCatalog, SupplierProduct, SkuMatchMode, Channel, PostPreview as PostPreviewType, PostTemplate, BulkLinkResult } from '@/types';
+import type { SupplierCatalog, SupplierProduct, SupplierVideo, SkuMatchMode, Channel, PostPreview as PostPreviewType, PostTemplate, BulkLinkResult } from '@/types';
+import { supplierVideos } from '@/types';
 
 const POST_LANGS: { value: string; label: string }[] = [
   { value: 'he', label: 'עברית' },
@@ -611,7 +612,10 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const [hint, setHint] = useState(''); // optional product-type override when vision misreads
   const hintRef = useRef('');
   useEffect(() => { hintRef.current = hint; }, [hint]);
-  const [pv, setPv] = useState<(PostPreviewType & { gallery: string[]; vision_used?: boolean }) | null>(null);
+  const [pv, setPv] = useState<(PostPreviewType & { gallery: string[]; videos?: SupplierVideo[]; vision_used?: boolean }) | null>(null);
+  // The album video to publish instead of the photos (Telegram / WhatsApp), or null = photos.
+  const [video, setVideo] = useState<string | null>(null);
+  const videos = pv?.videos || [];
   const [selected, setSelected] = useState<string[]>([]); // ordered manual image selection for the album
   const [lightbox, setLightbox] = useState<number | null>(null); // index into gallery for the enlarged viewer
   const [generating, setGenerating] = useState(true);
@@ -717,20 +721,20 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
   const targetChannels = () => (channelIds.length ? channelIds : undefined);
   const onPost = async (text: string) => {
     setPosting(true); setDone(null); setErr(null);
-    try { const r = await suppliersApi.send(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels()); setDone(`✓ נשלח (${chLabel(r.channels)})`); onSent?.(); }
+    try { const r = await suppliersApi.send(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels(), video || undefined); setDone(`✓ נשלח (${chLabel(r.channels)})`); onSent?.(); }
     catch (e: any) { setErr(e?.response?.data?.message || 'השליחה נכשלה — נסה שוב'); }
     finally { setPosting(false); }
   };
   const onSchedule = async (text: string, at: string) => {
     try {
-      const r = await suppliersApi.schedule(productId, at, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels());
+      const r = await suppliersApi.schedule(productId, at, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels(), video || undefined);
       const when = new Date(at).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       setDone(`✓ תוזמן ל-${when} (${chLabel(r.channels)}) — צפייה ב"פוסטים → מתוזמן"`); onSent?.();
     }
     catch (e: any) { setErr(e?.response?.data?.message || 'התזמון נכשל — נסה שוב'); throw e; }
   };
   const onQueue = async (text: string) => {
-    const r = await suppliersApi.queue(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels());
+    const r = await suppliersApi.queue(productId, primaryChannel || undefined, text, selectedImages(), cells(), targetChannels(), video || undefined);
     onSent?.();
     return { queue_active: r.queue_active, interval_minutes: r.interval_minutes };
   };
@@ -745,6 +749,16 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
     <div className="flex flex-col lg:flex-row gap-4 items-start">
       {/* Left: gallery + channel + template panel */}
       <div className="w-full lg:w-64 shrink-0 space-y-3">
+        {videos.length > 0 && (
+          <div className="bg-surface-secondary border border-edge rounded-xl p-3">
+            <VideoStrip videos={videos} picked={video} onPick={setVideo} />
+            <p className="text-2xs text-white/25 mt-1.5">
+              {video
+                ? 'בטלגרם ובוואטסאפ יתפרסם הסרטון עם הטקסט, במקום התמונות. בפייסבוק, באינסטגרם ובפינטרסט — התמונה הראשית.'
+                : 'בלי בחירה הפוסט יוצא עם התמונות. הסרטון נשמר על הפוסט, כך שאם ההגדרה "העדף סרטון מוצר" פעילה הוא יתפרסם בכל מקרה, וגם הרילס ישתמש בו.'}
+            </p>
+          </div>
+        )}
         {gallery.length > 1 && (
           <div className="bg-surface-secondary border border-edge rounded-xl p-3">
             <div className="flex items-center justify-between mb-2">
@@ -938,6 +952,37 @@ function ImageLightbox({ images, index, selected, maxAlbum, onIndex, onToggle, o
   );
 }
 
+// ─── The videos of a Yupoo album ──────────────────────────────────────────────
+// Played straight from Yupoo's video host (uvd.yupoo.com): unlike the photos it is not
+// hotlink-protected, so no proxy is needed. `pick`/`picked` turn the strip into the
+// composer's "publish as this video" choice.
+function VideoStrip({ videos, picked, onPick }: {
+  videos: SupplierVideo[]; picked?: string | null; onPick?: (url: string | null) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-2xs text-white/40 flex items-center gap-1"><Film size={11} /> {videos.length === 1 ? 'סרטון מהאלבום' : `${videos.length} סרטונים מהאלבום`}</p>
+      <div className={`grid gap-2 ${videos.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        {videos.map((v) => {
+          const on = picked === v.url;
+          return (
+            <div key={v.url} className={`rounded-lg overflow-hidden border-2 bg-black ${on ? 'border-rose-500' : 'border-edge'}`}>
+              <video src={v.url} poster={v.thumb || undefined} controls playsInline preload="metadata"
+                className="w-full max-h-72 object-contain bg-black" />
+              {onPick && (
+                <button type="button" onClick={() => onPick(on ? null : v.url)}
+                  className={`w-full py-1.5 text-2xs font-medium transition-all ${on ? 'bg-rose-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>
+                  {on ? '✓ הפוסט יתפרסם כסרטון הזה' : 'פרסם כסרטון'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Browse → open product (all images) → create post ──────────────────────────
 function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onClose, onLinked, onSent }: {
   catalogId: string; albumUrl: string; channels: Channel[]; defaultChannel?: string;
@@ -979,6 +1024,7 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
           description: album.description,
           title: album.title,
           images: album.raw_images,
+          videos: album.videos,
           album_url: album.album_url,
         } : undefined,
       });
@@ -1009,6 +1055,8 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
           <PostComposer productId={productId} channels={channels} defaultChannel={defaultChannel} onSent={onSent} />
         ) : album ? (
           <div className="space-y-4">
+            {/* The album's videos — Yupoo albums mix them with the photos */}
+            {album.videos?.length > 0 && <VideoStrip videos={album.videos} />}
             {/* All product images */}
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {album.images.map((img, i) => (
@@ -1019,7 +1067,9 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
             <div className="flex items-center justify-between text-sm">
               <div>
                 <p className="text-white/85" dir="ltr">{album.description || album.title}</p>
-                <p className="text-2xs text-white/40 mt-0.5" dir="ltr">#{album.code} · {album.images.length} תמונות</p>
+                <p className="text-2xs text-white/40 mt-0.5">
+                  <span dir="ltr">#{album.code}</span> · {album.images.length} תמונות{album.videos?.length ? ` · ${album.videos.length === 1 ? 'סרטון אחד' : `${album.videos.length} סרטונים`}` : ''}
+                </p>
               </div>
               <span className="text-lg font-bold text-white">{priceSym(album.currency || 'ILS')}{album.price}</span>
             </div>
@@ -1300,6 +1350,11 @@ function SupplierRow({ product, catalogName, onCompose, onEdit, reload }: {
             <div className="flex items-center gap-2 flex-wrap">
               {product.sku && <span className="text-2xs text-white/25" dir="ltr">#{product.sku}</span>}
               {product.has_post && <span className="px-1.5 py-0.5 bg-blue-500/15 border border-blue-500/25 text-[9px] text-blue-400 rounded-md font-medium">פוסט</span>}
+              {supplierVideos(product).length > 0 && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-500/15 border border-rose-500/25 text-[9px] text-rose-300 rounded-md font-medium" title="באלבום יש סרטון — אפשר לפרסם אותו במסך יצירת הפוסט">
+                  <Film size={9} /> {supplierVideos(product).length > 1 ? `${supplierVideos(product).length} סרטונים` : 'סרטון'}
+                </span>
+              )}
               {product.no_auto_post && <span className="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/25 text-[9px] text-purple-400 rounded-md font-medium" title="הטייס האוטומטי מדלג על המוצר — פרסום ידני בלבד">ידני בלבד</span>}
               {product.store_hidden && <span className="px-1.5 py-0.5 bg-amber-500/15 border border-amber-500/25 text-[9px] text-amber-400 rounded-md font-medium" title="המוצר לא מוצג בחנות הפומבית">מוסתר באתר</span>}
             </div>

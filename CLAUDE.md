@@ -138,6 +138,17 @@ The owner saw the same product go out again and again. Three causes, all closed:
 - Album titles are the supplier's codes, English and Chinese, so a Hebrew search finds nothing there. The screen says so and points to "המוצרים שלי", whose filter also matches the Hebrew `store_name` / `store_brand` / `store_category` the enrichment agent wrote.
 - Search pages and listing pages share `parseAlbumCards`. `hasMore` reads the pager's next link (`后一页`).
 
+### Videos in the Yupoo albums (`suppliers/yupoo-video.ts`, `supplier_products.videos_json`)
+Albums mix photos and videos, and only the photos were read. A video is an `<img data-type="video">` whose src is just the cover (on `uvd.yupoo.com`, which the photo filter never matched). The clip is named by `data-path` and `data-videoformats` (`v1080p,v720p,v480p`, or `transcoding`/`fail`/empty). The playable file is `https://uvd.yupoo.com/<720p>/<path>`, the same URL Yupoo's own player builds.
+- **No proxy.** Unlike the photos, uvd is not hotlink-protected (verified with a foreign Referer), so the browser and Telegram load it directly.
+- **Storage.** `videos_json` = `[{url, thumb}]`. NULL means never read; `'[]'` means read and empty.
+  - Filled on link and by the 6-hourly sync.
+  - Products linked before this get theirs the first time their composer opens (`ensureVideos`, alongside the AI call, 20 s cap).
+- **Publishing.**
+  - Every FLYLINK post carries the album's first video as `product_video`, so the account's «העדף סרטון מוצר» and the Reels use it.
+  - In the composer the owner can pick a video for one post («פרסם כסרטון»). That sets `posts.send_as_video`, and Telegram and WhatsApp send the video instead of the photos whatever the account setting.
+  - The picked URL must be one of the product's own videos (`chosenVideo`).
+
 ### A group's core focus (`posts/group-focus.ts`, `channels.core_focus`)
 The relevance guard (`product-relevance.ts`) accepts anything plausible and rejects only a clear misfit, so טקטי בקליק still received an ordinary flashlight or general camping gear. A group can now carry a **core focus** in the owner's words (groups screen → edit → «🎯 מיקוד ליבה»). When any target group has one, the question turns strict (`GROUP_FOCUS_SYSTEM`): only a product clearly inside the focus passes, unsure is no, and a parsed reply must say `fits: true` explicitly.
 - **Every automatic route** asks it:

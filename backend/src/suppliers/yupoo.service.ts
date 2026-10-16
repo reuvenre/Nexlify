@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { assertSafeOutboundUrl } from '../common/ssrf';
 import { dedupeProductImages } from './yupoo-image';
+import { YupooVideo, collectYupooVideos } from './yupoo-video';
 
 export interface YupooItem {
   code: string;        // raw code from the title, e.g. "LUN1526"
@@ -11,6 +12,7 @@ export interface YupooItem {
   description: string; // remainder of the title, e.g. "COACH"
   title: string;       // full original title
   images: string[];    // real product photos
+  videos: YupooVideo[]; // the album's videos (see yupoo-video.ts), in gallery order
   album_url: string;
 }
 
@@ -174,11 +176,16 @@ export class YupooService {
     // exact-URL dedup let all of them in — the catalog then showed duplicates, with the
     // low-res twin blurry once blown up to post size. See yupoo-image.ts.
     const uniqImages = dedupeProductImages(images);
+    // Videos sit in the same gallery as <img data-type="video"> — their cover is on
+    // uvd.yupoo.com, so the photo filter above never saw them. See yupoo-video.ts.
+    const videos = collectYupooVideos(
+      $('img[data-type="video"]').toArray().map((el) => (name: string) => $(el).attr(name)),
+    );
 
     if (!code) throw new BadRequestException('לא נמצא קוד מוצר בכותרת האלבום ב-Yupoo');
     return {
       code, price, currency: 'USD', description,
-      title: rawTitle, images: uniqImages, album_url: albumUrl,
+      title: rawTitle, images: uniqImages, videos, album_url: albumUrl,
     };
   }
 
@@ -282,7 +289,8 @@ export class YupooService {
           let u = $(img).attr('data-src') || $(img).attr('data-origin-src') || $(img).attr('src') || '';
           if (u.startsWith('//')) u = 'https:' + u;
           // Only a REAL product photo — skip the lazy 1x1 data: placeholder and site assets.
-          if (/photo\.yupoo\.com/i.test(u)) {
+          // An album whose cover is a video has its frame on uvd.yupoo.com instead.
+          if (/(photo|uvd)\.yupoo\.com/i.test(u)) {
             row.thumb = u.replace(/\/(small|thumb)\.(jpe?g)/i, '/medium.$2'); // sharper card
           }
         });

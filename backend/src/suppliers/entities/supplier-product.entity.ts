@@ -44,6 +44,13 @@ export class SupplierProduct {
   @Column({ type: 'text', nullable: true })
   gallery_json: string;
 
+  /**
+   * JSON array of the album's videos, `{ url, thumb }` (see yupoo-video.ts). Yupoo albums
+   * mix photos and videos; only the photos used to come through. Refreshed by the sync.
+   */
+  @Column({ type: 'text', nullable: true })
+  videos_json: string | null;
+
   @Column('float', { default: 0 })
   price: number;
 

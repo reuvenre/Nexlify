@@ -197,6 +197,11 @@ export class Post {
   @Column({ nullable: true, type: 'text' })
   product_video: string | null;
 
+  /** The owner chose, on this one post, to publish product_video instead of the photos
+   *  (a supplier album's video, picked in the composer) — whatever the account setting. */
+  @Column({ default: false })
+  send_as_video: boolean;
+
   /** AliExpress Brand+ ("Certified Original") listing — an official brand-store product.
    *  Detected from the affiliate API's platform_product_type; buildPostBody turns it into
    *  an emphasized authenticity line in the post. */

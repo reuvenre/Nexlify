@@ -985,6 +985,11 @@ export class PostsService {
     affiliateUrl: string; text: string; priceIls?: number; channelOverride?: string;
     channels?: string[]; // target group(s) — fan out to several at once (1 credit)
     collageCells?: number; // when set, images are composed into collage sheets (allows up to 30 images)
+    /** The product's own video (a supplier album clip). Stored on the post so the account's
+     *  "prefer the video" setting and the Reels can use it. */
+    video?: string | null;
+    /** Publish this post as the video, whatever the account setting (the owner picked it). */
+    sendAsVideo?: boolean;
   }): Post {
     // A normal album caps at 10 images; a collage post can carry up to 30 source images
     // (composed into ≤10 sheets at send time).
@@ -994,6 +999,8 @@ export class PostsService {
       product_id: data.productId,
       product_title: data.title,
       product_image: data.image,
+      product_video: data.video || null,
+      send_as_video: !!(data.sendAsVideo && data.video),
       affiliate_url: data.affiliateUrl,
       original_price_usd: 0,
       sale_price_usd: 0,
@@ -1067,7 +1074,7 @@ export class PostsService {
      * by campaigns, whose own cron is the cadence — see runCampaign / runFlylinkCampaign.
      * `campaignId` links the post back to its campaign.
      */
-    opts?: { scheduledAt?: Date; campaignId?: string; keyword?: string; copyVariant?: string },
+    opts?: { scheduledAt?: Date; campaignId?: string; keyword?: string; copyVariant?: string; sendAsVideo?: boolean },
   ): Promise<Post> {
     const creds = await this.credentials.getRaw(userId);
 
@@ -1139,6 +1146,7 @@ export class PostsService {
       product_title: product.title,
       product_image: product.image_url,
       product_video: product.video_url || null,
+      send_as_video: !!(opts?.sendAsVideo && product.video_url),
       is_brand_plus: !!product.brand_plus,
       affiliate_url: product.affiliate_url,
       original_price_usd: origUsd,
@@ -3771,6 +3779,7 @@ export class PostsService {
         // Carry the winner's clip and Brand+ badge into the rerun — a recycled post that
         // drops them republishes the winner in a weaker form than the one that won.
         product_video: original.product_video || null,
+        send_as_video: !!original.send_as_video,
         is_brand_plus: !!original.is_brand_plus,
         affiliate_url: original.affiliate_url,
         original_price_usd: parts.origUsd || original.original_price_usd,
@@ -5098,7 +5107,7 @@ export class PostsService {
     // Last chance to find the clip for a post whose row doesn't carry one yet.
     await this.ensureProductVideo(post, creds);
 
-    if (creds?.prefer_product_video && post.product_video) {
+    if ((creds?.prefer_product_video || post.send_as_video) && post.product_video) {
       try {
         await this.sendTelegramVideo(token, channel, post.product_video, mediaCaption, post);
         await sendOverflow();
@@ -6293,7 +6302,7 @@ export class PostsService {
       // A WhatsApp-only post never passes through the Telegram sender, so the clip is
       // resolved here too (no-op once either channel has already filled it in).
       await this.ensureProductVideo(post, creds);
-      if (creds?.prefer_product_video && post.product_video) {
+      if ((creds?.prefer_product_video || post.send_as_video) && post.product_video) {
         try {
           const res = await axios.post(
             `${base}/waInstance${instance}/sendFileByUrl/${token}`,
