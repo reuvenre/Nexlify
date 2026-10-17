@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LegalLinks } from '@/components/LegalLinks';
 import type { Metadata } from 'next';
 import {
   Radar, Sparkles, Send, Rocket, ArrowLeft, Check,
@@ -58,7 +59,7 @@ export default function LandingPage() {
             </div>
             <span className="text-lg font-bold tracking-tight">Nexlify</span>
           </div>
-          <nav className="flex items-center gap-1 sm:gap-3">
+          <nav aria-label="ראשי" className="flex items-center gap-1 sm:gap-3">
             <Link href="/pricing" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">תמחור</Link>
             <Link href="/blog" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2 hidden sm:block">מדריכים</Link>
             <Link href="/compare/albato" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2 hidden sm:block">השוואות</Link>
@@ -70,6 +71,7 @@ export default function LandingPage() {
         </div>
       </header>
 
+      <main id="main" tabIndex={-1} className="outline-none">
       {/* Hero */}
       <section className="relative">
         <div className="absolute inset-0 -z-10 overflow-hidden">
@@ -93,7 +95,7 @@ export default function LandingPage() {
             מפרסמת לחמש פלטפורמות, מודדת כל קליק ועמלה — <b className="text-white/80">ולומדת כל לילה מה מוכר כדי למכור יותר מחר</b>.
           </p>
           <p className="text-base font-semibold bg-gradient-to-l from-amber-300 to-orange-400 bg-clip-text text-transparent mb-9">
-            המערכת שלא רק מפרסמת עבורך — היא עובדת בשבילך. 🧠
+            המערכת שלא רק מפרסמת עבורך — היא עובדת בשבילך. <span aria-hidden="true">🧠</span>
           </p>
           <div className="flex items-center justify-center gap-3">
             <Link href="/register" className="group flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 hover:brightness-110 transition-all rounded-xl px-7 py-3.5 font-semibold shadow-lg shadow-blue-600/30 ring-1 ring-inset ring-white/15">
@@ -108,6 +110,7 @@ export default function LandingPage() {
 
       {/* Features */}
       <section className="max-w-6xl mx-auto px-6 py-16">
+        <h2 className="sr-only">יכולות המערכת</h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {FEATURES.map(({ icon: Icon, title, desc }) => (
             <div
@@ -165,6 +168,8 @@ export default function LandingPage() {
         </div>
       </section>
 
+      </main>
+
       {/* Footer */}
       <footer className="border-t border-edge mt-8">
         <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -174,10 +179,11 @@ export default function LandingPage() {
           <div className="flex items-center gap-2 text-white/30 text-xs">
             מבית{' '}
             <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"
-              className="text-white/50 hover:text-white/80 underline-offset-2 hover:underline">Win Solutions</a>
+              className="text-white/70 hover:text-white underline underline-offset-2">Win Solutions<span className="sr-only"> (נפתח בכרטיסייה חדשה)</span></a>
             {' '}— בניית אתרים ואוטומציות 2026
           </div>
         </div>
+        <LegalLinks className="pb-8 text-xs" linkClassName="text-white/60 hover:text-white/80 underline-offset-2 hover:underline" />
       </footer>
     </div>
   );

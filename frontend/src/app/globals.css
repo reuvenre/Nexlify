@@ -11,7 +11,7 @@
   --border:          rgba(255,255,255,0.06);
   --border-hover:    rgba(255,255,255,0.13);
   --text:            #eceef4;
-  --text-muted:      rgba(236,238,244,0.46);
+  --text-muted:      rgba(236,238,244,0.62);
   --accent:          #3b82f6;
   --accent-2:        #8b5cf6;
   --accent-glow:     rgba(59,130,246,0.20);
@@ -31,7 +31,7 @@
   --border:          rgba(0,0,0,0.07);
   --border-hover:    rgba(0,0,0,0.13);
   --text:            #0f1117;
-  --text-muted:      rgba(15,17,23,0.50);
+  --text-muted:      rgba(15,17,23,0.66);
   --shadow-card:     0 0 0 1px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.06);
   --shadow-elevated: 0 0 0 1px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.10);
 }
@@ -85,9 +85,30 @@ select { color-scheme: dark; }
 
 /* ── Focus ─────────────────────────────────────────────────────────────────── */
 :focus-visible {
-  outline: 2px solid rgba(59,130,246,0.55);
+  /* Solid, 3:1+ against both themes' surfaces (WCAG 2.4.7 / 1.4.11). */
+  outline: 2px solid #2563eb !important;
   outline-offset: 2px;
   border-radius: 4px;
+}
+[data-theme="dark"] :focus-visible { outline-color: #60a5fa !important; }
+
+/* Controls revealed on hover must also appear for keyboard users (WCAG 2.1.1 / 2.4.7):
+   a focused hover-only button was invisible, and so was its row's action set. */
+.group:focus-within .group-hover\:opacity-100,
+.group:focus-within .lg\:group-hover\:opacity-100,
+.group\/th:focus-within .group-hover\/th\:opacity-100,
+.opacity-0:focus-visible,
+.lg\:opacity-0:focus-visible { opacity: 1 !important; }
+
+/* Motion the visitor asked the OS to reduce (WCAG 2.3.3 / 2.2.2): no looping or decorative
+   animation, near-instant transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── Input autofill ────────────────────────────────────────────────────────── */
@@ -130,8 +151,8 @@ input:-webkit-autofill {
 }
 .input:focus {
   outline: none;
-  border-color: rgba(59,130,246,0.6);
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.35);
 }
 .input::placeholder { color: var(--text-muted); }
 .input-error {
@@ -268,14 +289,27 @@ optgroup {
 [data-theme="light"] .text-white\/65    { color: rgba(15,17,23,0.66) !important; }
 [data-theme="light"] .text-white\/60    { color: rgba(15,17,23,0.62) !important; }
 [data-theme="light"] .text-white\/55    { color: rgba(15,17,23,0.75) !important; }
-[data-theme="light"] .text-white\/50    { color: rgba(15,17,23,0.62) !important; }
-[data-theme="light"] .text-white\/45    { color: rgba(15,17,23,0.55) !important; }
-[data-theme="light"] .text-white\/40    { color: rgba(15,17,23,0.50) !important; }
-[data-theme="light"] .text-white\/35    { color: rgba(15,17,23,0.42) !important; }
-[data-theme="light"] .text-white\/30    { color: rgba(15,17,23,0.38) !important; }
-[data-theme="light"] .text-white\/25    { color: rgba(15,17,23,0.32) !important; }
-[data-theme="light"] .text-white\/20    { color: rgba(15,17,23,0.28) !important; }
-[data-theme="light"] .text-white\/15    { color: rgba(15,17,23,0.22) !important; }
+[data-theme="light"] .text-white\/50    { color: rgba(15,17,23,0.66) !important; }
+/* Secondary text. WCAG AA asks 4.5:1 for normal text; on the light surfaces (#f2f3f8 /
+   #fff) that is ~0.62 opacity of #0f1117. These tones carry real words — labels, hints,
+   counts, footer links — so none of them may drop below it. Pure decoration (dividers,
+   watermark numerals) should use a border/background token, not faint text. */
+[data-theme="light"] .text-white\/45    { color: rgba(15,17,23,0.66) !important; }
+[data-theme="light"] .text-white\/40    { color: rgba(15,17,23,0.66) !important; }
+[data-theme="light"] .text-white\/35    { color: rgba(15,17,23,0.64) !important; }
+[data-theme="light"] .text-white\/30    { color: rgba(15,17,23,0.64) !important; }
+[data-theme="light"] .text-white\/25    { color: rgba(15,17,23,0.62) !important; }
+[data-theme="light"] .text-white\/20    { color: rgba(15,17,23,0.62) !important; }
+[data-theme="light"] .text-white\/15    { color: rgba(15,17,23,0.40) !important; }
+
+/* Dark theme: Tailwind's own white/20–/45 are 1.8–4.1:1 on #0a0a0e. Lift every tone that
+   carries words to ≥ 4.5:1 (~0.56 of white). */
+[data-theme="dark"] .text-white\/45,
+[data-theme="dark"] .text-white\/40,
+[data-theme="dark"] .text-white\/35,
+[data-theme="dark"] .text-white\/30,
+[data-theme="dark"] .text-white\/25,
+[data-theme="dark"] .text-white\/20 { color: rgba(255,255,255,0.58) !important; }
 [data-theme="light"] .text-white\/10    { color: rgba(15,17,23,0.18) !important; }
 
 /* Browser autofill on the white auth inputs: Chrome (esp. in OS dark mode) paints
@@ -301,11 +335,11 @@ input.bg-white:-webkit-autofill:active {
 .always-dark .text-white\/70  { color: rgba(255,255,255,0.70) !important; }
 .always-dark .text-white\/60  { color: rgba(255,255,255,0.60) !important; }
 .always-dark .text-white\/55  { color: rgba(255,255,255,0.55) !important; }
-.always-dark .text-white\/50  { color: rgba(255,255,255,0.50) !important; }
-.always-dark .text-white\/45  { color: rgba(255,255,255,0.45) !important; }
-.always-dark .text-white\/40  { color: rgba(255,255,255,0.40) !important; }
-.always-dark .text-white\/30  { color: rgba(255,255,255,0.30) !important; }
-.always-dark .text-white\/28  { color: rgba(255,255,255,0.28) !important; }
+.always-dark .text-white\/50  { color: rgba(255,255,255,0.64) !important; }
+.always-dark .text-white\/45  { color: rgba(255,255,255,0.62) !important; }
+.always-dark .text-white\/40  { color: rgba(255,255,255,0.62) !important; }
+.always-dark .text-white\/30  { color: rgba(255,255,255,0.60) !important; }
+.always-dark .text-white\/28  { color: rgba(255,255,255,0.60) !important; }
 
 /* Borders (remaining opacity variants still in use) */
 [data-theme="light"] .border-white\/20  { border-color: rgba(0,0,0,0.16) !important; }
@@ -336,13 +370,19 @@ input.bg-white:-webkit-autofill:active {
 [data-theme="light"] .hover\:bg-white\/\[0\.04\]:hover     { background-color: rgba(0,0,0,0.03) !important; }
 [data-theme="light"] .bg-white\/\[0\.04\]                  { background-color: rgba(0,0,0,0.03) !important; }
 
-/* Blue button text stays white */
-[data-theme="light"] button.bg-blue-600,
-[data-theme="light"] button.bg-blue-500,
-[data-theme="light"] .bg-blue-600.text-white,
-[data-theme="light"] .bg-blue-500.text-white {
+/* Text on a solid accent stays white — buttons AND links styled as buttons (a CTA <a> with
+   bg-blue-600 inherited the light-theme dark text: ~3.4:1 on blue). */
+[data-theme="light"] .bg-blue-600,
+[data-theme="light"] .bg-blue-500,
+[data-theme="light"] .bg-blue-600\/90,
+[data-theme="light"] .from-blue-600,
+[data-theme="light"] .bg-rose-600,
+[data-theme="light"] .bg-emerald-600,
+[data-theme="light"] .bg-violet-600 {
   color: #ffffff !important;
 }
+[data-theme="light"] .bg-blue-600 .text-white,
+[data-theme="light"] .from-blue-600 .text-white { color: #ffffff !important; }
 
 /* Card shadows */
 [data-theme="light"] .rounded-xl.border,
@@ -371,8 +411,27 @@ input.bg-white:-webkit-autofill:active {
 }
 [data-theme="light"] input::placeholder,
 [data-theme="light"] textarea::placeholder {
-  color: rgba(15,17,23,0.35) !important;
+  color: rgba(15,17,23,0.58) !important;
 }
+
+/* Accent text that was tuned for the dark surface (400 shades) is ~2:1 on white. */
+[data-theme="light"] .text-blue-400,
+[data-theme="light"] .text-blue-400\/70,
+[data-theme="light"] .text-blue-300 { color: #1d4ed8 !important; }
+[data-theme="light"] .text-emerald-400,
+[data-theme="light"] .text-emerald-400\/90,
+[data-theme="light"] .text-emerald-300 { color: #047857 !important; }
+[data-theme="light"] .text-amber-400,
+[data-theme="light"] .text-amber-400\/90,
+[data-theme="light"] .text-amber-300 { color: #b45309 !important; }
+[data-theme="light"] .text-red-400,
+[data-theme="light"] .text-red-300 { color: #b91c1c !important; }
+[data-theme="light"] .text-violet-400,
+[data-theme="light"] .text-violet-300,
+[data-theme="light"] .text-purple-400 { color: #6d28d9 !important; }
+[data-theme="light"] .text-rose-300,
+[data-theme="light"] .text-rose-400 { color: #be123c !important; }
+[data-theme="light"] .text-gray-400 { color: #4b5563 !important; }
 
 /* Sidebar active */
 [data-theme="light"] .bg-blue-600\/20 { background-color: rgba(37,99,235,0.10) !important; }
@@ -427,7 +486,7 @@ input.bg-white:-webkit-autofill:active {
    are unreadable on the light background — darken them. */
 [data-theme="light"] .text-amber-200 { color: #92400e !important; }
 [data-theme="light"] .text-amber-300 { color: #b45309 !important; }
-[data-theme="light"] .text-amber-400 { color: #d97706 !important; }
+[data-theme="light"] .text-amber-400 { color: #b45309 !important; } /* 4.6:1 on #f2f3f8 (#d97706 was 2.9:1) */
 [data-theme="light"] .text-amber-300\/70,
 [data-theme="light"] .text-amber-300\/80,
 [data-theme="light"] .text-amber-400\/90 { color: rgba(180, 83, 9, 0.8) !important; }
@@ -445,9 +504,9 @@ input.bg-white:-webkit-autofill:active {
 [data-theme="light"] .text-emerald-300,
 [data-theme="light"] .text-green-300   { color: #047857 !important; }
 [data-theme="light"] .text-blue-200    { color: #1d4ed8 !important; }
-[data-theme="light"] .text-blue-300    { color: #2563eb !important; }
+[data-theme="light"] .text-blue-300    { color: #1d4ed8 !important; } /* 4.5:1+ on a blue tint */
 [data-theme="light"] .text-violet-200  { color: #6d28d9 !important; }
-[data-theme="light"] .text-violet-300  { color: #7c3aed !important; }
+[data-theme="light"] .text-violet-300  { color: #6d28d9 !important; }
 [data-theme="light"] .text-pink-200    { color: #9d174d !important; }
 [data-theme="light"] .text-pink-300    { color: #be185d !important; }
 [data-theme="light"] .text-rose-300    { color: #be123c !important; }

@@ -115,7 +115,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <p className="text-[11px] text-white/35 mt-1 leading-none whitespace-nowrap">מבית Win Solutions</p>
         </div>
 
-        <button
+        <button aria-label="מצב כהה" aria-pressed={theme === 'dark'}
           onClick={toggleTheme}
           title={theme === 'dark' ? 'מצב בהיר' : 'מצב כהה'}
           className="w-6 h-6 rounded-md flex items-center justify-center text-white/25 hover:text-white/70 hover:bg-white/[0.08] transition-all shrink-0"
@@ -125,10 +125,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {/* ── Navigation ───────────────────────────────────────────────────── */}
-      <nav className="flex-1 px-3 py-3 overflow-y-auto space-y-5">
+      <nav aria-label="ניווט ראשי" className="flex-1 px-3 py-3 overflow-y-auto space-y-5">
         {NAV_SECTIONS.map((section) => (
-          <div key={section.title}>
-            <p className="section-label px-2.5 mb-1.5">
+          <div key={section.title} role="group" aria-label={section.title}>
+            <p className="section-label px-2.5 mb-1.5" aria-hidden="true">
               {section.title}
             </p>
 
@@ -140,6 +140,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     key={href}
                     href={href}
                     onClick={onNavigate}
+                    aria-current={active ? 'page' : undefined}
                     className={`group relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-body font-medium transition-all duration-150
                       ${active
                         ? 'bg-gradient-to-l from-blue-500/[0.18] to-violet-500/[0.07] text-blue-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -268,7 +269,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </div>
           </div>
 
-          <button
+          <button aria-label="התנתק"
             onClick={logout}
             className="p-1 rounded-md text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
             title="התנתק"

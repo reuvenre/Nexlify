@@ -12,9 +12,9 @@
   --store-bg: #faf8f3;
   --store-card: #ffffff;
   --store-ink: #14110d;
-  --store-muted: #8b8578;
+  --store-muted: #6b665b; /* 5.4:1 on --store-bg (was 3.4:1) */
   --store-line: #e8e2d6;
-  --store-gold: #b3902f;
+  --store-gold: #8a6d1f; /* 4.8:1 on white (was 3.0:1) — prices and links */
 
   background: var(--store-bg);
   color: var(--store-ink);

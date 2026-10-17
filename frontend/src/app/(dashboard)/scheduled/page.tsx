@@ -157,13 +157,13 @@ export default function ScheduledPostsPage() {
         <>
         <div>
           <label className="block text-xs text-white/50 mb-1.5">שם (לזיהוי בלבד)</label>
-          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          <input aria-label="שם (לזיהוי בלבד)" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="למשל: מבצע סופ״ש" className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/85 outline-none focus:border-blue-500/50" />
         </div>
 
         <div>
           <label className="block text-xs text-white/50 mb-1.5">תוכן הפוסט *</label>
-          <textarea ref={bodyRef} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} rows={5}
+          <textarea aria-label="תוכן הפוסט *" ref={bodyRef} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} rows={5}
             placeholder="הטקסט המדויק שיפורסם..." className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white/85 outline-none focus:border-blue-500/50 resize-y" />
           <div className="mt-2 rounded-lg border border-edge-hover bg-white/[0.03] p-2.5 space-y-2">
             <p className="text-[11px] text-white/45 flex items-center gap-1.5"><Link2 size={12} /> קישור על טקסט — שים את הסמן בטקסט במקום הרצוי. בפוסט יופיעו רק המילים, והן יהיו לחיצות</p>
@@ -180,7 +180,7 @@ export default function ScheduledPostsPage() {
 
         <div>
           <label className="block text-xs text-white/50 mb-1.5">קישורי תמונות (אחד בכל שורה, אופציונלי)</label>
-          <textarea value={form.imagesText} onChange={(e) => setForm((f) => ({ ...f, imagesText: e.target.value }))} rows={2} dir="ltr"
+          <textarea aria-label="קישורי תמונות (אחד בכל שורה, אופציונלי)" value={form.imagesText} onChange={(e) => setForm((f) => ({ ...f, imagesText: e.target.value }))} rows={2} dir="ltr"
             placeholder="https://...jpg" className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-xs text-white/80 outline-none focus:border-blue-500/50 font-mono resize-y" />
           <label className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer ${uploading ? 'bg-white/5 text-white/40' : 'bg-blue-600/20 text-blue-300 hover:bg-blue-600/30'}`}>
             {uploading ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
@@ -198,12 +198,12 @@ export default function ScheduledPostsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-white/50 mb-1.5">מתי לשלוח</label>
-            <input type="datetime-local" value={form.sendAt} onChange={(e) => setForm((f) => ({ ...f, sendAt: e.target.value }))}
+            <input aria-label="מתי לשלוח" type="datetime-local" value={form.sendAt} onChange={(e) => setForm((f) => ({ ...f, sendAt: e.target.value }))}
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-blue-500/50" />
           </div>
           <div>
             <label className="block text-xs text-white/50 mb-1.5">חזרתיות</label>
-            <select value={form.repeat} onChange={(e) => setForm((f) => ({ ...f, repeat: e.target.value as CustomPostRepeat }))}
+            <select aria-label="חזרתיות" value={form.repeat} onChange={(e) => setForm((f) => ({ ...f, repeat: e.target.value as CustomPostRepeat }))}
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-blue-500/50">
               <option value="none">חד-פעמי</option>
               <option value="daily">כל יום</option>
@@ -263,9 +263,9 @@ export default function ScheduledPostsPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => editPost(p)} title="ערוך" className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-blue-400 hover:bg-blue-500/10"><Send size={13} /></button>
-                  <button onClick={() => toggle(p)} title={p.enabled ? 'השהה' : 'הפעל'} className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-500/10"><Power size={13} /></button>
-                  <button onClick={() => remove(p)} title="מחק" className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 size={13} /></button>
+                  <button aria-label="ערוך" onClick={() => editPost(p)} title="ערוך" className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-blue-400 hover:bg-blue-500/10"><Send size={13} /></button>
+                  <button aria-label={p.enabled ? 'השהה' : 'הפעל'} onClick={() => toggle(p)} title={p.enabled ? 'השהה' : 'הפעל'} className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-500/10"><Power size={13} /></button>
+                  <button aria-label="מחק" onClick={() => remove(p)} title="מחק" className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400/60 hover:text-red-400 hover:bg-red-500/10"><Trash2 size={13} /></button>
                 </div>
               </div>
             ))}

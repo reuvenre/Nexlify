@@ -19,7 +19,7 @@ function ResetForm() {
 
   if (!token) {
     return (
-      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+      <div role="alert" className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
         <AlertCircle size={14} className="text-red-500 shrink-0" />
         <p className="text-sm text-red-600">קישור האיפוס אינו תקין. בקש קישור חדש.</p>
       </div>
@@ -55,8 +55,10 @@ function ResetForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">סיסמה חדשה</label>
+        <label htmlFor="reset-password" className="block text-sm font-medium text-gray-700 mb-1.5">סיסמה חדשה</label>
         <input
+          id="reset-password"
+          aria-invalid={!!error}
           type="password"
           required
           value={password}
@@ -67,8 +69,10 @@ function ResetForm() {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">אישור סיסמה</label>
+        <label htmlFor="reset-confirm" className="block text-sm font-medium text-gray-700 mb-1.5">אישור סיסמה</label>
         <input
+          id="reset-confirm"
+          aria-invalid={!!error}
           type="password"
           required
           value={confirm}
@@ -80,7 +84,7 @@ function ResetForm() {
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+        <div role="alert" className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
           <AlertCircle size={14} className="text-red-500 shrink-0" />
           <p className="text-xs text-red-600">{error}</p>
         </div>
@@ -89,7 +93,7 @@ function ResetForm() {
       <button
         type="submit"
         disabled={isLoading}
-        className="w-full py-2.5 rounded-lg bg-[#8b9ed4] hover:bg-[#7a8ec8] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
+        className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
       >
         {isLoading && <Loader2 size={15} className="animate-spin" />}
         {isLoading ? 'מעדכן...' : 'עדכן סיסמה'}
@@ -101,14 +105,14 @@ function ResetForm() {
 export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen flex" style={{ direction: 'rtl' }}>
-      <div className="w-full lg:w-[47%] flex flex-col bg-[#f3f4f6]">
+      <main id="main" tabIndex={-1} className="w-full lg:w-[47%] flex flex-col bg-[#f3f4f6] outline-none">
         <div className="flex-1 flex items-center justify-center px-8 py-12">
           <div className="w-full max-w-[390px] bg-white rounded-2xl shadow-sm border border-gray-100 px-8 py-8">
             <div className="mb-6 text-center">
               <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
                 <KeyRound size={22} className="text-blue-600" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">הגדרת סיסמה חדשה</h2>
+              <h1 className="text-2xl font-bold text-gray-900">הגדרת סיסמה חדשה</h1>
               <p className="text-gray-500 text-sm mt-1">בחר סיסמה חזקה לחשבונך</p>
             </div>
 
@@ -123,7 +127,7 @@ export default function ResetPasswordPage() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
       <div
         className="hidden lg:flex lg:flex-1 flex-col relative overflow-hidden"
@@ -141,11 +145,11 @@ export default function ResetPasswordPage() {
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="relative z-10 px-12 max-w-lg text-center">
-            <h1 className="text-5xl font-extrabold text-white leading-tight mb-5">
+            <p className="text-5xl font-extrabold text-white leading-tight mb-5">
               כמעט שם
               <br />
               <span className="gradient-text-hero">חזור פנימה</span>
-            </h1>
+            </p>
             <p className="text-white/45 text-base leading-relaxed">
               הגדר סיסמה חדשה וחזור לנהל<br />את הטייס האוטומטי שלך.
             </p>

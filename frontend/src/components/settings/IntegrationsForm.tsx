@@ -395,7 +395,7 @@ export function IntegrationsForm() {
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
                 dir="ltr"
               />
-              <button type="button" onClick={() => setShowToken((s) => !s)}
+              <button aria-label={showToken ? 'הסתר טוקן' : 'הצג טוקן'} type="button" onClick={() => setShowToken((s) => !s)}
                 className="absolute top-1/2 right-3 -translate-y-1/2 text-white/30 hover:text-white/60">
                 {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
@@ -404,7 +404,7 @@ export function IntegrationsForm() {
           </div>
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">ערוץ ברירת מחדל</label>
-            <input
+            <input aria-label="ערוץ ברירת מחדל"
               value={defaultChannel}
               onChange={(e) => setDefaultChannel(e.target.value)}
               placeholder="@mychannel או -100123456789"
@@ -452,23 +452,23 @@ export function IntegrationsForm() {
           <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">ID Instance</label>
-              <input value={greenInstance} onChange={(e) => setGreenInstance(e.target.value)} placeholder="1101000001" dir="ltr"
+              <input aria-label="ID Instance" value={greenInstance} onChange={(e) => setGreenInstance(e.target.value)} placeholder="1101000001" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
             </div>
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">API Token Instance</label>
-              <input value={greenToken} onChange={(e) => setGreenToken(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
+              <input aria-label="API Token Instance" value={greenToken} onChange={(e) => setGreenToken(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
             </div>
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">מזהה קבוצת יעד (Group ID)</label>
-              <input value={waGroupId} onChange={(e) => setWaGroupId(e.target.value)} placeholder="120363XXXXXXXXXXXX@g.us" dir="ltr"
+              <input aria-label="מזהה קבוצת יעד (Group ID)" value={waGroupId} onChange={(e) => setWaGroupId(e.target.value)} placeholder="120363XXXXXXXXXXXX@g.us" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
               <p className="text-2xs text-white/30 mt-1.5">מזהה הקבוצה מקונסולת Green API (או השדה getChatId). ניתן להדביק עם או בלי הסיומת <span dir="ltr">@g.us</span>.</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">API URL (אופציונלי)</label>
-              <input value={greenUrl} onChange={(e) => setGreenUrl(e.target.value)} placeholder="https://api.green-api.com" dir="ltr"
+              <input aria-label="API URL (אופציונלי)" value={greenUrl} onChange={(e) => setGreenUrl(e.target.value)} placeholder="https://api.green-api.com" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
               <p className="text-2xs text-white/30 mt-1.5">ריק = ברירת המחדל. אם ה-instance שלך משתמש בכתובת אחרת (למשל <span dir="ltr">https://7105.api.greenapi.com</span>) — הדבק אותה כאן.</p>
             </div>
@@ -477,17 +477,17 @@ export function IntegrationsForm() {
           <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">Phone Number ID</label>
-              <input value={waPhoneId} onChange={(e) => setWaPhoneId(e.target.value)} placeholder="1050000000000000" dir="ltr"
+              <input aria-label="Phone Number ID" value={waPhoneId} onChange={(e) => setWaPhoneId(e.target.value)} placeholder="1050000000000000" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
             </div>
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">Access Token</label>
-              <input value={waToken} onChange={(e) => setWaToken(e.target.value)} type="password" placeholder="EAAG..." dir="ltr"
+              <input aria-label="Access Token" value={waToken} onChange={(e) => setWaToken(e.target.value)} type="password" placeholder="EAAG..." dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
             </div>
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">מספר יעד (Recipient)</label>
-              <input value={waGroupId} onChange={(e) => setWaGroupId(e.target.value)} placeholder="972500000000" dir="ltr"
+              <input aria-label="מספר יעד (Recipient)" value={waGroupId} onChange={(e) => setWaGroupId(e.target.value)} placeholder="972500000000" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
               <p className="text-2xs text-white/30 mt-1.5">ה-API הרשמי שולח למספר בודד (שפנה לעסק ב-24 השעות האחרונות / דרך תבנית מאושרת). אין תמיכה בקבוצות.</p>
             </div>
@@ -589,12 +589,12 @@ export function IntegrationsForm() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">App ID</label>
-              <input value={pinAppId} onChange={(e) => setPinAppId(e.target.value)} placeholder="1593115" dir="ltr"
+              <input aria-label="App ID" value={pinAppId} onChange={(e) => setPinAppId(e.target.value)} placeholder="1593115" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
             </div>
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">App Secret</label>
-              <input value={pinAppSecret} onChange={(e) => setPinAppSecret(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
+              <input aria-label="App Secret" value={pinAppSecret} onChange={(e) => setPinAppSecret(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
             </div>
           </div>
@@ -660,17 +660,17 @@ export function IntegrationsForm() {
         <div className="grid grid-cols-1 gap-3">
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">Access Key</label>
-            <input value={amzAccess} onChange={(e) => setAmzAccess(e.target.value)} placeholder="AKIA..." dir="ltr"
+            <input aria-label="Access Key" value={amzAccess} onChange={(e) => setAmzAccess(e.target.value)} placeholder="AKIA..." dir="ltr"
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
           </div>
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">Secret Key</label>
-            <input value={amzSecret} onChange={(e) => setAmzSecret(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
+            <input aria-label="Secret Key" value={amzSecret} onChange={(e) => setAmzSecret(e.target.value)} type="password" placeholder="••••••••" dir="ltr"
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
           </div>
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">Partner Tag (Associate Tag)</label>
-            <input value={amzPartner} onChange={(e) => setAmzPartner(e.target.value)} placeholder="mytag-20" dir="ltr"
+            <input aria-label="Partner Tag (Associate Tag)" value={amzPartner} onChange={(e) => setAmzPartner(e.target.value)} placeholder="mytag-20" dir="ltr"
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
           </div>
         </div>
@@ -723,7 +723,7 @@ export function IntegrationsForm() {
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
                 dir="ltr"
               />
-              <button type="button" onClick={() => setShowFbToken((s) => !s)}
+              <button aria-label={showFbToken ? 'הסתר טוקן' : 'הצג טוקן'} type="button" onClick={() => setShowFbToken((s) => !s)}
                 className="absolute top-1/2 right-3 -translate-y-1/2 text-white/30 hover:text-white/60">
                 {showFbToken ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
@@ -766,10 +766,10 @@ export function IntegrationsForm() {
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">כתובת Webhook של Make</label>
-            <input value={makeUrl} onChange={(e) => setMakeUrl(e.target.value)} placeholder="https://hook.eu2.make.com/..." dir="ltr"
+            <input aria-label="כתובת Webhook של Make" value={makeUrl} onChange={(e) => setMakeUrl(e.target.value)} placeholder="https://hook.eu2.make.com/..." dir="ltr"
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50" />
           </div>
-          <button
+          <button role="switch" aria-checked={!!(pubViaMake)}
             type="button"
             onClick={() => setPubViaMake((v) => !v)}
             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all
@@ -795,7 +795,7 @@ export function IntegrationsForm() {
             { label: 'Facebook', emoji: '📘', value: pubFacebook, set: setPubFacebook },
             { label: 'Instagram', emoji: '📸', value: pubInstagram, set: setPubInstagram },
           ].map((ch) => (
-            <button
+            <button role="switch" aria-checked={!!(ch.value)}
               key={ch.label}
               type="button"
               onClick={() => ch.set(!ch.value)}
@@ -814,7 +814,7 @@ export function IntegrationsForm() {
         {pubFacebook && (
           <div className="mt-3 border-t border-edge pt-3">
             <label className="block text-xs font-medium text-white/60 mb-1.5">מרווח מינימלי בין פרסומים לפייסבוק (דקות)</label>
-            <input
+            <input aria-label="מרווח מינימלי בין פרסומים לפייסבוק (דקות)"
               type="number" min={0} step={30}
               value={fbMinInterval}
               onChange={(e) => setFbMinInterval(e.target.value)}
@@ -838,7 +838,7 @@ export function IntegrationsForm() {
         <p className="text-2xs text-white/30 mb-4">
           לפני פרסום בטלגרם, תמונות המוצר עוברות שיפור אוטומטי — חידוד, הבהרה, חיזוק צבעים ואיזון ניגודיות — לתמונה מקצועית ומזמינה יותר.
         </p>
-        <button
+        <button role="switch" aria-checked={!!(imageEnhance)}
           type="button"
           onClick={() => setImageEnhance((v) => !v)}
           className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all
@@ -851,7 +851,7 @@ export function IntegrationsForm() {
         </button>
 
         {/* Product video instead of image (Telegram + WhatsApp) */}
-        <button
+        <button role="switch" aria-checked={!!(preferVideo)}
           type="button"
           onClick={() => setPreferVideo((v) => !v)}
           className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all mt-2
@@ -939,7 +939,7 @@ export function IntegrationsForm() {
         </p>
         <div>
           <label className="block text-xs font-medium text-white/50 mb-1.5">Instagram Business Account ID</label>
-          <input
+          <input aria-label="Instagram Business Account ID"
             value={igBusinessId}
             onChange={(e) => setIgBusinessId(e.target.value)}
             placeholder="17841400000000000" dir="ltr"
@@ -991,7 +991,7 @@ export function IntegrationsForm() {
                 <div className={`text-xs px-2 py-0.5 rounded-full ${c.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-white/30'}`}>
                   {c.is_active ? 'פעיל' : 'מושבת'}
                 </div>
-                <button onClick={() => handleDeleteChannel(c.id)}
+                <button aria-label="מחיקה" onClick={() => handleDeleteChannel(c.id)}
                   className="p-1 text-white/20 hover:text-red-400 transition-colors">
                   <Trash2 size={13} />
                 </button>

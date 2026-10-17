@@ -12,6 +12,7 @@ import { catalogApi, postsApi } from '@/lib/api-client';
 import { ProductSourceTabs } from '@/components/products/ProductSourceTabs';
 import type { CatalogProduct, CatalogStats } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const SYMS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
@@ -137,6 +138,7 @@ function ImportModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ direction: 'rtl' }}>
+      <DialogA11y label="ייבוא מוצרים" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-md bg-surface-secondary border border-edge rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
@@ -145,7 +147,7 @@ function ImportModal({
             <h2 className="text-[15px] font-semibold text-white">ייבא מוצרים</h2>
             <p className="text-xs text-white/40 mt-0.5">ייבא מוצרים מ-AliExpress לקטלוג שלך</p>
           </div>
-          <button
+          <button aria-label="סגור"
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-all"
           >
@@ -178,7 +180,7 @@ function ImportModal({
                 <label className="block text-xs font-medium text-white/50 mb-1.5">
                   כתובת URL או מזהה מוצר
                 </label>
-                <input
+                <input aria-label="כתובת URL או מזהה מוצר"
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -190,7 +192,7 @@ function ImportModal({
               </div>
               <div>
                 <label className="block text-xs font-medium text-white/50 mb-1.5">קטגוריה (אופציונלי)</label>
-                <input
+                <input aria-label="קטגוריה (אופציונלי)"
                   type="text"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
@@ -549,6 +551,7 @@ function ProductRow({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setShowSchedule(false)}
           >
+              <DialogA11y label="תזמון פוסט" onClose={() => setShowSchedule(false)} />
             <div
               className="bg-surface-secondary border border-edge rounded-2xl p-5 w-[360px] shadow-elevated"
               onClick={(e) => e.stopPropagation()}
@@ -558,7 +561,7 @@ function ProductRow({
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Clock size={14} className="text-blue-400" /> תזמון פרסום
                 </h3>
-                <button onClick={() => setShowSchedule(false)} className="text-white/30 hover:text-white/60">
+                <button aria-label="סגור" onClick={() => setShowSchedule(false)} className="text-white/30 hover:text-white/60">
                   <X size={14} />
                 </button>
               </div>
@@ -574,7 +577,7 @@ function ProductRow({
               )}
 
               <label className="block text-2xs text-white/40 mb-1.5">תאריך ושעה לפרסום</label>
-              <input
+              <input aria-label="תאריך ושעה לפרסום"
                 type="datetime-local"
                 value={scheduledAt}
                 onChange={(e) => setScheduledAt(e.target.value)}

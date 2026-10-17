@@ -254,19 +254,24 @@ function TemplateRow({
       onClick={onSelect}
     >
       <span className="text-base shrink-0 w-6 text-center">{template.icon}</span>
-      <span className={`flex-1 text-xs truncate ${isSelected ? 'text-blue-300 font-medium' : 'text-white/60'}`}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onSelect(); }}
+        aria-pressed={!!isSelected}
+        className={`flex-1 text-xs truncate text-right ${isSelected ? 'text-blue-300 font-medium' : 'text-white/60'}`}
+      >
         {template.name}
-      </span>
+      </button>
       {isSelected && <Check size={11} className="text-blue-400 shrink-0" />}
       {!template.builtin && (
-        <div className="hidden group-hover:flex items-center gap-1 shrink-0">
-          <button
+        <div className="hidden group-hover:flex group-focus-within:flex items-center gap-1 shrink-0">
+          <button aria-label="עריכת תבנית"
             onClick={(e) => { e.stopPropagation(); onEdit?.(); }}
             className="p-1 text-white/30 hover:text-white/70 rounded transition-colors"
           >
             <Pencil size={10} />
           </button>
-          <button
+          <button aria-label="מחיקת תבנית"
             onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
             className="p-1 text-white/30 hover:text-red-400 rounded transition-colors"
           >

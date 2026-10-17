@@ -166,7 +166,7 @@ export function SecurityForm() {
           className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
           dir="ltr"
         />
-        <button
+        <button aria-label={show[field] ? 'הסתר סיסמה' : 'הצג סיסמה'}
           type="button"
           onClick={() => setShow((s) => ({ ...s, [field]: !s[field] }))}
           className="absolute top-1/2 right-3 -translate-y-1/2 text-white/30 hover:text-white/60"

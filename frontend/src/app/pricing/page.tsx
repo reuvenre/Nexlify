@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LegalLinks } from '@/components/LegalLinks';
 import type { Metadata } from 'next';
 import { Check, Sparkles, ArrowLeft, Flame } from 'lucide-react';
 import { dealFor, dealPrice, endsInLabel } from '@/lib/deals';
@@ -125,7 +126,7 @@ export default async function PricingPage() {
             </div>
             <span className="text-lg font-bold tracking-tight">Nexlify</span>
           </Link>
-          <nav className="flex items-center gap-1 sm:gap-3">
+          <nav aria-label="ראשי" className="flex items-center gap-1 sm:gap-3">
             <Link href="/blog" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">מדריכים</Link>
             <Link href="/login" className="text-sm text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">כניסה</Link>
             <Link href="/register" className="text-sm font-medium bg-blue-600 hover:bg-blue-500 transition-colors rounded-xl px-4 py-2">
@@ -135,6 +136,7 @@ export default async function PricingPage() {
         </div>
       </header>
 
+      <main id="main" tabIndex={-1} className="outline-none">
       {/* Heading */}
       <section className="relative">
         <div className="absolute inset-0 -z-10 overflow-hidden">
@@ -200,16 +202,17 @@ export default async function PricingPage() {
                 return (
                   <div className="text-center mb-5">
                     <div className="flex items-center justify-center gap-2">
-                      <p className="text-lg font-bold">{plan.name}</p>
+                      <h2 className="text-lg font-bold">{plan.name}</h2>
                       {onSale && (
                         <span className="text-2xs font-bold bg-amber-500 text-black rounded-full px-2 py-0.5">מבצע</span>
                       )}
                     </div>
                     <div className="flex items-baseline justify-center gap-1.5 mt-3">
                       {onSale && (
-                        <span className="text-xl font-semibold text-white/35 line-through">{plan.monthly}</span>
+                        <del className="text-xl font-semibold text-white/35"><span className="sr-only">מחיר רגיל: </span>{plan.monthly}</del>
                       )}
                       <span className={`text-5xl font-extrabold tracking-tight ${onSale ? 'text-amber-300' : ''}`}>
+                        {onSale && <span className="sr-only">מחיר מבצע: </span>}
                         {isFree ? '0' : onSale ? promoPrice : plan.monthly}
                       </span>
                       <span className="text-sm text-white/40">₪ / חודש</span>
@@ -228,10 +231,11 @@ export default async function PricingPage() {
 
               <Link
                 href="/register"
+                aria-label={`התחילו עכשיו — מסלול ${plan.name}`}
                 className={`w-full text-center py-2.5 rounded-xl text-sm font-semibold transition-all mb-5
                   ${plan.popular
                     ? 'bg-gradient-to-r from-blue-600 to-violet-600 hover:brightness-110 text-white shadow-lg shadow-blue-600/30'
-                    : 'bg-blue-600/90 hover:bg-blue-600 text-white'}`}
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
               >
                 התחילו עכשיו
               </Link>
@@ -269,7 +273,7 @@ export default async function PricingPage() {
             {' '}5,000 / ₪59 · 15,000 / ₪149 · 50,000 / ₪399.
           </p>
           <p className="text-sm text-white/45">
-            שאלות? <Link href="/register" className="text-blue-400 hover:text-blue-300">הירשמו</Link> או כתבו לנו — נשמח לעזור להתאים מסלול.
+            שאלות? <Link href="/register" className="text-blue-400 hover:text-blue-300 underline">הירשמו</Link> או כתבו לנו — נשמח לעזור להתאים מסלול.
           </p>
         </div>
 
@@ -286,12 +290,15 @@ export default async function PricingPage() {
         </div>
       </section>
 
+      </main>
+
       {/* Footer */}
       <footer className="border-t border-edge">
         <div className="max-w-6xl mx-auto px-6 py-10 text-center text-white/30 text-xs">
           Nexlify — מבית{' '}
           <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"
-            className="text-white/50 hover:text-white/80 underline-offset-2 hover:underline">Win Solutions</a>
+            className="text-white/70 hover:text-white underline underline-offset-2">Win Solutions</a>
+          <LegalLinks className="mt-3" linkClassName="text-white/60 hover:text-white/80 underline-offset-2 hover:underline" />
         </div>
       </footer>
     </div>

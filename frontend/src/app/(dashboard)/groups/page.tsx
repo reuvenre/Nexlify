@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react';
 import {
   Users, Plus, Trash2, CheckCircle2, XCircle,
-  Loader2, Send, Eye, EyeOff, ToggleLeft, ToggleRight, Pencil, Facebook, HelpCircle,
+  Loader2, Send, Eye, EyeOff, ToggleLeft, ToggleRight, Pencil, PlugZap, HelpCircle,
 } from 'lucide-react';
 import { channelsApi, templatesApi } from '@/lib/api-client';
 import type { Channel, CreateChannelInput, UpdateChannelInput, PostTemplate } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 const PLATFORM_ICON: Record<string, string> = { telegram: '📨' };
 const PLATFORM_LABEL: Record<string, string> = { telegram: 'Telegram' };
 
@@ -46,7 +47,7 @@ function ChannelFormFields({
     <>
       <div>
         <label className="block text-xs text-white/50 mb-1.5">שם הערוץ *</label>
-        <input
+        <input aria-label="שם הערוץ *"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="למשל: ערוץ הדילים שלי"
@@ -57,7 +58,7 @@ function ChannelFormFields({
       {!isEdit && (
         <div>
           <label className="block text-xs text-white/50 mb-1.5">פלטפורמה</label>
-          <select className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors">
+          <select aria-label="פלטפורמה" className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors">
             <option value="telegram">📨 Telegram</option>
           </select>
         </div>
@@ -74,7 +75,7 @@ function ChannelFormFields({
             className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
             dir="ltr"
           />
-          <button
+          <button aria-label={showToken ? 'הסתר טוקן' : 'הצג טוקן'}
             type="button"
             onClick={() => setShowToken(!showToken)}
             className="absolute top-1/2 right-3 -translate-y-1/2 text-white/30 hover:text-white/60"
@@ -87,7 +88,7 @@ function ChannelFormFields({
 
       <div>
         <label className="block text-xs text-white/50 mb-1.5">Channel ID</label>
-        <input
+        <input aria-label="Channel ID"
           value={channelId}
           onChange={(e) => setChannelId(e.target.value)}
           placeholder="@mychannel, -100123456789, או 1002382502297"
@@ -98,7 +99,7 @@ function ChannelFormFields({
 
       <div>
         <label className="block text-xs text-white/50 mb-1.5">תיאור (אופציונלי)</label>
-        <input
+        <input aria-label="תיאור (אופציונלי)"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="למשל: ערוץ אלקטרוניקה"
@@ -108,7 +109,7 @@ function ChannelFormFields({
 
       <div>
         <label className="block text-xs text-white/50 mb-1.5">כותרת תחתונה לקבוצה</label>
-        <select
+        <select aria-label="כותרת תחתונה לקבוצה"
           value={footerTemplateId}
           onChange={(e) => setFooterTemplateId(e.target.value)}
           className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
@@ -126,7 +127,7 @@ function ChannelFormFields({
 
       <div>
         <label className="block text-xs text-white/50 mb-1.5">עמוד פייסבוק של הקבוצה (Page ID)</label>
-        <input
+        <input aria-label="עמוד פייסבוק של הקבוצה (Page ID)"
           value={facebookPageId}
           onChange={(e) => setFacebookPageId(e.target.value)}
           placeholder="למשל: 544344958755340"
@@ -142,7 +143,7 @@ function ChannelFormFields({
           id is only usable together with that page's token in the field below. */}
       <div>
         <label className="block text-xs text-white/50 mb-1.5">אינסטגרם של הקבוצה (Instagram Business ID)</label>
-        <input
+        <input aria-label="אינסטגרם של הקבוצה (Instagram Business ID)"
           value={instagramBusinessId}
           onChange={(e) => setInstagramBusinessId(e.target.value)}
           placeholder="למשל: 17841474637683257"
@@ -168,7 +169,7 @@ function ChannelFormFields({
             className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors"
             dir="ltr"
           />
-          <button
+          <button aria-label={showFbToken ? 'הסתר טוקן' : 'הצג טוקן'}
             type="button"
             onClick={() => setShowFbToken(!showFbToken)}
             className="absolute top-1/2 right-3 -translate-y-1/2 text-white/30 hover:text-white/60"
@@ -298,6 +299,7 @@ function AddChannelModal({ onClose, onAdd, footerTemplates }: { onClose: () => v
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <DialogA11y label="הוספת ערוץ חדש" onClose={onClose} />
       <div className="bg-surface-secondary border border-edge-hover rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-base font-semibold text-white mb-5">הוסף ערוץ חדש</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -423,6 +425,7 @@ function EditChannelModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <DialogA11y label="עריכת ערוץ" onClose={onClose} />
       <div className="bg-surface-secondary border border-edge-hover rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-semibold text-white">עריכת ערוץ</h2>
@@ -530,19 +533,19 @@ function EditChannelModal({
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <label className="block text-2xs text-white/40 mb-1">כל (דק׳)</label>
-                    <input type="number" min={1} max={1440} value={interval} placeholder="גלובלי"
+                    <input aria-label="כל (דק׳)" type="number" min={1} max={1440} value={interval} placeholder="גלובלי"
                       onChange={(e) => setIntervalMin(e.target.value)}
                       className="w-full bg-white/5 border border-edge-hover rounded-lg px-2 py-1.5 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-blue-500/50" />
                   </div>
                   <div>
                     <label className="block text-2xs text-white/40 mb-1">משעה</label>
-                    <input type="number" min={0} max={23} value={startHour} placeholder="גלובלי"
+                    <input aria-label="משעה" type="number" min={0} max={23} value={startHour} placeholder="גלובלי"
                       onChange={(e) => setStartHour(e.target.value)}
                       className="w-full bg-white/5 border border-edge-hover rounded-lg px-2 py-1.5 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-blue-500/50" />
                   </div>
                   <div>
                     <label className="block text-2xs text-white/40 mb-1">עד שעה</label>
-                    <input type="number" min={1} max={24} value={endHour} placeholder="גלובלי"
+                    <input aria-label="עד שעה" type="number" min={1} max={24} value={endHour} placeholder="גלובלי"
                       onChange={(e) => setEndHour(e.target.value)}
                       className="w-full bg-white/5 border border-edge-hover rounded-lg px-2 py-1.5 text-sm text-white/80 placeholder:text-white/25 outline-none focus:border-blue-500/50" />
                   </div>
@@ -650,14 +653,14 @@ function ChannelCard({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          <button
+          <button aria-label="ערוך ערוץ"
             onClick={() => onEdit(channel)}
             className="p-1.5 text-white/30 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
             title="ערוך ערוץ"
           >
             <Pencil size={14} />
           </button>
-          <button
+          <button aria-label={channel.is_active ? 'השבת' : 'הפעל'}
             onClick={() => onToggle(channel.id, !channel.is_active)}
             className="p-1 text-white/30 hover:text-white/60 transition-colors"
             title={channel.is_active ? 'השבת' : 'הפעל'}
@@ -666,7 +669,7 @@ function ChannelCard({
               ? <ToggleRight size={22} className="text-blue-400" />
               : <ToggleLeft size={22} />}
           </button>
-          <button
+          <button aria-label="מחק"
             onClick={handleDelete}
             disabled={deleting}
             className="p-1.5 text-white/20 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
@@ -708,7 +711,7 @@ function ChannelCard({
             disabled={fbTesting}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 disabled:opacity-60 text-blue-300 text-xs rounded-lg transition-all"
           >
-            {fbTesting ? <Loader2 size={12} className="animate-spin" /> : <Facebook size={12} />}
+            {fbTesting ? <Loader2 size={12} className="animate-spin" /> : <PlugZap size={12} />}
             בדוק דף פייסבוק
           </button>
         )}

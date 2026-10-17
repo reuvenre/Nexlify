@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <MarketingShell>
-      <section className="max-w-3xl mx-auto px-6 pt-14 pb-10" dir="ltr">
+      <section className="max-w-3xl mx-auto px-6 pt-14 pb-10" dir="ltr" lang="en">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2">Terms of Service</h1>
         <p className="text-sm text-white/40 mb-10">Nexlify by Win-Solutions · Last updated: July 27, 2026</p>
 

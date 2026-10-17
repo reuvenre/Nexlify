@@ -121,7 +121,7 @@ export function CredentialsForm() {
           dir="ltr"
         />
         {secret && (
-          <button
+          <button aria-label={show[field] ? 'הסתר ערך' : 'הצג ערך'}
             type="button"
             onClick={() => toggleShow(field)}
             className="absolute top-1/2 left-3 -translate-y-1/2 text-white/30 hover:text-white/60"
@@ -204,7 +204,7 @@ export function CredentialsForm() {
               <Field label="Anthropic API Key" field="anthropic_api_key" secret placeholder="sk-ant-..." hint="ברירת מחדל: משתמש במפתח השרת אם ריק" />
               <div>
                 <label className="block text-xs font-medium text-white/50 mb-1.5">מודל Claude</label>
-                <select
+                <select aria-label="מודל Claude"
                   value={form.anthropic_model}
                   onChange={(e) => setForm((f) => ({ ...f, anthropic_model: e.target.value }))}
                   className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
@@ -222,7 +222,7 @@ export function CredentialsForm() {
               <Field label="OpenAI API Key" field="openai_api_key" secret placeholder="sk-proj-..." />
               <div>
                 <label className="block text-xs font-medium text-white/50 mb-1.5">מודל</label>
-                <select
+                <select aria-label="מודל"
                   value={form.openai_model}
                   onChange={(e) => setForm((f) => ({ ...f, openai_model: e.target.value }))}
                   className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
@@ -240,7 +240,7 @@ export function CredentialsForm() {
               <Field label="Google Gemini API Key" field="gemini_api_key" secret placeholder="AIza..." hint="מ-Google AI Studio" />
               <div>
                 <label className="block text-xs font-medium text-white/50 mb-1.5">מודל Gemini</label>
-                <select
+                <select aria-label="מודל Gemini"
                   value={form.gemini_model}
                   onChange={(e) => setForm((f) => ({ ...f, gemini_model: e.target.value }))}
                   className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
@@ -275,7 +275,7 @@ export function CredentialsForm() {
           {/* AI token budget — powers the dashboard usage gauge / quota early-warning */}
           <div className="sm:col-span-2 border-t border-edge pt-4 mt-1">
             <label className="block text-xs font-medium text-white/50 mb-1.5">תקציב טוקנים חודשי (אופציונלי)</label>
-            <input
+            <input aria-label="תקציב טוקנים חודשי (אופציונלי)"
               type="number" min={0} step={1000} dir="ltr"
               value={form.ai_monthly_token_budget ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, ai_monthly_token_budget: e.target.value ? Math.max(0, parseInt(e.target.value, 10) || 0) : null }))}

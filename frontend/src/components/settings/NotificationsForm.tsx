@@ -41,12 +41,13 @@ function HourSelect({ value, min, onChange }: { value: number; min: number; onCh
   );
 }
 
-function Toggle({ enabled, onChange }: { enabled: boolean; onChange: () => void }) {
+function Toggle({ enabled, onChange, label }: { enabled: boolean; onChange: () => void; label: string }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={enabled}
+      aria-label={label}
       onClick={onChange}
       className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${enabled ? 'bg-blue-600' : 'bg-white/15'}`}
     >
@@ -144,7 +145,7 @@ export function NotificationsForm() {
                   <p className="text-sm text-white/85">{t.label}</p>
                   <p className="text-2xs text-white/35 mt-0.5 leading-relaxed">{t.desc}</p>
                 </div>
-                <Toggle enabled={!!prefs?.[t.id]} onChange={() => toggle(t.id)} />
+                <Toggle enabled={!!prefs?.[t.id]} onChange={() => toggle(t.id)} label={t.label} />
               </div>
               {t.id === 'daily_summary' && prefs?.daily_summary && (
                 <div className="flex items-center justify-between gap-4 pb-3 pr-1">

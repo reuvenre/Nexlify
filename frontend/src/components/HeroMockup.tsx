@@ -58,14 +58,14 @@ export function HeroMockup() {
       <div className="hero-float absolute -top-5 -right-5 z-20 flex items-center gap-2 bg-white rounded-xl shadow-xl shadow-black/25 px-3.5 py-2.5 border border-emerald-100">
         <span className="w-7 h-7 rounded-full bg-emerald-50 flex items-center justify-center text-sm">💰</span>
         <div>
-          <p className="text-[10px] text-gray-400 leading-none mb-0.5">עמלה חדשה</p>
-          <p className="text-[13px] font-bold text-emerald-600 leading-none" dir="ltr">+$12.40</p>
+          <p className="text-[10px] text-gray-500 leading-none mb-0.5">עמלה חדשה</p>
+          <p className="text-[13px] font-bold text-emerald-700 leading-none" dir="ltr">+$12.40</p>
         </div>
       </div>
       <div className="hero-float-slow absolute -bottom-5 -left-4 z-20 flex items-center gap-2 bg-white rounded-xl shadow-xl shadow-black/25 px-3.5 py-2.5 border border-blue-100">
         <span className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center text-sm">🚀</span>
         <div>
-          <p className="text-[10px] text-gray-400 leading-none mb-0.5">פוסט אחד</p>
+          <p className="text-[10px] text-gray-500 leading-none mb-0.5">פוסט אחד</p>
           <p className="text-[12px] font-bold text-blue-600 leading-none">פורסם ל-5 פלטפורמות</p>
         </div>
       </div>
@@ -77,7 +77,7 @@ export function HeroMockup() {
           <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
-          <span className="mx-auto flex items-center gap-1.5 text-[10px] text-gray-400 bg-white border border-gray-200 rounded-md px-5 py-1">
+          <span className="mx-auto flex items-center gap-1.5 text-[10px] text-gray-500 bg-white border border-gray-200 rounded-md px-5 py-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             nexlify.win-solutions.co.il
           </span>
@@ -92,7 +92,7 @@ export function HeroMockup() {
               </div>
               <p className="text-[12px] font-semibold text-gray-800">הטייס האוטומטי שלך</p>
             </div>
-            <span className="flex items-center gap-1.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">
+            <span className="flex items-center gap-1.5 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">
               <span className="hero-pulse-ring w-1.5 h-1.5 rounded-full bg-emerald-500" />
               פעיל
             </span>
@@ -104,13 +104,13 @@ export function HeroMockup() {
               <div key={label} className="hero-fade-up bg-gray-50 border border-gray-100 rounded-xl px-2.5 py-2"
                 style={{ animationDelay: `${i * 140}ms` }}>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-[9px] text-gray-400">{label}</p>
+                  <p className="text-[9px] text-gray-500">{label}</p>
                   <Icon size={10} className="text-gray-300" />
                 </div>
                 <p className="text-[14px] font-extrabold text-gray-900 leading-none mb-1" dir="ltr">{value}</p>
                 <div className="flex items-center justify-between">
                   <Sparkline points={spark} up />
-                  <span className="flex items-center gap-0.5 text-[9px] font-semibold text-emerald-600" dir="ltr">
+                  <span className="flex items-center gap-0.5 text-[9px] font-semibold text-emerald-700" dir="ltr">
                     <TrendingUp size={8} />{delta}
                   </span>
                 </div>
@@ -122,7 +122,7 @@ export function HeroMockup() {
           <div className="relative rounded-xl bg-gradient-to-b from-gray-50 to-white border border-gray-100 px-3 pt-3 pb-2 mb-3">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] font-semibold text-gray-500">עמלות · 12 שבועות</p>
-              <span className="text-[9px] text-gray-400">$1,576 סה״כ</span>
+              <span className="text-[9px] text-gray-500">$1,576 סה״כ</span>
             </div>
             <div className="relative flex items-end gap-1 h-16" dir="ltr">
               <div className="hero-shimmer absolute inset-0 pointer-events-none rounded" />
@@ -143,7 +143,7 @@ export function HeroMockup() {
           <div key={feedIdx} className="hero-fade-up flex items-center gap-2 bg-blue-50/70 border border-blue-100 rounded-lg px-3 py-2">
             <span className="text-[13px]">{FEED[feedIdx].icon}</span>
             <p className="text-[11px] text-gray-600 font-medium">{FEED[feedIdx].text}</p>
-            <span className="mr-auto text-[9px] text-gray-400">עכשיו</span>
+            <span className="mr-auto text-[9px] text-gray-500">עכשיו</span>
           </div>
         </div>
       </div>

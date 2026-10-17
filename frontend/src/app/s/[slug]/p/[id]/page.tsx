@@ -125,17 +125,17 @@ export default function StoreProductPage() {
 
   return (
     <StoreShell meta={meta}>
-      <nav className="text-xs text-[var(--store-muted)] mb-4">
+      <nav aria-label="פירורי לחם" className="text-xs text-[var(--store-muted)] mb-4">
         <Link href={`/s/${slug}`}>כל המוצרים</Link>
-        <span className="mx-2">›</span>
-        <span className="text-[var(--store-ink)]">{product.title}</span>
+        <span className="mx-2" aria-hidden="true">›</span>
+        <span className="text-[var(--store-ink)]" aria-current="page">{product.title}</span>
       </nav>
 
       <div className="grid lg:grid-cols-2 gap-6 lg:gap-10">
         <div>
           <div className="store-card relative">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={yupooImg(shown)} alt={product.title} className="store-photo" />
+            <img src={yupooImg(shown)} alt={gallery.length > 1 ? `${product.title} — תמונה ${Math.min(index, gallery.length - 1) + 1} מתוך ${gallery.length}` : product.title} className="store-photo" />
             {gallery.length > 1 && (
               <>
                 <button
@@ -162,7 +162,8 @@ export default function StoreProductPage() {
                 <button
                   key={i}
                   onClick={() => setIndex(i)}
-                  aria-label={`תמונה ${i + 1}`}
+                  aria-label={`תמונה ${i + 1} מתוך ${gallery.length}`}
+                  aria-current={i === Math.min(index, gallery.length - 1) ? 'true' : undefined}
                   className={`w-2 h-2 rounded-full transition-colors ${
                     i === Math.min(index, gallery.length - 1)
                       ? 'bg-[var(--store-gold)]' : 'bg-[var(--store-line)]'

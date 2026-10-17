@@ -10,6 +10,7 @@ import { StoreShell } from './StoreShell';
 import { FilterPanel } from './FilterPanel';
 import './store.css';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 /**
  * The public storefront: everything this seller offers, on one shelf.
  *
@@ -128,13 +129,13 @@ export default function StorePage() {
 
         <div>
           <h1 className="text-3xl sm:text-4xl font-bold mb-1">{heading}</h1>
-          <p className="text-sm text-[var(--store-muted)] mb-5">
+          <p role="status" className="text-sm text-[var(--store-muted)] mb-5">
             {total > 0 ? `${total} מוצרים` : loading ? 'טוען…' : 'אין מוצרים להצגה'}
             {q && ` · חיפוש: "${q}"`}
           </p>
 
           <div className="lg:hidden mb-5">
-            <button onClick={() => setDrawer(true)} className="store-chip flex items-center gap-2" data-active={active > 0}>
+            <button onClick={() => setDrawer(true)} aria-expanded={drawer} className="store-chip flex items-center gap-2" data-active={active > 0}>
               <SlidersHorizontal size={14} /> סינון{active > 0 ? ` (${active})` : ''}
             </button>
           </div>
@@ -158,6 +159,7 @@ export default function StorePage() {
                       : { [c.key]: '', page: '' })}
                     className="store-chip flex items-center gap-1.5"
                     data-active
+                    aria-label={`הסרת המסנן ${c.label}`}
                   >
                     {c.label} <X size={12} />
                   </button>
@@ -176,7 +178,7 @@ export default function StorePage() {
             {products.map((p) => (
               <Link key={p.id} href={`/s/${slug}/p/${encodeURIComponent(p.id)}`} className="store-card block">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={yupooImg(p.image || '')} alt={p.title} className="store-photo" loading="lazy" />
+                <img src={yupooImg(p.image || '')} alt="" className="store-photo" loading="lazy" />
                 <div className="p-3">
                   <h2 className="text-sm font-medium leading-snug line-clamp-2 mb-1.5">{p.title}</h2>
                   <div className="store-price text-base mb-1">{priceLabel(p)}</div>
@@ -204,6 +206,7 @@ export default function StorePage() {
 
       {drawer && (
         <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setDrawer(false)}>
+          <DialogA11y label="סינון מוצרים" onClose={() => setDrawer(false)} />
           <div className="absolute inset-0 bg-black/30" />
           <div
             className="absolute inset-y-0 right-0 w-[88%] max-w-sm bg-[var(--store-bg)] p-5 overflow-y-auto shadow-xl"

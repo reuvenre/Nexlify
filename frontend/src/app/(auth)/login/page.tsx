@@ -60,7 +60,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex" style={{ direction: 'rtl' }}>
 
       {/* ── Right panel: form ──────────────────────────────────────────────── */}
-      <div className="w-full lg:w-[46%] flex flex-col bg-white">
+      <main id="main" tabIndex={-1} className="w-full lg:w-[46%] flex flex-col bg-white outline-none">
 
         {/* Top bar */}
         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
@@ -100,12 +100,15 @@ export default function LoginPage() {
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="000000"
+                    aria-label="קוד אימות בן 6 ספרות"
+                    aria-invalid={!!error}
+                    aria-describedby={error ? 'login-error' : undefined}
                     dir="ltr"
                     className="w-full border border-gray-200 rounded-xl px-3.5 py-3 text-center text-2xl tracking-[0.5em] font-semibold text-gray-900 placeholder-gray-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-all bg-white"
                     style={{ WebkitTextFillColor: '#111827', color: '#111827' }}
                   />
                   {error && (
-                    <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3.5 py-3">
+                    <div id="login-error" role="alert" className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3.5 py-3">
                       <AlertCircle size={14} className="text-red-500 shrink-0" />
                       <p className="text-body text-red-600">{error}</p>
                     </div>
@@ -121,7 +124,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => { setMfaToken(null); setCode(''); setError(''); }}
-                    className="w-full text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    className="w-full text-xs text-gray-500 hover:text-gray-600 transition-colors"
                   >
                     חזרה להתחברות
                   </button>
@@ -140,7 +143,7 @@ export default function LoginPage() {
               href="/api/auth/google"
               className="w-full flex items-center justify-center gap-2.5 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all text-body text-gray-700 font-medium shadow-sm mb-5"
             >
-              <svg width="17" height="17" viewBox="0 0 48 48" className="shrink-0">
+              <svg width="17" height="17" viewBox="0 0 48 48" className="shrink-0" aria-hidden="true" focusable="false">
                 <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.5 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6.1C12.4 13 17.7 9.5 24 9.5z"/>
                 <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8C43.7 37.3 46.5 31.3 46.5 24.5z"/>
                 <path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.1.8-4.6L2.5 13.3A23.9 23.9 0 0 0 0 24c0 3.8.9 7.4 2.5 10.6l8-6z"/>
@@ -152,17 +155,20 @@ export default function LoginPage() {
             {/* Divider */}
             <div className="flex items-center gap-3 mb-5">
               <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-xs text-gray-400 font-medium tracking-wider">או</span>
+              <span className="text-xs text-gray-500 font-medium tracking-wider">או</span>
               <div className="flex-1 h-px bg-gray-100" />
             </div>
 
             {/* Email/Password form */}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-body font-medium text-gray-700 mb-1.5">אימייל</label>
+                <label htmlFor="login-email" className="block text-body font-medium text-gray-700 mb-1.5">אימייל</label>
                 <input
+                  id="login-email"
                   type="email"
                   name="email"
+                  aria-invalid={!!error}
+                  aria-describedby={error ? 'login-error' : undefined}
                   autoComplete="email"
                   required
                   value={email}
@@ -176,7 +182,7 @@ export default function LoginPage() {
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-body font-medium text-gray-700">סיסמה</label>
+                  <label htmlFor="login-password" className="block text-body font-medium text-gray-700">סיסמה</label>
                   <Link
                     href="/forgot-password"
                     className="text-xs text-blue-600 hover:text-blue-500 transition-colors"
@@ -185,8 +191,11 @@ export default function LoginPage() {
                   </Link>
                 </div>
                 <input
+                  id="login-password"
                   type="password"
                   name="password"
+                  aria-invalid={!!error}
+                  aria-describedby={error ? 'login-error' : undefined}
                   autoComplete="current-password"
                   required
                   value={password}
@@ -199,7 +208,7 @@ export default function LoginPage() {
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3.5 py-3">
+                <div id="login-error" role="alert" className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3.5 py-3">
                   <AlertCircle size={14} className="text-red-500 shrink-0" />
                   <p className="text-body text-red-600">{error}</p>
                 </div>
@@ -215,7 +224,7 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <p className="text-center text-xs text-gray-400 mt-6">
+            <p className="text-center text-xs text-gray-500 mt-6">
               אין לך חשבון?{' '}
               <Link href="/register" className="text-blue-600 font-semibold hover:text-blue-500 transition-colors">
                 הירשם בחינם
@@ -225,7 +234,7 @@ export default function LoginPage() {
             )}
           </div>
         </div>
-      </div>
+      </main>
 
       {/* ── Left panel: hero — clean deep-blue "Afflow-style": product mockup +
              proof badges over a saturated blue gradient (was near-black). ──────── */}
@@ -247,10 +256,11 @@ export default function LoginPage() {
             <span className="text-xs text-white/80 font-medium">נבנתה על ידי משווק שותפים, בשביל משווקי שותפים</span>
           </div>
 
-          <h1 className="text-[40px] font-extrabold text-white leading-[1.12] tracking-tight mb-4">
+          {/* One h1 per page: the form's heading is it. This is the marketing panel's title. */}
+          <p className="text-[40px] font-extrabold text-white leading-[1.12] tracking-tight mb-4">
             אוטומציה לשיווק שותפים<br />
             <span className="text-blue-200">#withNexlify</span>
-          </h1>
+          </p>
 
           <p className="text-[15px] text-white/75 leading-relaxed mb-5 max-w-md">
             המערכת מוצאת מוצרים טרנדיים, כותבת פוסטים מותאמים עם AI, מפרסמת אוטומטית לכל
@@ -267,7 +277,8 @@ export default function LoginPage() {
           </div>
 
           {/* Animated dashboard mockup (counting stats, growing chart, live feed) */}
-          <HeroMockup />
+          {/* A rotating illustration of the product, not content: hidden from screen readers. */}
+          <div aria-hidden="true"><HeroMockup /></div>
 
           {/* Publish targets + sources — the fan-out is the wow, show it */}
           <div className="flex flex-wrap gap-2 mt-7">

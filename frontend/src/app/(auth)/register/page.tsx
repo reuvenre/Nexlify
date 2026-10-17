@@ -55,7 +55,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex flex-row" style={{ direction: 'ltr' }}>
 
       {/* ── Left: form panel ───────────────────────────────────────────────── */}
-      <div className="w-full lg:w-[45%] flex items-center justify-center bg-surface-primary px-8 py-12">
+      <main id="main" tabIndex={-1} className="w-full lg:w-[45%] flex items-center justify-center bg-surface-primary px-8 py-12 outline-none">
         <div className="w-full max-w-[340px]" style={{ direction: 'rtl' }}>
 
           {/* Logo */}
@@ -68,16 +68,18 @@ export default function RegisterPage() {
           </div>
 
           <div className="mb-7">
-            <h2 className="text-2xl font-bold text-white">יצירת חשבון</h2>
+            <h1 className="text-2xl font-bold text-white">יצירת חשבון</h1>
             <p className="text-white/40 text-sm mt-1">הצטרף ל-Nexlify בחינם</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-white/50 mb-1.5">שם מלא</label>
+              <label htmlFor="reg-name" className="block text-xs font-medium text-white/50 mb-1.5">שם מלא</label>
               <input
                 type="text"
+                id="reg-name"
                 name="name"
+                aria-invalid={!!error}
                 autoComplete="name"
                 required
                 value={name}
@@ -88,10 +90,12 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-white/50 mb-1.5">אימייל</label>
+              <label htmlFor="reg-email" className="block text-xs font-medium text-white/50 mb-1.5">אימייל</label>
               <input
                 type="email"
+                id="reg-email"
                 name="email"
+                aria-invalid={!!error}
                 autoComplete="email"
                 required
                 value={email}
@@ -103,10 +107,13 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-white/50 mb-1.5">סיסמה</label>
+              <label htmlFor="reg-password" className="block text-xs font-medium text-white/50 mb-1.5">סיסמה</label>
               <input
                 type="password"
+                id="reg-password"
                 name="new-password"
+                aria-invalid={!!error}
+                aria-describedby="reg-requirements"
                 autoComplete="new-password"
                 required
                 value={password}
@@ -118,10 +125,12 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-white/50 mb-1.5">אשר סיסמה</label>
+              <label htmlFor="reg-confirm" className="block text-xs font-medium text-white/50 mb-1.5">אשר סיסמה</label>
               <input
                 type="password"
+                id="reg-confirm"
                 name="confirm-password"
+                aria-invalid={!!error}
                 autoComplete="new-password"
                 required
                 value={confirm}
@@ -132,19 +141,21 @@ export default function RegisterPage() {
               />
             </div>
 
-            {password.length > 0 && (
-              <div className="grid grid-cols-2 gap-y-1.5 gap-x-2 py-1">
-                {requirements.map((req) => (
-                  <div key={req.label} className="flex items-center gap-1.5 text-xs">
-                    <CheckCircle2 size={11} className={req.ok ? 'text-emerald-400' : 'text-white/20'} />
-                    <span className={req.ok ? 'text-white/60' : 'text-white/25'}>{req.label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Always in the DOM so the password field can point at it; the state of each rule
+                is said in words, not only by its colour. */}
+            <ul id="reg-requirements" aria-live="polite" className={`grid grid-cols-2 gap-y-1.5 gap-x-2 py-1 ${password.length > 0 ? '' : 'sr-only'}`}>
+              {requirements.map((req) => (
+                <li key={req.label} className="flex items-center gap-1.5 text-xs">
+                  <CheckCircle2 size={11} className={req.ok ? 'text-emerald-400' : 'text-white/20'} />
+                  <span className={req.ok ? 'text-white/60' : 'text-white/40'}>
+                    <span className="sr-only">{req.ok ? 'מתקיים: ' : 'לא מתקיים: '}</span>{req.label}
+                  </span>
+                </li>
+              ))}
+            </ul>
 
             {error && (
-              <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+              <div role="alert" className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
                 <AlertCircle size={14} className="text-red-400 shrink-0" />
                 <p className="text-xs text-red-400">{error}</p>
               </div>
@@ -161,9 +172,9 @@ export default function RegisterPage() {
 
             <p className="text-[11px] text-white/35 text-center leading-relaxed mt-3">
               ביצירת חשבון אני מאשר/ת את{' '}
-              <a href="/terms" target="_blank" className="text-blue-400 hover:text-blue-300 underline">תנאי השימוש</a>
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">תנאי השימוש<span className="sr-only"> (נפתח בכרטיסייה חדשה)</span></a>
               {' '}ואת{' '}
-              <a href="/privacy" target="_blank" className="text-blue-400 hover:text-blue-300 underline">מדיניות הפרטיות</a>.
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">מדיניות הפרטיות<span className="sr-only"> (נפתח בכרטיסייה חדשה)</span></a>.
             </p>
           </form>
 
@@ -179,7 +190,7 @@ export default function RegisterPage() {
             href="/api/auth/google"
             className="mt-4 w-full flex items-center justify-center gap-3 py-2.5 rounded-xl border border-edge-hover bg-white/4 hover:bg-white/8 transition-all text-sm text-white/70 hover:text-white"
           >
-            <svg width="18" height="18" viewBox="0 0 48 48">
+            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
               <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.5 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6.1C12.4 13 17.7 9.5 24 9.5z"/>
               <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8C43.7 37.3 46.5 31.3 46.5 24.5z"/>
               <path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.1.8-4.6L2.5 13.3A23.9 23.9 0 0 0 0 24c0 3.8.9 7.4 2.5 10.6l8-6z"/>
@@ -195,7 +206,7 @@ export default function RegisterPage() {
             </Link>
           </p>
         </div>
-      </div>
+      </main>
 
       {/* ── Right: hero panel ──────────────────────────────────────────────── */}
       <div className="always-dark hidden lg:flex lg:flex-1 relative overflow-hidden items-center justify-center" style={{ background: 'linear-gradient(135deg, #0d1b4b 0%, #0a0e1f 40%, #1a0b3b 100%)' }}>
@@ -208,13 +219,13 @@ export default function RegisterPage() {
             פלטפורמת שיווק שותפים מקצועית
           </div>
 
-          <h1 className="text-4xl font-extrabold text-white leading-tight mb-4">
+          <p className="text-4xl font-extrabold text-white leading-tight mb-4">
             הצטרף אלינו
             <br />
             <span style={{ background: 'linear-gradient(90deg, #60a5fa, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               היום בחינם
             </span>
-          </h1>
+          </p>
 
           <p className="text-white/70 text-base leading-relaxed mb-8">
             צור חשבון תוך שניות ותתחיל לאוטמט את שיווק השותפים שלך עם כלים מתקדמים.

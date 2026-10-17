@@ -5,6 +5,7 @@ import { FileText, Plus, Check, Pencil, Trash2, X, Loader2, Save, Users } from '
 import { templatesApi, channelsApi } from '@/lib/api-client';
 import type { PostTemplate, Channel } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 // ── Built-in body templates (read-only, not stored in DB) ─────────────────────
 
 const BUILTIN_BODY: PostTemplate[] = [
@@ -92,12 +93,13 @@ function TemplateModal({ initial, templateType, onClose, onSaved }: TemplateModa
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <DialogA11y label={isEdit ? 'עריכת תבנית' : templateType === 'footer' ? 'הוסף כותרת תחתונה' : 'צור תבנית חדשה'} onClose={onClose} />
       <div className="bg-surface-secondary border border-edge-hover rounded-2xl w-full max-w-lg p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-bold text-white">
             {isEdit ? 'עריכת תבנית' : templateType === 'footer' ? 'הוסף כותרת תחתונה' : 'צור תבנית חדשה'}
           </h2>
-          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
+          <button aria-label="סגור" onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
             <X size={16} />
           </button>
         </div>
@@ -107,7 +109,7 @@ function TemplateModal({ initial, templateType, onClose, onSaved }: TemplateModa
           <div className="flex gap-3">
             <div className="shrink-0">
               <label className="block text-xs text-white/50 mb-1.5">אייקון</label>
-              <input
+              <input aria-label="אייקון"
                 value={icon}
                 onChange={(e) => setIcon(e.target.value)}
                 maxLength={2}
@@ -116,7 +118,7 @@ function TemplateModal({ initial, templateType, onClose, onSaved }: TemplateModa
             </div>
             <div className="flex-1">
               <label className="block text-xs text-white/50 mb-1.5">שם התבנית *</label>
-              <input
+              <input aria-label="שם התבנית *"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={templateType === 'footer' ? 'לדוגמה: כותרת ערוץ הדילים' : 'לדוגמה: תבנית מבצעי קיץ'}
@@ -219,14 +221,14 @@ function TemplateCard({
         </div>
         {!template.builtin && (
           <div className="flex items-center gap-1 shrink-0">
-            <button
+            <button aria-label="ערוך"
               onClick={onEdit}
               className="p-1.5 text-white/25 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all"
               title="ערוך"
             >
               <Pencil size={13} />
             </button>
-            <button
+            <button aria-label="מחק"
               onClick={handleDelete}
               disabled={deleting}
               className="p-1.5 text-white/25 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"
@@ -324,7 +326,7 @@ function PerGroupPanel({ bodyTemplates, footerTemplates, flash }: {
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-2xs text-white/40 mb-1">תבנית גוף</label>
-              <select value={ch.body_template_id || ''} onChange={(e) => save(ch, { body_template_id: e.target.value })}
+              <select aria-label="תבנית גוף" value={ch.body_template_id || ''} onChange={(e) => save(ch, { body_template_id: e.target.value })}
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-2.5 py-2 text-sm text-white/80 outline-none focus:border-blue-500/50">
                 <option value="">— ברירת מחדל כללית —</option>
                 {bodyTemplates.map((t) => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
@@ -332,7 +334,7 @@ function PerGroupPanel({ bodyTemplates, footerTemplates, flash }: {
             </div>
             <div>
               <label className="block text-2xs text-white/40 mb-1">כותרת תחתונה</label>
-              <select value={ch.footer_template_id || ''} onChange={(e) => save(ch, { footer_template_id: e.target.value })}
+              <select aria-label="כותרת תחתונה" value={ch.footer_template_id || ''} onChange={(e) => save(ch, { footer_template_id: e.target.value })}
                 className="w-full bg-white/5 border border-edge-hover rounded-lg px-2.5 py-2 text-sm text-white/80 outline-none focus:border-blue-500/50">
                 <option value="">— ברירת מחדל כללית —</option>
                 {footerTemplates.map((t) => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}

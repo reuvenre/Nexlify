@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { ChevronDown, Search, X, Menu } from 'lucide-react';
 import { useState } from 'react';
 import type { StoreMeta } from '@/types';
+import { LegalLinks } from '@/components/LegalLinks';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 /**
  * The store's chrome: wordmark, menu, search.
  *
@@ -36,6 +38,7 @@ export function StoreShell({
           <button
             onClick={() => setMenu(true)}
             aria-label="תפריט"
+            aria-expanded={menu}
             className="p-2 -mr-2 text-[var(--store-ink)] lg:hidden"
           >
             <Menu size={22} />
@@ -43,12 +46,13 @@ export function StoreShell({
 
           {/* On a wide screen the search box is the middle of the bar rather than a thing
               hidden behind a hamburger — a catalog is searched far more than it is browsed. */}
-          <form onSubmit={submit} className="hidden lg:block relative flex-1 max-w-md mx-8">
+          <form role="search" onSubmit={submit} className="hidden lg:block relative flex-1 max-w-md mx-8">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--store-muted)]" />
             <input
               value={term}
               onChange={(e) => setTerm(e.target.value)}
               placeholder="חיפוש מוצרים…"
+              aria-label="חיפוש מוצרים"
               className="w-full bg-[var(--store-card)] border border-[var(--store-line)] rounded-full py-2 pr-9 pl-3 text-sm outline-none focus:border-[var(--store-gold)]"
             />
           </form>
@@ -60,7 +64,7 @@ export function StoreShell({
 
         {/* The nav row: the catalog's own shape, one tap from anywhere. Categories and
             brands appear only once the enrichment agent has given them something to list. */}
-        <nav className="hidden lg:block border-t border-[var(--store-line)]">
+        <nav aria-label="קטגוריות" className="hidden lg:block border-t border-[var(--store-line)]">
           <div className="max-w-6xl mx-auto px-4 h-11 flex items-center justify-end gap-6 text-sm">
             {meta.brands.length > 0 && (
               <Dropdown label="חיפוש לפי מותג" items={meta.brands} slug={meta.slug} param="brand" />
@@ -75,6 +79,7 @@ export function StoreShell({
 
       {menu && (
         <div className="fixed inset-0 z-40" onClick={() => setMenu(false)}>
+          <DialogA11y label="תפריט" onClose={() => setMenu(false)} />
           <div className="absolute inset-0 bg-black/30" />
           <nav
             className="absolute inset-y-0 right-0 w-[85%] max-w-sm bg-[var(--store-bg)] p-5 shadow-xl"
@@ -85,12 +90,13 @@ export function StoreShell({
               <span className="font-semibold">תפריט</span>
             </div>
 
-            <form onSubmit={submit} className="relative mb-6">
+            <form role="search" onSubmit={submit} className="relative mb-6">
               <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--store-muted)]" />
               <input
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
                 placeholder="חפש מוצרים…"
+                aria-label="חיפוש מוצרים"
                 className="w-full bg-[var(--store-card)] border border-[var(--store-line)] rounded-xl py-3 pr-10 pl-3 text-sm outline-none focus:border-[var(--store-gold)]"
               />
             </form>
@@ -125,12 +131,13 @@ export function StoreShell({
         </div>
       )}
 
-      <main className="max-w-6xl mx-auto px-4 py-6">{children}</main>
+      <main id="main" tabIndex={-1} className="max-w-6xl mx-auto px-4 py-6 outline-none">{children}</main>
 
       <footer className="border-t border-[var(--store-line)] mt-12">
         <div className="max-w-6xl mx-auto px-4 py-8 text-center text-xs text-[var(--store-muted)] space-y-2">
           {meta.tagline && <p>{meta.tagline}</p>}
           <p>© {new Date().getFullYear()} {meta.name}</p>
+          <LegalLinks className="pt-1" />
         </div>
       </footer>
     </div>
@@ -147,7 +154,7 @@ function Dropdown({ label, items, slug, param }: {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 hover:text-[var(--store-gold)]">
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="true" className="flex items-center gap-1 hover:text-[var(--store-gold)]">
         <ChevronDown size={14} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
         {label}
       </button>

@@ -9,6 +9,7 @@ import { campaignsApi, incentiveApi, subscriptionApi } from '@/lib/api-client';
 import type { IncentiveProgram, IncentiveInput, IncentivePoolStats, PoolAudit } from '@/lib/api-client';
 import type { Campaign, PlanId } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 /**
  * The owner's registered AliExpress incentive campaigns (portal bonus pools).
  *
@@ -338,11 +339,11 @@ function ProgramCard({ program, campaigns, stats, audit, onChanged }: {
         <div className="flex items-center gap-1.5 shrink-0">
           <button onClick={() => setEditing(true)} disabled={busy}
             className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-xs">ערוך</button>
-          <button onClick={toggle} disabled={busy} title={program.active ? 'כבה' : 'הפעל'}
+          <button aria-label={program.active ? 'כבה' : 'הפעל'} onClick={toggle} disabled={busy} title={program.active ? 'כבה' : 'הפעל'}
             className={`p-2 rounded-lg ${program.active ? 'bg-emerald-500/10 text-emerald-300' : 'bg-white/5 text-white/40'} hover:opacity-80`}>
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />}
           </button>
-          <button onClick={remove} disabled={busy} title="מחק"
+          <button aria-label="מחק" onClick={remove} disabled={busy} title="מחק"
             className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400"><Trash2 size={13} /></button>
         </div>
       </div>
@@ -425,6 +426,7 @@ function ProgramModal({ program, campaigns, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <DialogA11y label={program ? 'עריכת קמפיין בונוס' : 'קמפיין בונוס חדש'} onClose={onClose} />
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-md p-6 max-h-[92vh] overflow-y-auto"
         dir="rtl" onClick={(e) => e.stopPropagation()}>
@@ -435,13 +437,13 @@ function ProgramModal({ program, campaigns, onClose, onSaved }: {
         <div className="space-y-4">
           <div>
             <label className={labelCls}>שם הקמפיין (כמו בפורטל)</label>
-            <input value={name} onChange={(e) => setName(e.target.value)}
+            <input aria-label="שם הקמפיין (כמו בפורטל)" value={name} onChange={(e) => setName(e.target.value)}
               placeholder="Home & Living Pool" className={inputCls} />
           </div>
 
           <div>
             <label className={labelCls}>אחוז הבונוס (Incentive Commission Rate)</label>
-            <input type="number" min={0} max={100} step="0.1" value={bonusRate} dir="ltr"
+            <input aria-label="אחוז הבונוס (Incentive Commission Rate)" type="number" min={0} max={100} step="0.1" value={bonusRate} dir="ltr"
               onChange={(e) => setBonusRate(e.target.value)}
               placeholder="11" className={`${inputCls} max-w-[140px]`} />
             <p className="text-2xs text-white/30 mt-1">
@@ -468,11 +470,11 @@ function ProgramModal({ program, campaigns, onClose, onSaved }: {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>מתאריך</label>
-              <input type="date" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className={inputCls} dir="ltr" />
+              <input aria-label="מתאריך" type="date" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className={inputCls} dir="ltr" />
             </div>
             <div>
               <label className={labelCls}>עד תאריך</label>
-              <input type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className={inputCls} dir="ltr" />
+              <input aria-label="עד תאריך" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className={inputCls} dir="ltr" />
             </div>
           </div>
 

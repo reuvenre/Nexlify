@@ -452,7 +452,7 @@ export default function DiscoverPage() {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/[0.12] border border-blue-500/25 rounded-full text-xs text-blue-300 font-medium"
               >
                 {kw}
-                <button
+                <button aria-label={`הסרת מילת המפתח ${kw}`}
                   onClick={() => removeKeyword(kw)}
                   className="text-blue-400/50 hover:text-blue-300 transition-colors leading-none"
                 >
@@ -555,7 +555,7 @@ export default function DiscoverPage() {
             <div className="mt-4 pt-4 border-t border-edge grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-white/40 mb-1.5">מחיר מינימלי ($)</label>
-                <input
+                <input aria-label="מחיר מינימלי ($)"
                   type="number"
                   value={minPrice}
                   onChange={(e) => setMinPrice(e.target.value)}
@@ -566,7 +566,7 @@ export default function DiscoverPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-white/40 mb-1.5">מחיר מקסימלי ($)</label>
-                <input
+                <input aria-label="מחיר מקסימלי ($)"
                   type="number"
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(e.target.value)}
@@ -577,7 +577,7 @@ export default function DiscoverPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-white/40 mb-1.5">הנחה מינימלית (%)</label>
-                <input
+                <input aria-label="הנחה מינימלית (%)"
                   type="number"
                   value={minDiscount}
                   onChange={(e) => setMinDiscount(e.target.value)}
@@ -617,13 +617,13 @@ export default function DiscoverPage() {
 
           {/* View toggle */}
           <div className="flex items-center gap-1 bg-surface-secondary border border-edge rounded-lg p-0.5">
-            <button
+            <button aria-label="תצוגת רשת"
               onClick={() => setView('grid')}
               className={`p-1.5 rounded-md transition-all ${view === 'grid' ? 'bg-white/[0.08] text-white/80' : 'text-white/30 hover:text-white/55'}`}
             >
               <LayoutGrid size={14} />
             </button>
-            <button
+            <button aria-label="תצוגת רשימה"
               onClick={() => setView('list')}
               className={`p-1.5 rounded-md transition-all ${view === 'list' ? 'bg-white/[0.08] text-white/80' : 'text-white/30 hover:text-white/55'}`}
             >

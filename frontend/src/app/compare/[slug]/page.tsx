@@ -38,25 +38,37 @@ export default async function ComparePage({ params }: { params: Promise<{ slug: 
 
       {/* Comparison table */}
       <section className="max-w-5xl mx-auto px-6 my-10">
-        <div className="bg-surface-secondary border border-edge rounded-2xl overflow-hidden">
-          <div className="grid grid-cols-[1.4fr_1fr_1fr] text-sm font-semibold border-b border-edge">
-            <div className="px-5 py-3.5 text-white/50">יכולת</div>
-            <div className="px-5 py-3.5 text-blue-400 border-r border-edge bg-blue-500/[0.06]">Nexlify</div>
-            <div className="px-5 py-3.5 text-white/60 border-r border-edge">{c.competitor}</div>
-          </div>
-          {c.rows.map((row, i) => (
-            <div key={i} className="grid grid-cols-[1.4fr_1fr_1fr] text-sm border-b border-edge last:border-0">
-              <div className="px-5 py-3.5 text-white/70 font-medium">{row.feature}</div>
-              <div className={`px-5 py-3.5 border-r border-edge flex items-start gap-2 ${row.nexusWins ? 'bg-blue-500/[0.05]' : ''}`}>
-                {row.nexusWins && <Check size={14} className="text-emerald-400 mt-0.5 shrink-0" />}
-                <span className="text-white/75">{row.nexus}</span>
-              </div>
-              <div className="px-5 py-3.5 border-r border-edge flex items-start gap-2">
-                {!row.nexusWins && <Check size={14} className="text-white/40 mt-0.5 shrink-0" />}
-                <span className="text-white/50">{row.them}</span>
-              </div>
-            </div>
-          ))}
+        <div className="bg-surface-secondary border border-edge rounded-2xl overflow-hidden overflow-x-auto">
+          {/* A real table, so a screen reader can announce row and column for each cell. */}
+          <table className="w-full text-sm border-collapse">
+            <caption className="sr-only">{`השוואת יכולות: Nexlify מול ${c.competitor}`}</caption>
+            <thead>
+              <tr className="font-semibold border-b border-edge text-right">
+                <th scope="col" className="px-5 py-3.5 text-white/50 w-[42%]">יכולת</th>
+                <th scope="col" className="px-5 py-3.5 text-blue-400 border-r border-edge bg-blue-500/[0.06]">Nexlify</th>
+                <th scope="col" className="px-5 py-3.5 text-white/60 border-r border-edge">{c.competitor}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.rows.map((row, i) => (
+                <tr key={i} className="border-b border-edge last:border-0 align-top text-right">
+                  <th scope="row" className="px-5 py-3.5 text-white/70 font-medium">{row.feature}</th>
+                  <td className={`px-5 py-3.5 border-r border-edge ${row.nexusWins ? 'bg-blue-500/[0.05]' : ''}`}>
+                    <span className="flex items-start gap-2">
+                      {row.nexusWins && <Check size={14} className="text-emerald-400 mt-0.5 shrink-0" />}
+                      <span className="text-white/75">{row.nexusWins && <span className="sr-only">עדיף: </span>}{row.nexus}</span>
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5 border-r border-edge">
+                    <span className="flex items-start gap-2">
+                      {!row.nexusWins && <Check size={14} className="text-white/40 mt-0.5 shrink-0" />}
+                      <span className="text-white/50">{!row.nexusWins && <span className="sr-only">עדיף: </span>}{row.them}</span>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 

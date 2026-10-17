@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/hooks/useAuth';
 import { adminApi } from '@/lib/api-client';
 import type { Promotion } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 const PLAN_OPTIONS = [
   { id: 'starter', name: 'Starter' },
   { id: 'growth', name: 'Growth' },
@@ -155,11 +156,11 @@ export default function AdminPromotionsPage() {
                     }`}>
                     {p.is_active ? 'השהה' : 'הפעל'}
                   </button>
-                  <button onClick={() => setEditing(p)}
+                  <button aria-label="עריכת מבצע" onClick={() => setEditing(p)}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all">
                     <Pencil size={13} />
                   </button>
-                  <button onClick={() => remove(p)}
+                  <button aria-label="מחיקת מבצע" onClick={() => remove(p)}
                     className="p-2 rounded-lg bg-white/5 hover:bg-red-500/15 text-white/50 hover:text-red-400 transition-all">
                     <Trash2 size={13} />
                   </button>
@@ -218,25 +219,26 @@ function PromoModal({ promo, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <DialogA11y label={promo ? 'עריכת מבצע' : 'מבצע חדש'} onClose={onClose} />
       <div className="bg-surface-secondary border border-edge rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-edge sticky top-0 bg-surface-secondary">
           <h3 className="text-base font-semibold text-white flex items-center gap-2">
             <Sparkles size={17} className="text-amber-400" /> {promo ? 'עריכת מבצע' : 'מבצע חדש'}
           </h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all">
+          <button aria-label="סגור" onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all">
             <X size={16} />
           </button>
         </div>
         <div className="p-5 space-y-4">
           <div>
             <label className={labelCls}>כותרת (מוצגת ללקוחות בבאנר)</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)}
+            <input aria-label="כותרת (מוצגת ללקוחות בבאנר)" value={title} onChange={(e) => setTitle(e.target.value)}
               placeholder='🔥 מבצע השקה — 20% הנחה על Autopilot' className={inputCls} />
           </div>
 
           <div>
             <label className={labelCls}>על מה המבצע</label>
-            <select value={targetType} onChange={(e) => {
+            <select aria-label="על מה המבצע" value={targetType} onChange={(e) => {
               const t = e.target.value as typeof targetType;
               setTargetType(t);
               setTargetId(t === 'plan' ? 'autopilot' : '');
@@ -250,7 +252,7 @@ function PromoModal({ promo, onClose, onSaved }: {
           {targetType === 'plan' && (
             <div>
               <label className={labelCls}>מנוי</label>
-              <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className={inputCls}>
+              <select aria-label="מנוי" value={targetId} onChange={(e) => setTargetId(e.target.value)} className={inputCls}>
                 {PLAN_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </div>
@@ -258,7 +260,7 @@ function PromoModal({ promo, onClose, onSaved }: {
           {targetType === 'packs' && (
             <div>
               <label className={labelCls}>חבילה</label>
-              <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className={inputCls}>
+              <select aria-label="חבילה" value={targetId} onChange={(e) => setTargetId(e.target.value)} className={inputCls}>
                 {PACK_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </div>
@@ -290,12 +292,12 @@ function PromoModal({ promo, onClose, onSaved }: {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>מתחיל (ריק = מיד)</label>
-              <input type="datetime-local" dir="ltr" value={startsAt}
+              <input aria-label="מתחיל (ריק = מיד)" type="datetime-local" dir="ltr" value={startsAt}
                 onChange={(e) => setStartsAt(e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>מסתיים (ריק = ללא הגבלה)</label>
-              <input type="datetime-local" dir="ltr" value={endsAt}
+              <input aria-label="מסתיים (ריק = ללא הגבלה)" type="datetime-local" dir="ltr" value={endsAt}
                 onChange={(e) => setEndsAt(e.target.value)} className={inputCls} />
             </div>
           </div>

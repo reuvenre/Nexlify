@@ -247,24 +247,24 @@ export default function CouponsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
           <div>
             <label className="block text-xs text-white/50 mb-1.5">שם קמפיין (אופציונלי)</label>
-            <input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="IL [Vacation Sale]"
+            <input aria-label="שם קמפיין (אופציונלי)" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="IL [Vacation Sale]"
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50" />
           </div>
           <div>
             <label className="block text-xs text-white/50 mb-1.5">קישור לעמוד המבצעים (אופציונלי)</label>
-            <input value={dealsUrl} onChange={(e) => setDealsUrl(e.target.value)} dir="ltr"
+            <input aria-label="קישור לעמוד המבצעים (אופציונלי)" value={dealsUrl} onChange={(e) => setDealsUrl(e.target.value)} dir="ltr"
               placeholder="https://s.click.aliexpress.com/e/..."
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50" />
             <p className="text-2xs text-white/30 mt-1">קישור האפילייט שלך לעמוד הקופונים — ייכלל בפוסטים של רצף ההשקה.</p>
           </div>
           <div>
             <label className="block text-xs text-white/50 mb-1.5">בתוקף מ־</label>
-            <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)}
+            <input aria-label="בתוקף מ־" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)}
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50" />
           </div>
           <div>
             <label className="block text-xs text-white/50 mb-1.5">בתוקף עד</label>
-            <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)}
+            <input aria-label="בתוקף עד" type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)}
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50" />
           </div>
         </div>
@@ -296,17 +296,17 @@ export default function CouponsPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-2xs text-white/40 mb-1">קוד</label>
-                <input value={mCode} onChange={(e) => setMCode(e.target.value)} dir="ltr" placeholder="ILAFF3"
+                <input aria-label="קוד" value={mCode} onChange={(e) => setMCode(e.target.value)} dir="ltr" placeholder="ILAFF3"
                   className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50 font-mono" />
               </div>
               <div>
                 <label className="block text-2xs text-white/40 mb-1">הנחה ($)</label>
-                <input type="number" step="0.01" min="0" value={mDisc} onChange={(e) => setMDisc(e.target.value)} dir="ltr" placeholder="7"
+                <input aria-label="הנחה ($)" type="number" step="0.01" min="0" value={mDisc} onChange={(e) => setMDisc(e.target.value)} dir="ltr" placeholder="7"
                   className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50" />
               </div>
               <div>
                 <label className="block text-2xs text-white/40 mb-1">מעל ($)</label>
-                <input type="number" step="0.01" min="0" value={mMin} onChange={(e) => setMMin(e.target.value)} dir="ltr" placeholder="55"
+                <input aria-label="מעל ($)" type="number" step="0.01" min="0" value={mMin} onChange={(e) => setMMin(e.target.value)} dir="ltr" placeholder="55"
                   className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50" />
               </div>
             </div>
@@ -364,11 +364,11 @@ export default function CouponsPage() {
                               placeholder="שם הקמפיין"
                               className="w-full bg-white/5 border border-edge-hover rounded-lg px-2 py-1 text-xs text-white/80 outline-none focus:border-pink-500/50"
                             />
-                            <button onClick={() => saveEdit(c)} disabled={savingEdit} title="שמור"
+                            <button aria-label="שמור" onClick={() => saveEdit(c)} disabled={savingEdit} title="שמור"
                               className="w-6 h-6 rounded-md flex items-center justify-center text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 shrink-0">
                               {savingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                             </button>
-                            <button onClick={() => setEditingId(null)} title="בטל"
+                            <button aria-label="בטל" onClick={() => setEditingId(null)} title="בטל"
                               className="w-6 h-6 rounded-md flex items-center justify-center text-white/40 hover:bg-white/10 shrink-0">
                               <X size={12} />
                             </button>
@@ -389,11 +389,11 @@ export default function CouponsPage() {
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1">
-                          <button onClick={() => toggle(c)} title={c.is_active ? 'כבה' : 'הפעל'}
+                          <button aria-label={c.is_active ? 'כבה' : 'הפעל'} onClick={() => toggle(c)} title={c.is_active ? 'כבה' : 'הפעל'}
                             className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-500/10 transition-all">
                             <Power size={13} />
                           </button>
-                          <button onClick={() => remove(c)} title="מחק"
+                          <button aria-label="מחק" onClick={() => remove(c)} title="מחק"
                             className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400/60 hover:text-red-400 hover:bg-red-500/10 transition-all">
                             <Trash2 size={13} />
                           </button>

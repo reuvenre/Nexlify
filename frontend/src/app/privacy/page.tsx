@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { MarketingShell } from '@/components/marketing/MarketingShell';
+import { CookieSettingsButton } from '@/components/CookieConsent';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy — Nexlify',
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <MarketingShell>
-      <section className="max-w-3xl mx-auto px-6 pt-14 pb-10" dir="ltr">
+      <section className="max-w-3xl mx-auto px-6 pt-14 pb-10" dir="ltr" lang="en">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2">Privacy Policy</h1>
         <p className="text-sm text-white/40 mb-10">Nexlify by Win-Solutions · Last updated: July 22, 2026</p>
 
@@ -77,15 +78,37 @@ export default function PrivacyPage() {
             </p>
           </div>
 
-          <div>
+          <div id="cookies" className="scroll-mt-24">
             <h2 className="text-lg font-semibold text-white mb-2">6. Cookies &amp; Analytics</h2>
             <p>
-              The Service uses essential cookies (authentication/session) that are always active.
-              With your consent, we also use Google Analytics to understand usage and improve the
-              product; Google Analytics sets its own analytics cookies. Analytics runs in Google
-              Consent Mode with storage denied by default — no analytics cookies are set until you
-              accept via the cookie banner, and you can decline at any time. We do not sell your
-              data or use cross-site advertising cookies.
+              We group cookies and similar browser storage into three categories. Only essential
+              storage is used before you choose; Google Analytics is not even loaded until you
+              allow analytics in the cookie banner, and you can change your choice at any time.
+            </p>
+            <div className="overflow-x-auto mt-3">
+              <table className="w-full text-sm border-collapse">
+                <caption className="sr-only">Cookies and browser storage used by Nexlify</caption>
+                <thead>
+                  <tr className="text-left text-white/85">
+                    <th scope="col" className="py-2 pr-3 border-b border-edge">Name</th>
+                    <th scope="col" className="py-2 pr-3 border-b border-edge">Category</th>
+                    <th scope="col" className="py-2 pr-3 border-b border-edge">Provider</th>
+                    <th scope="col" className="py-2 pr-3 border-b border-edge">Purpose</th>
+                    <th scope="col" className="py-2 border-b border-edge">Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td className="py-2 pr-3 border-b border-edge"><code>refresh_token</code> (cookie, HttpOnly)</td><td className="py-2 pr-3 border-b border-edge">Essential</td><td className="py-2 pr-3 border-b border-edge">Nexlify</td><td className="py-2 pr-3 border-b border-edge">Keeps you signed in</td><td className="py-2 border-b border-edge">30 days</td></tr>
+                  <tr><td className="py-2 pr-3 border-b border-edge">Sign-in session (local storage)</td><td className="py-2 pr-3 border-b border-edge">Essential</td><td className="py-2 pr-3 border-b border-edge">Nexlify</td><td className="py-2 pr-3 border-b border-edge">Access token for the dashboard</td><td className="py-2 border-b border-edge">Until sign-out</td></tr>
+                  <tr><td className="py-2 pr-3 border-b border-edge"><code>alibot-theme</code>, <code>nx_consent_v2</code> (local storage)</td><td className="py-2 pr-3 border-b border-edge">Essential</td><td className="py-2 pr-3 border-b border-edge">Nexlify</td><td className="py-2 pr-3 border-b border-edge">Your colour theme and your cookie choice</td><td className="py-2 border-b border-edge">Until cleared</td></tr>
+                  <tr><td className="py-2 pr-3 border-b border-edge"><code>_ga</code>, <code>_ga_*</code></td><td className="py-2 pr-3 border-b border-edge">Analytics (opt-in)</td><td className="py-2 pr-3 border-b border-edge">Google Analytics 4 (Google LLC)</td><td className="py-2 pr-3 border-b border-edge">Usage statistics to improve the Service. Google Signals and ad personalisation are off.</td><td className="py-2 border-b border-edge">Up to 2 years</td></tr>
+                  <tr><td className="py-2 pr-3">—</td><td className="py-2 pr-3">Marketing</td><td className="py-2 pr-3">—</td><td className="py-2 pr-3">Not used. No advertising pixels (Meta, TikTok, Pinterest or others) run on this site.</td><td className="py-2">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3">
+              Withdrawing analytics consent stops Google Analytics for the rest of your visit and
+              deletes its cookies from this site. <CookieSettingsButton className="text-blue-400 hover:underline" />
             </p>
           </div>
 

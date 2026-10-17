@@ -10,6 +10,7 @@ import { adminApi, subscriptionApi } from '@/lib/api-client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import type { AdminUser, AdminStats, PlanDef, BroadcastResult } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 /**
  * Result banners. Every colour is stated for BOTH themes rather than relying on the
  * light-theme remapping layer in globals.css — a diagnostics banner is exactly the place
@@ -256,10 +257,11 @@ export default function AdminUsersPage() {
 function ModalShell({ title, icon, onClose, children }: { title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <DialogA11y label={title} onClose={onClose} />
       <div className="bg-surface-secondary border border-edge rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-edge sticky top-0 bg-surface-secondary">
           <h3 className="text-base font-semibold text-white flex items-center gap-2">{icon} {title}</h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"><X size={16} /></button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -345,7 +347,7 @@ function ManageUserModal({ user, plans, isSelf, onClose, onSaved }: {
       <div className="space-y-4">
         <div>
           <label className={labelCls}>הרשאה</label>
-          <select value={role} onChange={(e) => setRole(e.target.value as 'user' | 'admin')} className={inputCls} disabled={isSelf}>
+          <select aria-label="הרשאה" value={role} onChange={(e) => setRole(e.target.value as 'user' | 'admin')} className={inputCls} disabled={isSelf}>
             <option value="user">משתמש</option>
             <option value="admin">אדמין</option>
           </select>
@@ -354,7 +356,7 @@ function ManageUserModal({ user, plans, isSelf, onClose, onSaved }: {
 
         <div>
           <label className={labelCls}>מנוי</label>
-          <select value={plan} onChange={(e) => setPlan(e.target.value)} className={inputCls}>
+          <select aria-label="מנוי" value={plan} onChange={(e) => setPlan(e.target.value)} className={inputCls}>
             {plans.map((p) => (
               <option key={p.id} value={p.id}>{p.name} — {p.monthly_credits} קרדיטים/חודש</option>
             ))}
@@ -476,23 +478,23 @@ function AddUserModal({ plans, onClose, onSaved }: { plans: PlanDef[]; onClose: 
       <div className="space-y-4">
         <div>
           <label className={labelCls}>אימייל</label>
-          <input type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" className={inputCls} />
+          <input aria-label="אימייל" type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" className={inputCls} />
         </div>
         <div>
           <label className={labelCls}>סיסמה ראשונית</label>
-          <input type="text" dir="ltr" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="לפחות 6 תווים" className={inputCls} />
+          <input aria-label="סיסמה ראשונית" type="text" dir="ltr" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="לפחות 6 תווים" className={inputCls} />
           <p className="text-2xs text-white/30 mt-1">מסור למשתמש — הוא יוכל לשנות אותה דרך &quot;שכחתי סיסמה&quot;.</p>
         </div>
         <div>
           <label className={labelCls}>הרשאה</label>
-          <select value={role} onChange={(e) => setRole(e.target.value as 'user' | 'admin')} className={inputCls}>
+          <select aria-label="הרשאה" value={role} onChange={(e) => setRole(e.target.value as 'user' | 'admin')} className={inputCls}>
             <option value="user">משתמש</option>
             <option value="admin">אדמין</option>
           </select>
         </div>
         <div>
           <label className={labelCls}>מנוי</label>
-          <select value={plan} onChange={(e) => setPlan(e.target.value)} className={inputCls}>
+          <select aria-label="מנוי" value={plan} onChange={(e) => setPlan(e.target.value)} className={inputCls}>
             {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
@@ -612,7 +614,7 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
           {chans.includes('email') && (
             <div>
               <label className={labelCls}>נמעני אימייל</label>
-              <select value={target} onChange={(e) => setTarget(e.target.value as any)} className={inputCls}>
+              <select aria-label="נמעני אימייל" value={target} onChange={(e) => setTarget(e.target.value as any)} className={inputCls}>
                 <option value="all">כל המשתמשים</option>
                 <option value="users">משתמשים רגילים בלבד</option>
                 <option value="admins">מנהלים בלבד</option>
@@ -624,7 +626,7 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
             <div className="space-y-3 border border-edge rounded-lg p-3 bg-white/[0.02]">
               <div>
                 <label className={labelCls}>מספרי וואטסאפ</label>
-                <textarea value={waNumbers} onChange={(e) => setWaNumbers(e.target.value)} rows={2} dir="ltr"
+                <textarea aria-label="מספרי וואטסאפ" value={waNumbers} onChange={(e) => setWaNumbers(e.target.value)} rows={2} dir="ltr"
                   placeholder="972501234567, 972521112233"
                   className={`${inputCls} resize-y`} />
                 <p className="text-2xs text-white/30 mt-1">מספרים בפורמט בינלאומי (ללא +), מופרדים בפסיק/רווח. דורש WhatsApp Business מוגדר בהגדרות.</p>
@@ -649,16 +651,16 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
                   <div className="flex gap-2">
                     <div className="flex-1">
                       <label className={labelCls}>שם התבנית</label>
-                      <input value={tplName} onChange={(e) => setTplName(e.target.value)} dir="ltr" placeholder="order_update" className={inputCls} />
+                      <input aria-label="שם התבנית" value={tplName} onChange={(e) => setTplName(e.target.value)} dir="ltr" placeholder="order_update" className={inputCls} />
                     </div>
                     <div className="w-28">
                       <label className={labelCls}>שפה</label>
-                      <input value={tplLang} onChange={(e) => setTplLang(e.target.value)} dir="ltr" placeholder="he" className={inputCls} />
+                      <input aria-label="שפה" value={tplLang} onChange={(e) => setTplLang(e.target.value)} dir="ltr" placeholder="he" className={inputCls} />
                     </div>
                   </div>
                   <div>
                     <label className={labelCls}>ערכים למשתני התבנית</label>
-                    <input value={tplParams} onChange={(e) => setTplParams(e.target.value)} placeholder="ערך1 | ערך2 | ערך3" className={inputCls} />
+                    <input aria-label="ערכים למשתני התבנית" value={tplParams} onChange={(e) => setTplParams(e.target.value)} placeholder="ערך1 | ערך2 | ערך3" className={inputCls} />
                     <p className="text-2xs text-white/30 mt-1">ממלאים את {'{{1}}'}, {'{{2}}'}... בסדר, מופרדים ב-|. השם + השפה חייבים להיות זהים לתבנית שאושרה ב-Meta.</p>
                   </div>
                 </div>
@@ -673,11 +675,11 @@ function BroadcastModal({ onClose }: { onClose: () => void }) {
 
           <div>
             <label className={labelCls}>נושא (אימייל)</label>
-            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="נושא ההודעה" className={inputCls} />
+            <input aria-label="נושא (אימייל)" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="נושא ההודעה" className={inputCls} />
           </div>
           <div>
             <label className={labelCls}>תוכן ההודעה</label>
-            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5}
+            <textarea aria-label="תוכן ההודעה" value={message} onChange={(e) => setMessage(e.target.value)} rows={5}
               placeholder="כתוב כאן את תוכן ההודעה שתישלח..."
               className={`${inputCls} resize-y leading-relaxed`} />
           </div>

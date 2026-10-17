@@ -150,7 +150,7 @@ export function PostPreview({
               <CalendarClock size={13} />
               תזמון פרסום
             </p>
-            <button
+            <button aria-label="ביטול תזמון"
               onClick={() => setShowScheduler(false)}
               className="text-white/30 hover:text-white/60"
             >
@@ -219,7 +219,7 @@ export function PostPreview({
           </button>
         )}
 
-        <button
+        <button aria-label="תזמן לתאריך ושעה"
           onClick={() => setShowScheduler((v) => !v)}
           className={`p-2.5 rounded-xl border transition-all ${
             showScheduler
@@ -231,7 +231,7 @@ export function PostPreview({
           <Clock size={14} />
         </button>
 
-        <button
+        <button aria-label="צור טקסט מחדש"
           onClick={onRegenerate}
           disabled={isRegenerating}
           className="p-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-60 border border-edge-hover text-white/70 rounded-xl transition-all"
@@ -240,7 +240,7 @@ export function PostPreview({
           <RefreshCw size={14} className={isRegenerating ? 'animate-spin' : ''} />
         </button>
 
-        <button
+        <button aria-label="העתק טקסט"
           onClick={handleCopy}
           className="p-2.5 bg-white/5 hover:bg-white/10 border border-edge-hover text-white/70 rounded-xl transition-all"
           title="העתק טקסט"

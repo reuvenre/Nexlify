@@ -269,7 +269,7 @@ export default function OrdersPage() {
                 בפורטל: דוחות ← הזמנות ← ייצוא CSV. הדבק כאן את כל הקובץ (או רשימת מזהי הזמנה, שורה לכל אחת).
               </p>
             </div>
-            <button onClick={() => setReconcileOpen(false)} className="text-white/30 hover:text-white/60 transition-colors">
+            <button aria-label="סגור" onClick={() => setReconcileOpen(false)} className="text-white/30 hover:text-white/60 transition-colors">
               <X size={16} />
             </button>
           </div>

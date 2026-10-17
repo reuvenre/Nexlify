@@ -49,10 +49,30 @@ export default function SettingsPage() {
       {/* Mobile: horizontal scrollable tab chips · Desktop: vertical side nav */}
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 min-h-0">
         {/* Sidebar */}
-        <aside className="w-full lg:w-52 shrink-0 flex lg:flex-col gap-1 overflow-x-auto pb-1 lg:pb-0 lg:space-y-1 lg:overflow-visible">
+        <div
+          role="tablist"
+          aria-label="אזורי הגדרות"
+          aria-orientation="vertical"
+          onKeyDown={(e) => {
+            // Arrow keys move between tabs (WAI-ARIA tabs pattern). RTL: right = previous.
+            const keys: Record<string, number> = { ArrowDown: 1, ArrowLeft: 1, ArrowUp: -1, ArrowRight: -1 };
+            if (e.key === 'Home' || e.key === 'End' || keys[e.key]) {
+              e.preventDefault();
+              const i = TABS.findIndex((t) => t.id === tab);
+              const n = e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : (i + keys[e.key] + TABS.length) % TABS.length;
+              setTab(TABS[n].id);
+              document.getElementById(`settings-tab-${TABS[n].id}`)?.focus();
+            }
+          }}
+          className="w-full lg:w-52 shrink-0 flex lg:flex-col gap-1 overflow-x-auto pb-1 lg:pb-0 lg:space-y-1 lg:overflow-visible">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
+              id={`settings-tab-${id}`}
+              role="tab"
+              aria-selected={tab === id}
+              aria-controls="settings-panel"
+              tabIndex={tab === id ? 0 : -1}
               onClick={() => setTab(id)}
               className={`shrink-0 lg:w-full flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all text-right
                 ${tab === id
@@ -72,10 +92,10 @@ export default function SettingsPage() {
               {label}
             </button>
           ))}
-        </aside>
+        </div>
 
         {/* Content */}
-        <div className="flex-1 min-w-0">
+        <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`} tabIndex={0} className="flex-1 min-w-0 outline-none">
           <div className="mb-6">
             <h2 className="text-xl font-bold text-white">{active.label}</h2>
             <p className="text-xs text-white/35 mt-0.5">{active.desc}</p>

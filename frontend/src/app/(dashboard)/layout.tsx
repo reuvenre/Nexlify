@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { TrialBanner } from '@/components/TrialBanner';
 import { Loader2, Menu, X } from 'lucide-react';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -57,6 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           onClick={() => setMobileNavOpen(true)}
           className="w-9 h-9 -mr-1.5 rounded-lg flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.06] transition-all"
           aria-label="פתח תפריט"
+          aria-expanded={mobileNavOpen}
         >
           <Menu size={19} />
         </button>
@@ -75,6 +77,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Mobile drawer */}
       {mobileNavOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
+          <DialogA11y label="תפריט ניווט" onClose={() => setMobileNavOpen(false)} />
           <div
             className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
             onClick={() => setMobileNavOpen(false)}
@@ -92,7 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* Main — sidebar margin only on desktop */}
-      <main className="lg:mr-[220px] min-h-screen">
+      <main id="main" tabIndex={-1} className="lg:mr-[220px] min-h-screen outline-none">
         <div className="max-w-[1100px] mx-auto px-4 py-5 lg:px-7 lg:py-8">
           {/* Above every screen on purpose: a countdown only works if it is seen on the
               days it is counting, and the features it names are spread across the app. */}

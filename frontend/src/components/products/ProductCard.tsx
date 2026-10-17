@@ -28,6 +28,10 @@ export function ProductCard({ product, onSelect, isSelected }: ProductCardProps)
   return (
     <div
       onClick={() => onSelect(product)}
+      role="button"
+      tabIndex={0}
+      aria-pressed={!!isSelected}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(product); } }}
       className={`group relative cursor-pointer rounded-xl overflow-hidden transition-all duration-300
         ${isSelected
           ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-surface-primary bg-blue-500/5 border border-blue-500/30'
@@ -54,7 +58,7 @@ export function ProductCard({ product, onSelect, isSelected }: ProductCardProps)
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={product.image_url}
-          alt={product.title}
+          alt=""
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
           loading="lazy"
         />

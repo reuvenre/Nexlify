@@ -318,7 +318,7 @@ export function SchedulingForm() {
               מקבלים אוטומטית מילות מפתח עונתיות והכתיבה מתחברת לאווירת התקופה. כבוי = התנהגות רגילה.
             </p>
           </div>
-          <button
+          <button role="switch" aria-checked={!!(seasonalOn)} aria-label="עונתיות אוטומטית"
             type="button"
             onClick={() => setSeasonalOn((v) => !v)}
             className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${seasonalOn ? 'bg-amber-500' : 'bg-white/15'}`}
@@ -339,7 +339,7 @@ export function SchedulingForm() {
               שמייצרת עמלות, ושולח לך כל בוקר למייל דו"ח — מה שונה ולמה.
             </p>
           </div>
-          <button
+          <button role="switch" aria-checked={!!(optimizerOn)} aria-label="מנוע אופטימיזציה לומד"
             type="button"
             onClick={() => setOptimizerOn((v) => !v)}
             className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${optimizerOn ? 'bg-violet-500' : 'bg-white/15'}`}
@@ -393,7 +393,7 @@ export function SchedulingForm() {
               מקסימום אחד ביום, צינון 14 יום למוצר, ורק אם המחיר לא עלה בינתיים.
             </p>
           </div>
-          <button
+          <button role="switch" aria-checked={!!(recycleOn)} aria-label="מיחזור מנצחים"
             type="button"
             onClick={() => setRecycleOn((v) => !v)}
             className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${recycleOn ? 'bg-amber-500' : 'bg-white/15'}`}
@@ -404,7 +404,7 @@ export function SchedulingForm() {
         {recycleOn && (
           <div className="mt-3">
             <label className="block text-xs font-medium text-white/50 mb-1.5">סף קליקים ל"מנצח"</label>
-            <select
+            <select aria-label="סף קליקים ל&quot;מנצח&quot;"
               value={recycleMinClicks}
               onChange={(e) => setRecycleMinClicks(+e.target.value)}
               className="bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-amber-500/60 transition-colors appearance-none cursor-pointer"
@@ -430,7 +430,7 @@ export function SchedulingForm() {
               כל פוסט צורך קרדיט פרסום.
             </p>
           </div>
-          <button
+          <button role="switch" aria-checked={!!(recoveryOn)} aria-label="התאוששות מכירות אוטומטית"
             type="button"
             onClick={() => setRecoveryOn((v) => !v)}
             className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${recoveryOn ? 'bg-amber-500' : 'bg-white/15'}`}

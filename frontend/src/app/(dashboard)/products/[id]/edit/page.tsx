@@ -10,6 +10,7 @@ import {
 import { catalogApi, postsApi } from '@/lib/api-client';
 import type { CatalogProduct } from '@/types';
 
+import { FormField, useFieldIds } from '@/components/common/FormField';
 const SYMS: Record<string, string> = { ILS: '₪', EUR: '€', GBP: '£', USD: '$' };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -27,11 +28,9 @@ function Field({
   label, children, hint,
 }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
-    <div>
-      <label className="block text-xs font-medium text-white/45 mb-1.5">{label}</label>
+    <FormField label={label} hint={hint} labelClassName="block text-xs font-medium text-white/45 mb-1.5" hintClassName="text-2xs text-white/25 mt-1">
       {children}
-      {hint && <p className="text-2xs text-white/25 mt-1">{hint}</p>}
-    </div>
+    </FormField>
   );
 }
 
@@ -45,10 +44,12 @@ function Input({
   dir?: string;
   rows?: number;
 }) {
+  const named = useFieldIds();
   const cls = 'w-full bg-surface-tertiary border border-edge rounded-xl px-3.5 py-2.5 text-body text-white/80 placeholder-white/20 outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all resize-none';
   if (rows) {
     return (
       <textarea
+        {...named}
         value={String(value)}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -59,6 +60,7 @@ function Input({
   }
   return (
     <input
+      {...named}
       type={type}
       value={String(value)}
       onChange={(e) => onChange(e.target.value)}
@@ -251,7 +253,7 @@ export default function EditProductPage() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <button
+          <button aria-label="חזרה"
             onClick={() => router.push('/products')}
             className="w-8 h-8 rounded-xl flex items-center justify-center text-white/35 hover:text-white/70 hover:bg-white/[0.06] transition-all"
           >

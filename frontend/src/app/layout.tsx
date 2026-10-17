@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
-import Script from 'next/script';
 import { AuthProvider } from '@/lib/hooks/useAuth';
 import { ThemeProvider } from '@/lib/hooks/useTheme';
 import { PwaRegister } from '@/components/PwaRegister';
 import { CookieConsent } from '@/components/CookieConsent';
+import { Analytics } from '@/components/Analytics';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -147,39 +147,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className={`${inter.className} antialiased`} style={{ backgroundColor: 'var(--bg-primary)' }}>
+        {/* First stop for keyboard and screen-reader users (WCAG 2.4.1). Every page type
+            marks its content with id="main". */}
+        <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:right-3 focus:z-[200] focus:rounded-xl focus:bg-blue-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white">
+          דלג לתוכן הראשי
+        </a>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSONLD) }}
         />
-        {GA_MEASUREMENT_ID && (
-          <>
-            {/* Consent Mode v2: DENY analytics/ad storage by default — GA sends cookieless
-                pings until the CookieConsent banner grants it. Must run before gtag config. */}
-            <Script id="gtag-consent-default" strategy="beforeInteractive">
-              {`
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                gtag('consent', 'default', {
-                  ad_storage: 'denied',
-                  ad_user_data: 'denied',
-                  ad_personalization: 'denied',
-                  analytics_storage: 'denied',
-                  wait_for_update: 500
-                });
-              `}
-            </Script>
-            <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
-              strategy="afterInteractive"
-            />
-            <Script id="gtag-init" strategy="afterInteractive">
-              {`
-                gtag('js', new Date());
-                gtag('config', '${GA_MEASUREMENT_ID}');
-              `}
-            </Script>
-          </>
-        )}
+        {/* Google Analytics is injected only after the visitor allows analytics cookies
+            (components/Analytics.tsx). Nothing third-party loads before that choice. */}
+        <Analytics gaId={GA_MEASUREMENT_ID} />
         <CookieConsent />
         <PwaRegister />
         <ThemeProvider>

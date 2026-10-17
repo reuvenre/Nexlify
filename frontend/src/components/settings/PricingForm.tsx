@@ -80,7 +80,7 @@ export function PricingForm() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">אחוז רווח (markup) %</label>
-            <input
+            <input aria-label="אחוז רווח (markup) %"
               type="number" min={0} max={100} value={markup}
               onChange={(e) => setMarkup(Math.min(100, Math.max(0, +e.target.value)))}
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
@@ -90,7 +90,7 @@ export function PricingForm() {
           </div>
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">תוספת משלוח (₪)</label>
-            <input
+            <input aria-label="תוספת משלוח (₪)"
               type="number" min={0} max={200} value={buffer}
               onChange={(e) => setBuffer(Math.min(200, Math.max(0, +e.target.value)))}
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"

@@ -15,6 +15,8 @@ import { GroupMultiSelect } from '@/components/GroupMultiSelect';
 import type { SupplierCatalog, SupplierProduct, SupplierVideo, SkuMatchMode, Channel, PostPreview as PostPreviewType, PostTemplate, BulkLinkResult } from '@/types';
 import { supplierVideos } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
+import { FormField, useFieldIds } from '@/components/common/FormField';
 const POST_LANGS: { value: string; label: string }[] = [
   { value: 'he', label: 'עברית' },
   { value: 'ar', label: 'العربية' },
@@ -131,7 +133,7 @@ function CatalogsTab({ catalogs, channels, reload }: { catalogs: SupplierCatalog
                   <p className="text-xs text-white/40 mt-0.5" dir="ltr">{c.source_store}.x.yupoo.com</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setEditing(c)} className="p-1.5 text-white/40 hover:text-white/80 hover:bg-white/5 rounded-lg"><Pencil size={13} /></button>
+                  <button aria-label="עריכת קטלוג" onClick={() => setEditing(c)} className="p-1.5 text-white/40 hover:text-white/80 hover:bg-white/5 rounded-lg"><Pencil size={13} /></button>
                   <button onClick={async () => { if (confirm('למחוק קטלוג זה?')) { await suppliersApi.deleteCatalog(c.id); reload(); } }}
                     className="p-1.5 text-red-400/60 hover:text-red-400 hover:bg-red-500/10 rounded-lg"><Trash2 size={13} /></button>
                 </div>
@@ -202,11 +204,12 @@ function CatalogModal({ catalog, channels, onClose, onSaved }: { catalog: Suppli
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <DialogA11y label={catalog ? 'עריכת קטלוג' : 'קטלוג ספק חדש'} onClose={onClose} />
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-lg max-h-[90vh] overflow-y-auto" dir="rtl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">{catalog ? 'עריכת קטלוג' : 'קטלוג ספק חדש'}</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
         </div>
         <div className="space-y-3.5">
           <Field label="שם הקטלוג"><Input value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="למשל: נעליים YaMMMMMi" /></Field>
@@ -820,7 +823,7 @@ function PostComposer({ productId, channels, defaultChannel, onSent }: {
                       {on ? idx + 1 : <Check size={11} />}
                     </button>
                     {/* Enlarge affordance */}
-                    <button type="button" onClick={() => setLightbox(i)} title="הגדל"
+                    <button aria-label="הגדל" type="button" onClick={() => setLightbox(i)} title="הגדל"
                       className="absolute bottom-1 left-1 w-5 h-5 rounded-full bg-black/60 text-white/80 flex items-center justify-center opacity-0 group-hover/th:opacity-100 transition-opacity">
                       <Maximize2 size={11} />
                     </button>
@@ -944,14 +947,15 @@ function ImageLightbox({ images, videos, index, selected, maxAlbum, onIndex, onT
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center p-4" onClick={onClose} dir="rtl">
-      <button onClick={onClose} className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><X size={18} /></button>
+      <DialogA11y label="תמונה מוגדלת" onClose={onClose} />
+      <button aria-label="סגור" onClick={onClose} className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><X size={18} /></button>
       <span className="absolute top-5 right-5 text-white/60 text-sm">{index + 1} / {images.length}</span>
 
       {/* prev (right, RTL) */}
-      <button onClick={(e) => { e.stopPropagation(); prev(); }}
+      <button aria-label="הקודם" onClick={(e) => { e.stopPropagation(); prev(); }}
         className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><ChevronRight size={22} /></button>
       {/* next (left, RTL) */}
-      <button onClick={(e) => { e.stopPropagation(); next(); }}
+      <button aria-label="הבא" onClick={(e) => { e.stopPropagation(); next(); }}
         className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"><ChevronLeft size={22} /></button>
 
       <div className="flex flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
@@ -960,7 +964,7 @@ function ImageLightbox({ images, videos, index, selected, maxAlbum, onIndex, onT
             className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg bg-black" />
         ) : (
           /* eslint-disable-next-line @next/next/no-img-element */
-          <img src={url} alt="" className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg" />
+          <img src={url} alt={`תמונה ${index + 1} מתוך ${images.length}`} className="max-h-[74vh] max-w-[86vw] object-contain rounded-lg" />
         )}
         <button onClick={() => onToggle(url)} disabled={!on && atMax}
           className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${on ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
@@ -1046,13 +1050,14 @@ function BrowseProductModal({ catalogId, albumUrl, channels, defaultChannel, onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <DialogA11y label={productId ? 'יצירת פוסט' : 'מוצר מהקטלוג'} onClose={onClose} />
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className={`relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-h-[92vh] overflow-y-auto ${productId ? 'max-w-4xl' : 'max-w-2xl'}`} dir="rtl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
             <Images size={15} className="text-blue-400" /> {productId ? 'יצירת פוסט' : 'מוצר מהקטלוג'}
           </h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
         </div>
 
         {loading ? (
@@ -1109,13 +1114,14 @@ function SavedProductPostModal({ product, channels, defaultChannel, onClose, onS
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <DialogA11y label="יצירת פוסט" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-4xl max-h-[92vh] overflow-y-auto" dir="rtl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2 truncate">
             <Wand2 size={15} className="text-blue-400 shrink-0" /> <span className="truncate">יצירת פוסט — {product.title}</span>
           </h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70 shrink-0"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/40 hover:text-white/70 shrink-0"><X size={16} /></button>
         </div>
         <PostComposer productId={product.id} channels={channels} defaultChannel={defaultChannel} onSent={onSent} />
       </div>
@@ -1300,7 +1306,7 @@ function ActionBtn({ icon: Icon, label, onClick, color = 'default', loading = fa
     blue: 'text-blue-400/60 hover:text-blue-400 hover:bg-blue-500/10',
   };
   return (
-    <button title={label} onClick={onClick} disabled={disabled || loading}
+    <button aria-label={label} title={label} onClick={onClick} disabled={disabled || loading}
       className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed ${colors[color]}`}>
       {loading ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
     </button>
@@ -1434,11 +1440,12 @@ function SupplierEditModal({ product, onClose, onSaved }: { product: SupplierPro
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <DialogA11y label="עריכת מוצר" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-lg" dir="rtl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">עריכת מוצר</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
         </div>
         <div className="space-y-3.5">
           <Field label="כותרת"><Input value={form.title} onChange={(v) => setForm((f) => ({ ...f, title: v }))} dir="ltr" /></Field>
@@ -1508,11 +1515,12 @@ function LinkModal({ catalogs, initial, onClose, onDone }: { catalogs: SupplierC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <DialogA11y label="חיבור מוצר Yupoo ל-FLYLINK" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-lg" dir="rtl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">חבר מוצר Yupoo ↔ FLYLINK</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
         </div>
         <div className="space-y-3.5">
           <Field label="קטלוג ספק">
@@ -1590,13 +1598,14 @@ function BulkLinkModal({ catalogs, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <DialogA11y label="ייבוא מרוכז של קישורי FLYLINK" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-surface-primary border border-edge rounded-2xl p-5 w-full max-w-2xl max-h-[92vh] overflow-y-auto" dir="rtl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
             <Layers size={15} className="text-emerald-400" /> ייבוא מרוכז של קישורי FLYLINK
           </h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/40 hover:text-white/70"><X size={16} /></button>
         </div>
 
         <div className="space-y-3.5">
@@ -1669,16 +1678,15 @@ function BulkLinkModal({ catalogs, onClose, onDone }: {
 // ─── Small UI helpers ─────────────────────────────────────────────────────────
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div>
-      <label className="block text-xs font-medium text-white/50 mb-1.5">{label}</label>
+    <FormField label={label} hint={hint} labelClassName="block text-xs font-medium text-white/50 mb-1.5" hintClassName="text-2xs text-white/25 mt-1">
       {children}
-      {hint && <p className="text-2xs text-white/25 mt-1">{hint}</p>}
-    </div>
+    </FormField>
   );
 }
 function Input({ value, onChange, placeholder, dir }: { value: string; onChange: (v: string) => void; placeholder?: string; dir?: string }) {
+  const named = useFieldIds();
   return (
-    <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} dir={dir}
+    <input {...named} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} dir={dir}
       className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-colors" />
   );
 }

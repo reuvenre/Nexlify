@@ -35,7 +35,7 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="min-h-screen flex" style={{ direction: 'rtl' }}>
-      <div className="w-full lg:w-[47%] flex flex-col bg-[#f3f4f6]">
+      <main id="main" tabIndex={-1} className="w-full lg:w-[47%] flex flex-col bg-[#f3f4f6] outline-none">
         <div className="flex-1 flex items-center justify-center px-8 py-12">
           <div className="w-full max-w-[390px] bg-white rounded-2xl shadow-sm border border-gray-100 px-8 py-8">
 
@@ -43,15 +43,17 @@ export default function ForgotPasswordPage() {
               <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Mail size={22} className="text-blue-600" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">שכחת סיסמה?</h2>
+              <h1 className="text-2xl font-bold text-gray-900">שכחת סיסמה?</h1>
               <p className="text-gray-500 text-sm mt-1">הזן את האימייל שלך לקבלת קישור איפוס</p>
             </div>
 
             {!resetUrl ? (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">אימייל</label>
+                  <label htmlFor="forgot-email" className="block text-sm font-medium text-gray-700 mb-1.5">אימייל</label>
                   <input
+                    id="forgot-email"
+                    aria-invalid={!!error}
                     type="email"
                     required
                     value={email}
@@ -63,7 +65,7 @@ export default function ForgotPasswordPage() {
                 </div>
 
                 {error && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                  <div role="alert" className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
                     <AlertCircle size={14} className="text-red-500 shrink-0" />
                     <p className="text-xs text-red-600">{error}</p>
                   </div>
@@ -72,7 +74,7 @@ export default function ForgotPasswordPage() {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-2.5 rounded-lg bg-[#8b9ed4] hover:bg-[#7a8ec8] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
                 >
                   {isLoading && <Loader2 size={15} className="animate-spin" />}
                   {isLoading ? 'שולח...' : 'שלח קישור איפוס'}
@@ -92,13 +94,14 @@ export default function ForgotPasswordPage() {
                       <span className="flex-1 text-xs text-gray-600 break-all" dir="ltr">{resetUrl}</span>
                       <button
                         onClick={handleCopy}
-                        className="shrink-0 p-1.5 text-gray-400 hover:text-gray-700 transition-colors"
+                        className="shrink-0 p-1.5 text-gray-500 hover:text-gray-700 transition-colors"
                         title="העתק קישור"
+                        aria-label={copied ? 'הקישור הועתק' : 'העתק קישור'}
                       >
                         {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                       </button>
                     </div>
-                    <p className="text-xs text-gray-400">הקישור תקף לשעה אחת.</p>
+                    <p className="text-xs text-gray-500">הקישור תקף לשעה אחת.</p>
                   </div>
                 )}
               </div>
@@ -111,7 +114,7 @@ export default function ForgotPasswordPage() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
       {/* Hero panel */}
       <div
@@ -130,11 +133,11 @@ export default function ForgotPasswordPage() {
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="relative z-10 px-12 max-w-lg text-center">
-            <h1 className="text-5xl font-extrabold text-white leading-tight mb-5">
+            <p className="text-5xl font-extrabold text-white leading-tight mb-5">
               איפוס
               <br />
               <span className="gradient-text-hero">סיסמה</span>
-            </h1>
+            </p>
             <p className="text-white/45 text-base leading-relaxed">
               הקישור יופיע ישירות על המסך.<br />לא נדרש שרת דואר אלקטרוני.
             </p>

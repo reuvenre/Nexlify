@@ -67,7 +67,13 @@ export function CampaignCard({ campaign, onToggle, onRunNow, onDelete, onClick }
               {STATUS_LABEL[campaign.status]}
             </span>
           </div>
-          <h3 className="text-sm font-semibold text-white truncate">{campaign.name}</h3>
+          {/* The card opens on click; this is the same action for keyboard and screen-reader
+              users (the card holds its own buttons, so it cannot itself be a button). */}
+          <h3 className="text-sm font-semibold text-white truncate">
+            <button type="button" onClick={(e) => { e.stopPropagation(); onClick(campaign.id); }} className="text-right truncate max-w-full hover:underline">
+              {campaign.name}
+            </button>
+          </h3>
         </div>
         <ChevronRight size={14} className="text-white/20 group-hover:text-white/40 transition-colors mt-0.5 mr-2 flex-shrink-0 rotate-180" />
       </div>
@@ -121,7 +127,7 @@ export function CampaignCard({ campaign, onToggle, onRunNow, onDelete, onClick }
           {isRunning ? 'שולח...' : 'הרץ עכשיו'}
         </button>
 
-        <button
+        <button aria-label="מחיקת קמפיין"
           onClick={handleDelete}
           className="btn btn-danger btn-xs mr-auto"
         >

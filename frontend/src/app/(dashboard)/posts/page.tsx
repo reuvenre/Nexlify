@@ -12,6 +12,7 @@ import { postsApi, credentialsApi, channelsApi, suppliersApi, type PushPlatform 
 import { GroupMultiSelect } from '@/components/GroupMultiSelect';
 import type { Post, Channel } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 // ─── Estimated queue send times ───────────────────────────────────────────────
 // Mirrors the scheduler: one post per interval, inside the [start,end) hour window.
 // The SERVER runs the window in Asia/Jerusalem, so we clamp/label in that timezone
@@ -170,7 +171,7 @@ function QueueItem({
         </div>
 
         {/* Remove */}
-        <button
+        <button aria-label="הסר מהתור"
           onClick={handleRemove}
           disabled={removing}
           className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/55 hover:bg-red-600 text-white/80 hover:text-white flex items-center justify-center opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all disabled:opacity-60"
@@ -584,36 +585,36 @@ function PostRow({ post, channels, onRetry, onRetryFailed, onDelete, onEdit, onR
       <td className="py-3 px-4">
         <div className="flex items-center gap-1">
           {post.status === 'failed' && (
-            <button onClick={handleRetry} disabled={retrying} title="נסה שוב (כל הערוצים)"
+            <button aria-label="נסה שוב (כל הערוצים)" onClick={handleRetry} disabled={retrying} title="נסה שוב (כל הערוצים)"
               className="w-7 h-7 rounded-lg flex items-center justify-center text-blue-400/70 hover:text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 transition-all">
               {retrying ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
             </button>
           )}
           {isPartial && (
-            <button onClick={handleRetryFailed} disabled={retryingFailed} title="שלח שוב רק לפלטפורמה שנכשלה"
+            <button aria-label="שלח שוב רק לפלטפורמה שנכשלה" onClick={handleRetryFailed} disabled={retryingFailed} title="שלח שוב רק לפלטפורמה שנכשלה"
               className="w-7 h-7 rounded-lg flex items-center justify-center text-amber-400/80 hover:text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 transition-all">
               {retryingFailed ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
             </button>
           )}
-          <button onClick={() => onPush(post)} title="דחוף לפלטפורמה/קבוצה (בלי חיוב, בלי כפילות)"
+          <button aria-label="דחוף לפלטפורמה/קבוצה (בלי חיוב, בלי כפילות)" onClick={() => onPush(post)} title="דחוף לפלטפורמה/קבוצה (בלי חיוב, בלי כפילות)"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-teal-400/70 hover:text-teal-300 hover:bg-teal-500/10 transition-all">
             <Megaphone size={13} />
           </button>
-          <button onClick={() => onRepublish(post)} title="פרסם מחדש — לתור או בתזמון"
+          <button aria-label="פרסם מחדש — לתור או בתזמון" onClick={() => onRepublish(post)} title="פרסם מחדש — לתור או בתזמון"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-violet-400/70 hover:text-violet-400 hover:bg-violet-500/10 transition-all">
             <RefreshCw size={13} />
           </button>
-          <button onClick={handleSetSource} disabled={settingSrc || isSource}
+          <button aria-label={isSource ? 'זה פוסט המקור — פרסומים חוזרים של FLYLINK ישכפלו אותו בדיוק' : 'קבע כפוסט מקור — פרסומים חוזרים של FLYLINK ישכפלו את הטקסט והתמונות של הפוסט הזה'} onClick={handleSetSource} disabled={settingSrc || isSource}
             title={isSource ? 'זה פוסט המקור — פרסומים חוזרים של FLYLINK ישכפלו אותו בדיוק' : 'קבע כפוסט מקור — פרסומים חוזרים של FLYLINK ישכפלו את הטקסט והתמונות של הפוסט הזה'}
             className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-100
               ${isSource ? 'text-amber-400' : 'text-amber-400/50 hover:text-amber-400 hover:bg-amber-500/10'}`}>
             {settingSrc ? <Loader2 size={13} className="animate-spin" /> : <Star size={13} fill={isSource ? 'currentColor' : 'none'} />}
           </button>
-          <button onClick={() => onEdit(post)} title="ערוך פוסט"
+          <button aria-label="ערוך פוסט" onClick={() => onEdit(post)} title="ערוך פוסט"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition-all">
             <Pencil size={13} />
           </button>
-          <button onClick={handleDelete} disabled={deleting} title="מחק פוסט"
+          <button aria-label="מחק פוסט" onClick={handleDelete} disabled={deleting} title="מחק פוסט"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400/60 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-all">
             {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
           </button>
@@ -743,11 +744,12 @@ function EditPostModal({ post, channels, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <DialogA11y label="עריכת פוסט" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-lg p-6 max-h-[92vh] overflow-y-auto" dir="rtl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-white truncate">עריכת פוסט</h3>
-          <button onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
         </div>
 
         <div className="flex items-center gap-3 mb-4">
@@ -762,7 +764,7 @@ function EditPostModal({ post, channels, onClose, onSaved }: {
           ) : <div className="w-20 h-20 rounded-xl bg-white/5 shrink-0" />}
           <div className="flex-1 min-w-0">
             <label className="block text-xs text-white/50 mb-1">שם המוצר</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} dir="ltr" />
+            <input aria-label="שם המוצר" value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} dir="ltr" />
           </div>
         </div>
 
@@ -781,10 +783,10 @@ function EditPostModal({ post, channels, onClose, onSaved }: {
             <label className="block text-xs text-white/50 mb-1">קישור ישיר למוצר (לבדיקה)</label>
             <div className="flex items-center gap-1.5">
               <input readOnly value={directUrl} className={`${inputCls} text-white/60`} dir="ltr" onFocus={(e) => e.currentTarget.select()} />
-              <button type="button" onClick={() => copy(directUrl, 'direct')} title="העתק" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/50">
+              <button aria-label="העתק" type="button" onClick={() => copy(directUrl, 'direct')} title="העתק" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/50">
                 {copied === 'direct' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
               </button>
-              <a href={directUrl} target="_blank" rel="noopener noreferrer" title="פתח באתר" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-blue-400">
+              <a aria-label="פתח באתר" href={directUrl} target="_blank" rel="noopener noreferrer" title="פתח באתר" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-blue-400">
                 <ExternalLink size={14} />
               </a>
             </div>
@@ -798,10 +800,10 @@ function EditPostModal({ post, channels, onClose, onSaved }: {
             <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…" className={inputCls} dir="ltr" />
             {link && (
               <>
-                <button type="button" onClick={() => copy(link, 'aff')} title="העתק" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/50">
+                <button aria-label="העתק" type="button" onClick={() => copy(link, 'aff')} title="העתק" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/50">
                   {copied === 'aff' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
                 </button>
-                <a href={link} target="_blank" rel="noopener noreferrer" title="פתח" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-blue-400">
+                <a aria-label="פתח" href={link} target="_blank" rel="noopener noreferrer" title="פתח" className="shrink-0 p-2 bg-white/5 hover:bg-white/10 rounded-lg text-blue-400">
                   <ExternalLink size={14} />
                 </a>
               </>
@@ -907,7 +909,7 @@ function EditPostModal({ post, channels, onClose, onSaved }: {
         {isScheduled && (
           <div className="mt-3">
             <label className="block text-xs text-white/50 mb-1.5">מועד פרסום</label>
-            <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
+            <input aria-label="מועד פרסום" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
               className={inputCls} dir="ltr" />
           </div>
         )}
@@ -929,6 +931,7 @@ function EditPostModal({ post, channels, onClose, onSaved }: {
       {zoom && image && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-6 cursor-zoom-out"
           onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
+          <DialogA11y label="תמונה מוגדלת" onClose={() => setZoom(false)} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt="" className="max-w-full max-h-full rounded-xl object-contain shadow-2xl" />
         </div>
@@ -976,11 +979,12 @@ function RepublishModal({ post, channels, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <DialogA11y label="פרסום מחדש" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-sm p-6" dir="rtl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-semibold text-white flex items-center gap-2"><RefreshCw size={15} className="text-violet-400" /> פרסום מחדש</h3>
-          <button onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
         </div>
         <p className="text-xs text-white/40 truncate mb-4" dir="ltr">{post.product_title}</p>
 
@@ -1073,11 +1077,12 @@ function SmartIntakeModal({ onClose, onDone }: { onClose: () => void; onDone: ()
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <DialogA11y label="קליטה חכמה מקישור" onClose={onClose} />
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-md p-6" dir="rtl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-semibold text-white flex items-center gap-2"><Wand2 size={15} className="text-teal-400" /> קליטה חכמה מקישור</h3>
-          <button onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>
         </div>
         <p className="text-xs text-white/40 mb-4">
           הדבק קישור מוצר מ-AliExpress — המערכת תזהה את המוצר, תיצור מילת מפתח, תשייך לטייס
@@ -1230,10 +1235,11 @@ function PushModal({ post, channels, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <DialogA11y label="דחיפת פוסט לפלטפורמות" onClose={onClose} />
       <div className="bg-surface-secondary border border-edge rounded-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
           <h3 className="text-base font-semibold text-white flex items-center gap-2"><Megaphone size={17} className="text-teal-400" /> דחיפת פוסט לפלטפורמה</h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10"><X size={16} /></button>
+          <button aria-label="סגור" onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-4">
           <p className="text-sm text-white/70 line-clamp-1">{post.product_title}</p>
@@ -1517,14 +1523,14 @@ export default function PostsPage() {
               <span>מתוך {total}</span>
             </div>
             <div className="flex items-center gap-1">
-              <button
+              <button aria-label="עמוד ראשון"
                 onClick={() => setPage(1)}
                 disabled={page === 1}
                 className="p-1.5 text-white/30 hover:text-white/70 disabled:opacity-30 transition-colors"
               >
                 <ChevronRight size={14} />
               </button>
-              <button
+              <button aria-label="עמוד קודם"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
                 className="p-1.5 text-white/30 hover:text-white/70 disabled:opacity-30 transition-colors"
@@ -1532,14 +1538,14 @@ export default function PostsPage() {
                 <ChevronRight size={14} />
               </button>
               <span className="text-xs text-white/50 px-2">עמוד {page} מתוך {totalPages || 1}</span>
-              <button
+              <button aria-label="עמוד הבא"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
                 className="p-1.5 text-white/30 hover:text-white/70 disabled:opacity-30 transition-colors"
               >
                 <ChevronLeft size={14} />
               </button>
-              <button
+              <button aria-label="עמוד אחרון"
                 onClick={() => setPage(totalPages)}
                 disabled={page >= totalPages}
                 className="p-1.5 text-white/30 hover:text-white/70 disabled:opacity-30 transition-colors"
@@ -1680,11 +1686,12 @@ function ImportFileModal({ channels, onClose, onDone }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={running ? undefined : onClose}>
+      <DialogA11y label="ייבוא מוצרים מקובץ" onClose={() => { if (!running) onClose(); }} />
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div className="relative bg-surface-secondary border border-edge rounded-2xl w-full max-w-md p-6" dir="rtl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-semibold text-white flex items-center gap-2"><Upload size={15} className="text-emerald-400" /> ייבוא מוצרים מקובץ</h3>
-          {!running && <button onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>}
+          {!running && <button aria-label="סגור" onClick={onClose} className="text-white/30 hover:text-white/60"><X size={16} /></button>}
         </div>
         <p className="text-2xs text-white/35 mb-4 leading-relaxed">
           קובץ Excel עם העמודות: שם מוצר, יתרונות, קישור שותפים. הפוסטים נבנים מהטקסט שבקובץ,

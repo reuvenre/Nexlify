@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowLeft, Globe } from 'lucide-react';
+import { LegalLinks } from '@/components/LegalLinks';
 
 /** Shared chrome for public marketing pages (landing, compare, blog). */
 export function MarketingShell({ children }: { children: React.ReactNode }) {
@@ -14,7 +15,7 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
             </div>
             <span className="text-lg font-bold tracking-tight">Nexlify</span>
           </Link>
-          <nav className="flex items-center gap-1 sm:gap-3 text-sm">
+          <nav aria-label="ראשי" className="flex items-center gap-1 sm:gap-3 text-sm">
             <Link href="/blog" className="text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">מדריכים</Link>
             <Link href="/compare/albato" className="text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2 hidden sm:block">השוואות</Link>
             <Link href="/login" className="text-white/60 hover:text-white transition-colors px-2 sm:px-3 py-2">כניסה</Link>
@@ -23,17 +24,17 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main>{children}</main>
+      <main id="main" tabIndex={-1} className="outline-none">{children}</main>
 
       <footer className="border-t border-edge mt-16">
         <div className="max-w-5xl mx-auto px-6 py-10">
           <div className="grid sm:grid-cols-3 gap-6 mb-8 text-sm">
             <div>
-              <p className="font-semibold mb-2 text-white/80">Nexlify</p>
+              <h2 className="font-semibold mb-2 text-white/80">Nexlify</h2>
               <p className="text-white/40 leading-relaxed">אוטומציית שיווק שותפים מקצה לקצה — גילוי, AI, פרסום רב-ערוצי וקידום.</p>
             </div>
             <div>
-              <p className="font-semibold mb-2 text-white/80">מדריכים</p>
+              <h2 className="font-semibold mb-2 text-white/80">מדריכים</h2>
               <ul className="space-y-1.5 text-white/40">
                 <li><Link href="/blog/automated-telegram-deals-channel" className="hover:text-blue-400">ערוץ דילים אוטומטי בטלגרם</Link></li>
                 <li><Link href="/blog/aliexpress-affiliate-guide" className="hover:text-blue-400">מדריך שיווק שותפים AliExpress</Link></li>
@@ -41,7 +42,7 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
               </ul>
             </div>
             <div>
-              <p className="font-semibold mb-2 text-white/80">השוואות</p>
+              <h2 className="font-semibold mb-2 text-white/80">השוואות</h2>
               <ul className="space-y-1.5 text-white/40">
                 <li><Link href="/compare/albato" className="hover:text-blue-400">Nexlify מול Albato</Link></li>
                 <li><Link href="/compare/manychat" className="hover:text-blue-400">Nexlify מול ManyChat</Link></li>
@@ -50,14 +51,11 @@ export function MarketingShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-edge text-xs text-white/30">
             <span className="flex items-center gap-2"><Globe size={13} /> Nexlify — Affiliate Automation</span>
-            <div className="flex items-center gap-4">
-              <Link href="/privacy" className="text-white/40 hover:text-white/70 underline-offset-2 hover:underline">מדיניות פרטיות</Link>
-              <Link href="/terms" className="text-white/40 hover:text-white/70 underline-offset-2 hover:underline">תנאי שימוש</Link>
-            </div>
+            <LegalLinks linkClassName="text-white/60 hover:text-white/80 underline-offset-2 hover:underline" />
             <span className="flex items-center gap-2">
               מבית{' '}
               <a href="https://win-solutions.co.il" target="_blank" rel="noopener noreferrer"
-                className="text-white/50 hover:text-white/80 underline-offset-2 hover:underline">Win Solutions</a>
+                className="text-white/70 hover:text-white underline underline-offset-2">Win Solutions<span className="sr-only"> (נפתח בכרטיסייה חדשה)</span></a>
               {' '}— בניית אתרים ואוטומציות 2026
             </span>
           </div>

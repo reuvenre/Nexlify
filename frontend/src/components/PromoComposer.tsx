@@ -333,7 +333,7 @@ export function PromoComposer({ channels, onScheduled }: { channels: GroupOption
               </div>
               <div>
                 <label className="block text-2xs text-white/40 mb-1">המבצע מסתיים ב-</label>
-                <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)}
+                <input aria-label="המבצע מסתיים ב-" type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)}
                   className="w-full bg-white/5 border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" />
               </div>
             </div>
@@ -341,7 +341,7 @@ export function PromoComposer({ channels, onScheduled }: { channels: GroupOption
             {/* Product description → the AI writes about THIS even when the image/title misleads */}
             <div>
               <label className="block text-2xs text-white/40 mb-1">תיאור המוצר (אם ה-AI לא זיהה נכון מהתמונה)</label>
-              <input value={hint} onChange={(e) => setHint(e.target.value)} placeholder="לדוגמה: חולצת פולו לקוסט כותנה, שרוול קצר"
+              <input aria-label="תיאור המוצר (אם ה-AI לא זיהה נכון מהתמונה)" value={hint} onChange={(e) => setHint(e.target.value)} placeholder="לדוגמה: חולצת פולו לקוסט כותנה, שרוול קצר"
                 className="w-full bg-white/5 border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" />
               <p className="text-2xs text-white/30 mt-1">כתוב מה המוצר ולחץ "צור מחדש" — ה-AI יכתוב לפי התיאור הזה כמקור אמת.</p>
             </div>
@@ -380,15 +380,15 @@ export function PromoComposer({ channels, onScheduled }: { channels: GroupOption
                       {/* order badge */}
                       <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-black/70 text-white text-[9px] flex items-center justify-center font-medium">{i + 1}</span>
                       {/* remove */}
-                      <button type="button" onClick={() => removeImage(url)} title="הסר תמונה"
+                      <button aria-label="הסר תמונה" type="button" onClick={() => removeImage(url)} title="הסר תמונה"
                         className="absolute top-1 left-1 w-4 h-4 rounded-full bg-red-500/90 hover:bg-red-500 text-white flex items-center justify-center">
                         <X size={10} />
                       </button>
                       {/* reorder */}
                       <div className="absolute bottom-0 inset-x-0 flex opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} title="הקדם"
+                        <button aria-label="הקדם" type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} title="הקדם"
                           className="flex-1 bg-black/60 hover:bg-black/80 text-white py-0.5 flex justify-center disabled:opacity-30"><ChevronRight size={12} /></button>
-                        <button type="button" onClick={() => moveImage(i, 1)} disabled={i === imagesArr.length - 1} title="אחר"
+                        <button aria-label="אחר" type="button" onClick={() => moveImage(i, 1)} disabled={i === imagesArr.length - 1} title="אחר"
                           className="flex-1 bg-black/60 hover:bg-black/80 text-white py-0.5 flex justify-center disabled:opacity-30"><ChevronLeft size={12} /></button>
                       </div>
                     </div>
@@ -437,7 +437,7 @@ export function PromoComposer({ channels, onScheduled }: { channels: GroupOption
 
             <div>
               <label className="block text-2xs text-white/40 mb-1">מתי לפרסם</label>
-              <input type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)}
+              <input aria-label="מתי לפרסם" type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)}
                 className="w-full sm:w-64 bg-white/5 border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" />
             </div>
 
@@ -514,7 +514,7 @@ export function PromoComposer({ channels, onScheduled }: { channels: GroupOption
                 <p className="text-2xs text-white/40">האלבום עוד לא מקושר — הדבק את קישור ה-FLYLINK שלו פעם אחת.</p>
               </div>
             </div>
-            <button onClick={() => setPendingAlbum(null)} className="text-white/40 hover:text-white/80 shrink-0"><X size={16} /></button>
+            <button aria-label="סגור" onClick={() => setPendingAlbum(null)} className="text-white/40 hover:text-white/80 shrink-0"><X size={16} /></button>
           </div>
           <div className="flex gap-2">
             <div className="relative flex-1">

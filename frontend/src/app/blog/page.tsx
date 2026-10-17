@@ -32,7 +32,7 @@ export default function BlogIndex() {
             </div>
             <h2 className="text-lg font-semibold mb-2 group-hover:text-blue-300 transition-colors leading-snug">{p.title}</h2>
             <p className="text-sm text-white/45 leading-relaxed flex-1">{p.excerpt}</p>
-            <span className="mt-4 text-sm text-blue-400 inline-flex items-center gap-1.5">קרא עוד <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" /></span>
+            <span aria-hidden="true" className="mt-4 text-sm text-blue-400 inline-flex items-center gap-1.5">קרא עוד <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" /></span>
           </Link>
         ))}
       </section>

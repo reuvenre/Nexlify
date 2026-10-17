@@ -5,6 +5,7 @@ import { AlertTriangle, Check, Copy, ExternalLink, Loader2, Store } from 'lucide
 import { storefrontApi } from '@/lib/api-client';
 import type { StorefrontSettings } from '@/types';
 
+import { FormField } from '@/components/common/FormField';
 /**
  * The owner's storefront: name it, address it, switch it on.
  *
@@ -257,10 +258,8 @@ function SourceToggle({ on, onChange, title, desc }: {
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div>
-      <label className="block text-xs font-medium text-white/50 mb-1.5">{label}</label>
+    <FormField label={label} hint={hint} labelClassName="block text-xs font-medium text-white/50 mb-1.5" hintClassName="text-2xs text-white/30 mt-1.5">
       {children}
-      {hint && <p className="text-2xs text-white/30 mt-1.5">{hint}</p>}
-    </div>
+    </FormField>
   );
 }

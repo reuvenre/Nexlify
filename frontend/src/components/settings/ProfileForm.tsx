@@ -78,7 +78,7 @@ export function ProfileForm() {
         <form onSubmit={handleSave} className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">שם פרטי</label>
-            <input
+            <input aria-label="שם פרטי"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               placeholder="שם פרטי"
@@ -87,7 +87,7 @@ export function ProfileForm() {
           </div>
           <div>
             <label className="block text-xs font-medium text-white/50 mb-1.5">שם משפחה</label>
-            <input
+            <input aria-label="שם משפחה"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
               placeholder="שם משפחה"
@@ -117,7 +117,7 @@ export function ProfileForm() {
           </div>
           <div className="col-span-2">
             <label className="block text-xs font-medium text-white/50 mb-1.5">טלפון</label>
-            <input
+            <input aria-label="טלפון"
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}

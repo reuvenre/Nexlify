@@ -328,7 +328,7 @@ export function CampaignForm({
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">שם הטייס האוטומטי *</label>
-              <input
+              <input aria-label="שם הטייס האוטומטי *"
                 required
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -496,7 +496,7 @@ export function CampaignForm({
               placeholder="הוסף מילת מפתח..."
               className="flex-1 bg-white/5 border border-edge-hover rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-blue-500/60 transition-colors"
             />
-            <button
+            <button aria-label="הוספת מילת מפתח"
               type="button"
               onClick={addKeyword}
               className="px-4 py-2.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-xl transition-all"
@@ -509,7 +509,7 @@ export function CampaignForm({
             {form.keywords.map((kw) => (
               <span key={kw} className="flex items-center gap-1.5 bg-white/8 border border-edge-hover text-white/70 text-xs px-3 py-1.5 rounded-lg">
                 {kw}
-                <button type="button" onClick={() => removeKeyword(kw)} className="text-white/30 hover:text-red-400 transition-colors">
+                <button aria-label={`הסרת מילת המפתח ${kw}`} type="button" onClick={() => removeKeyword(kw)} className="text-white/30 hover:text-red-400 transition-colors">
                   <X size={11} />
                 </button>
               </span>
@@ -546,7 +546,7 @@ export function CampaignForm({
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">מחיר מינ׳ ($)</label>
-              <input
+              <input aria-label="מחיר מינ׳ ($)"
                 type="number"
                 min={0}
                 value={form.min_price ?? ''}
@@ -557,7 +557,7 @@ export function CampaignForm({
             </div>
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">מחיר מקס׳ ($)</label>
-              <input
+              <input aria-label="מחיר מקס׳ ($)"
                 type="number"
                 min={0}
                 value={form.max_price ?? ''}
@@ -569,7 +569,7 @@ export function CampaignForm({
             {!isAmazon && (
             <div>
               <label className="block text-xs font-medium text-white/50 mb-1.5">הנחה מינ׳ (%)</label>
-              <input
+              <input aria-label="הנחה מינ׳ (%)"
                 type="number"
                 min={0}
                 max={99}
@@ -682,7 +682,7 @@ export function CampaignForm({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-white/50 mb-1.5">פוסטים בכל הרצה</label>
-                <input
+                <input aria-label="פוסטים בכל הרצה"
                   type="number"
                   min={1}
                   max={20}
@@ -693,7 +693,7 @@ export function CampaignForm({
               </div>
               <div>
                 <label className="block text-xs font-medium text-white/50 mb-1.5">מארק-אפ לשקל (%)</label>
-                <input
+                <input aria-label="מארק-אפ לשקל (%)"
                   type="number"
                   min={0}
                   max={50}
@@ -721,7 +721,7 @@ export function CampaignForm({
                 בערוץ ממוקד נושא זה יביא מוצרים לא קשורים.
               </p>
             </div>
-            <button
+            <button role="switch" aria-checked={!!(form.seasonal_keywords)} aria-label="מילות מפתח עונתיות"
               type="button"
               onClick={() => setForm((f) => ({ ...f, seasonal_keywords: !f.seasonal_keywords }))}
               className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${form.seasonal_keywords ? 'bg-blue-500' : 'bg-white/15'}`}
@@ -748,7 +748,7 @@ export function CampaignForm({
                 שים לב: הלמידה היא חשבונית, ולכן קטגוריה מנצחת עלולה לא להתאים לערוץ ממוקד.
               </p>
             </div>
-            <button
+            <button role="switch" aria-checked={!!(form.learn_from_orders)} aria-label="לימוד מהזמנות"
               type="button"
               onClick={() => setForm((f) => ({ ...f, learn_from_orders: !f.learn_from_orders }))}
               className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${form.learn_from_orders ? 'bg-blue-500' : 'bg-white/15'}`}
@@ -763,7 +763,7 @@ export function CampaignForm({
         <div className="bg-surface-secondary border border-edge rounded-xl p-5">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-semibold text-white">🕐 חלון שליחה מותאם</h2>
-            <button
+            <button role="switch" aria-checked={!!(useWindow)} aria-label="חלון שליחה מותאם"
               type="button"
               onClick={() => setUseWindow((v) => !v)}
               className={`relative w-9 h-5 rounded-full transition-colors ${useWindow ? 'bg-blue-500' : 'bg-white/15'}`}
@@ -801,7 +801,7 @@ export function CampaignForm({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-white/50 mb-1.5">משעה</label>
-                  <select
+                  <select aria-label="משעה"
                     value={form.window_start_hour ?? ''}
                     onChange={(e) => setForm((f) => ({ ...f, window_start_hour: e.target.value === '' ? null : +e.target.value }))}
                     className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors appearance-none cursor-pointer"
@@ -817,7 +817,7 @@ export function CampaignForm({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-white/50 mb-1.5">עד שעה</label>
-                  <select
+                  <select aria-label="עד שעה"
                     value={form.window_end_hour ?? ''}
                     onChange={(e) => setForm((f) => ({ ...f, window_end_hour: e.target.value === '' ? null : +e.target.value }))}
                     className="w-full bg-white/5 border border-edge-hover rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-blue-500/60 transition-colors appearance-none cursor-pointer"

@@ -8,6 +8,7 @@ import { subscriptionApi, paymentsApi } from '@/lib/api-client';
 import { dealFor, dealPrice, endsInLabel } from '@/lib/deals';
 import type { ActiveDeal, BillingCycle, CreditPack, PlanDef, SubscriptionStatus } from '@/types';
 
+import { DialogA11y } from '@/components/common/DialogA11y';
 // Where upgrade requests go until a real payment gateway is wired.
 const SUPPORT_EMAIL = 'support@alibot.pro';
 
@@ -173,7 +174,7 @@ export function SubscriptionForm() {
       {/* Billing toggle */}
       <div className="flex items-center justify-center gap-3">
         <span className={`text-sm font-medium transition-colors ${billing === 'monthly' ? 'text-white' : 'text-white/40'}`}>חודשי</span>
-        <button
+        <button role="switch" aria-checked={!!(billing === 'annual')} aria-label="חיוב שנתי"
           onClick={() => setBilling(billing === 'monthly' ? 'annual' : 'monthly')}
           className={`relative w-11 h-6 rounded-full transition-colors ${billing === 'annual' ? 'bg-blue-600' : 'bg-white/15'}`}
         >
@@ -401,12 +402,13 @@ function UpgradeConfirmModal({ plan, billing, deals, features, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <DialogA11y label="אישור שדרוג" onClose={onClose} />
       <div className="bg-surface-secondary border border-edge rounded-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
           <h3 className="text-base font-semibold text-white flex items-center gap-2">
             <ArrowUpCircle size={17} className="text-blue-400" /> אישור שדרוג
           </h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all">
+          <button aria-label="סגור" onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all">
             <X size={16} />
           </button>
         </div>

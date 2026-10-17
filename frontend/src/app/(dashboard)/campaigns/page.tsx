@@ -119,7 +119,7 @@ export default function CampaignsPage() {
                 <span className="text-amber-300">{audit.watch} לבדיקה</span>
               </p>
             </div>
-            <button onClick={() => setAudit(null)} className="text-white/30 hover:text-white/60 transition-colors">
+            <button aria-label="סגור" onClick={() => setAudit(null)} className="text-white/30 hover:text-white/60 transition-colors">
               <X size={16} />
             </button>
           </div>
