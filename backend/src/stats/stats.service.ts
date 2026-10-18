@@ -7,7 +7,10 @@ import { LinkClick } from '../links/link-click.entity';
 import { Post } from '../posts/post.entity';
 import { RatesService } from '../rates/rates.service';
 import { Campaign } from '../campaigns/campaign.entity';
-import { dayKeys, deltaPct, densify, localNowString, monthKeys, monthWindows } from './stats.util';
+import {
+  COMMISSION_DAY_START_HOUR, COMMISSION_DAY_TZ, commissionDayNow,
+  dayKeys, deltaPct, densify, localNowString, monthKeys, monthWindows,
+} from './stats.util';
 
 export interface MonthMetric {
   /** The current calendar month so far. */
@@ -42,22 +45,16 @@ const MAX_MONTHS = 24;
 /**
  * Everything on the dashboard that moves during the day, in one cheap round trip — the
  * screens poll it (every ~20 s while visible), so it must stay a handful of indexed counts.
- * Clicks and posts are cut on Israel days. Commissions and orders are cut on the AliExpress
- * day (US Pacific, earnings/portal-time.ts), the clock the portal, the orders screen and the
- * monthly figures all count by. It starts at 10:00 Israel time (09:00 in the weeks the two
- * clocks change DST on different dates).
+ * Clicks and posts are cut on Israel days. Commissions and orders are cut on the owner's
+ * commission day, 10:00 to 10:00 Israel time (commissionDayNow), by payment time. That is
+ * the portal's day except in the weeks the two countries change DST on different dates,
+ * when the portal's starts at 09:00 or 11:00. The owner asked for the Israel clock.
  */
 export interface LiveStats {
   /** Server time of this snapshot. */
   at: string;
-  /** commissions_usd and orders are for the current AliExpress day (commission_days). */
+  /** commissions_usd and orders are for the current commission day (since 10:00 Israel). */
   today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number; orders: number };
-  /**
-   * Commissions and orders of the last 24 hours, by payment time — what the dashboard tile
-   * shows. Any calendar day resets at some hour, and the tile then read $0 beside the
-   * portal's orders. A rolling window never resets.
-   */
-  last_24h: { commissions_usd: number; orders: number };
   last_hour: { clicks: number };
   queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
   campaigns: { active: number; total: number };
@@ -67,7 +64,7 @@ export interface LiveStats {
   last_order_at: string | null;
   /** Israel days, for clicks and posts. */
   days: string[];
-  /** AliExpress (Pacific) days, for commissions_usd — the same length, ending on its today. */
+  /** Commission days (10:00–10:00 Israel), for commissions_usd — the same length, ending on today's. */
   commission_days: string[];
   daily: { clicks: number[]; posts: number[]; commissions_usd: number[] };
 }
@@ -111,17 +108,15 @@ export class StatsService {
     const fromLocal = `${keys[0]} 00:00:00`;
     const clickCol = naiveUtcAsLocal('c.clicked_at', LOCAL_TZ);
     const postCol = naiveUtcAsLocal('p.sent_at', LOCAL_TZ);
-    // Commissions on the AliExpress day — see LiveStats.
-    const portalKeys = dayKeys(localNowString(PORTAL_TZ), n);
+    // Commissions on the commission day — see LiveStats. Shifting the Israel wall clock back
+    // by the start hour makes a plain date cut fall at 10:00.
+    const portalKeys = dayKeys(commissionDayNow(), n);
     const portalFrom = `${portalKeys[0]} 00:00:00`;
-    const commissionCol = `COALESCE(${tstzAsLocal('e.paid_date', PORTAL_TZ)}, ${naiveUtcAsLocal('e.order_date', PORTAL_TZ)})`;
+    const commissionCol = `(COALESCE(${tstzAsLocal('e.paid_date', COMMISSION_DAY_TZ)}, ${naiveUtcAsLocal('e.order_date', COMMISSION_DAY_TZ)}) - interval '${COMMISSION_DAY_START_HOUR} hours')`;
     const day = (col: string) => `to_char(${col}, 'YYYY-MM-DD')`;
     const hourAgo = new Date(Date.now() - 3600_000);
 
-    const dayAgo = new Date(Date.now() - 24 * 3600_000);
-    // paid_date is a real timestamptz; order_date holds naive UTC and is declared so first.
-    const paidAt = `COALESCE(e.paid_date, e.order_date AT TIME ZONE 'UTC')`;
-    const [clickDays, postDays, commissionDays, lastHour, failedToday, queue, camps, lasts, day24] = await Promise.all([
+    const [clickDays, postDays, commissionDays, lastHour, failedToday, queue, camps, lasts] = await Promise.all([
       this.clicks.createQueryBuilder('c').select(day(clickCol), 'bucket').addSelect('COUNT(*)::int', 'value')
         .where('c.user_id = :userId', { userId }).andWhere(`${clickCol} >= :fromLocal`, { fromLocal })
         .groupBy('bucket').getRawMany(),
@@ -159,11 +154,6 @@ export class StatsService {
                 (SELECT max(order_date) FROM earnings WHERE user_id::text = $1) AS last_order`,
         [userId],
       ).then((r: any[]) => r[0]),
-      this.earnings.createQueryBuilder('e')
-        .select('COALESCE(SUM(e.commission_usd), 0)', 'usd').addSelect('COUNT(*)::int', 'orders')
-        .where('e.user_id = :userId', { userId }).andWhere("e.status IN ('estimated', 'settled')")
-        .andWhere(`${paidAt} >= :dayAgo`, { dayAgo })
-        .getRawOne(),
     ]);
 
     const clicks = densify(clickDays, keys);
@@ -184,10 +174,6 @@ export class StatsService {
         failed: Number(failedToday?.n) || 0,
         commissions_usd: commissions[commissions.length - 1] ?? 0,
         orders: ordersToday[ordersToday.length - 1] ?? 0,
-      },
-      last_24h: {
-        commissions_usd: Math.round((Number(day24?.usd) || 0) * 100) / 100,
-        orders: Number(day24?.orders) || 0,
       },
       last_hour: { clicks: Number(lastHour?.n) || 0 },
       queue: {

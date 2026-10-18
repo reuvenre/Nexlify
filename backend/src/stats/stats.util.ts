@@ -12,6 +12,25 @@ export function localNowString(tz: string, now = new Date()): string {
   return now.toLocaleString('sv-SE', { timeZone: tz, hour12: false });
 }
 
+/**
+ * The owner's commission day: 10:00 to 10:00 the next morning, Israel time, named by the
+ * date it starts on. That is the portal's day for most of the year, but the portal is on
+ * US Pacific time, and in the weeks the two countries change DST on different dates its
+ * day starts at 09:00 or 11:00 here. The owner reads the day by the Israel clock, so the
+ * boundary is pinned to 10:00 in Jerusalem, never derived from Pacific.
+ */
+export const COMMISSION_DAY_TZ = 'Asia/Jerusalem';
+export const COMMISSION_DAY_START_HOUR = 10;
+
+/** Today's commission day key, 'YYYY-MM-DD' (before 10:00 Israel it is still yesterday). */
+export function commissionDayNow(now = new Date()): string {
+  const [date, time] = localNowString(COMMISSION_DAY_TZ, now).split(' ');
+  const hour = Number(time.slice(0, 2));
+  if (hour >= COMMISSION_DAY_START_HOUR) return date;
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}
+
 /** `count` consecutive 'YYYY-MM' keys ending with the month containing `localNow`. */
 export function monthKeys(localNow: string, count: number): string[] {
   const [y, m] = localNow.slice(0, 7).split('-').map(Number);

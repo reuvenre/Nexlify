@@ -1,6 +1,25 @@
-import { deltaPct, densify, localNowString, monthKeys, monthWindows, sum, dayKeys } from './stats.util';
+import { commissionDayNow, deltaPct, densify, localNowString, monthKeys, monthWindows, sum, dayKeys } from './stats.util';
 
 describe('stats.util', () => {
+  describe('commissionDayNow', () => {
+    it('turns over at 10:00 Israel time', () => {
+      // Israel summer time (+03): 06:59Z = 09:59, 07:00Z = 10:00.
+      expect(commissionDayNow(new Date('2026-10-18T06:59:00Z'))).toBe('2026-10-17');
+      expect(commissionDayNow(new Date('2026-10-18T07:00:00Z'))).toBe('2026-10-18');
+    });
+
+    it('stays at 10:00 Israel in the week the US is still on summer time', () => {
+      // 28.10.2026: Israel is already +02, Pacific still −07, so the portal day opens at
+      // 09:00 here. Ours does not move.
+      expect(commissionDayNow(new Date('2026-10-28T07:30:00Z'))).toBe('2026-10-27');
+      expect(commissionDayNow(new Date('2026-10-28T08:00:00Z'))).toBe('2026-10-28');
+    });
+
+    it('steps back across a month boundary before 10:00', () => {
+      expect(commissionDayNow(new Date('2026-11-01T05:00:00Z'))).toBe('2026-10-31');
+    });
+  });
+
   describe('localNowString', () => {
     it("renders the tz's wall clock in Postgres timestamp shape", () => {
       // 2026-08-19T21:30Z = 2026-08-20 05:30 in Shanghai (+08, no DST).
