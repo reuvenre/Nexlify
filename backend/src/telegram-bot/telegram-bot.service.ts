@@ -52,6 +52,8 @@ import { LinksService } from '../links/links.service';
 import { ManagerAgentService, ManagerAnswer, isAuthError } from '../manager/manager-agent.service';
 import { AgentClient } from '../agents/agent-client.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
+import { CommissionScoutService } from './commission-scout.service';
+import { ScoutPick, pickLines, reportHeader } from '../products/commission-scout';
 import {
   REWRITE_EMPTY_TTL_MS, REWRITE_MODEL, REWRITE_SYSTEM, REWRITE_TTL_MS, parseRewrites, titleMatchesSearch, rewriteKey, rewritePrompt,
 } from './query-rewrite';
@@ -70,7 +72,7 @@ const RESULTS_PER_PAGE = 5;
 const HELP = [
   '🛍️ מילת חיפוש ← מוצרים עם כפתור "פרסם לקבוצה"',
   '🧠 שאלה ← המנהל עונה, למשל: למה פינטרסט ירד השבוע?',
-  '/status · /searches · /groups · /resetsearches · /weekly · /sale',
+  '/status · /searches · /groups · /resetsearches · /weekly · /sale · /commission',
 ].join('\n');
 
 /**
@@ -140,6 +142,7 @@ export class TelegramBotService implements OnModuleInit {
     private readonly videos: VideosService,
     private readonly subscription: SubscriptionService,
     private readonly saleReadiness: SaleReadinessService,
+    private readonly scout: CommissionScoutService,
   ) {}
 
   // ── Entry point ────────────────────────────────────────────────────────────
@@ -512,6 +515,12 @@ export class TelegramBotService implements OnModuleInit {
       await this.send(chatId, await this.saleReadiness.report(userId, window, days));
       return;
     }
+    // The commission scout's report (12 % and up), now — the same one 08:20 brings.
+    if (/^\/commission(@\S+)?$/i.test(text)) {
+      await this.send(chatId, '💎 סורק את אלי אקספרס למוצרים עם עמלה גבוהה… זה לוקח כדקה.');
+      if (!(await this.sendCommissionReport(chatId))) await this.send(chatId, '❌ הסריקה לא הצליחה. נסה שוב בעוד כמה דקות.');
+      return;
+    }
     // A product Reel of the best post of the last two days, now (videos/).
     if (/^\/reel(@\S+)?$/i.test(text)) {
       const userId = await this.ownerUserId();
@@ -784,6 +793,68 @@ export class TelegramBotService implements OnModuleInit {
     } else {
       await this.editText(chatId, messageId, await this.manager.reject(userId, proposalId));
     }
+  }
+
+  // ── The commission scout ───────────────────────────────────────────────────
+
+  private scoutRunning = false;
+
+  /**
+   * Every morning, products that pay 12 % or more (commission-scout.ts), as cards with the
+   * usual «פרסם לקבוצה» button. The day's delivery is remembered in persistent_values, so a
+   * deploy neither loses it nor sends it twice. Platform owner only.
+   * Off with COMMISSION_SCOUT_DISABLED=1.
+   */
+  @Cron('0 20 8 * * *', { timeZone: 'Asia/Jerusalem' })
+  async dailyCommissionScout(): Promise<void> {
+    if (process.env.COMMISSION_SCOUT_DISABLED === '1') return;
+    const chatId = String(process.env.WATCHDOG_TELEGRAM_CHAT_ID || '');
+    if (!chatId) return;
+    const day = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+    const key = `commission_scout:${day}`;
+    if (await this.memory.load(key)) return;
+    if (await this.sendCommissionReport(chatId)) await this.memory.save(key, true, 2 * 86_400_000);
+  }
+
+  /** Scan, then send the header and one card per pick. False when nothing could be sent. */
+  private async sendCommissionReport(chatId: string): Promise<boolean> {
+    const userId = await this.ownerUserId();
+    if (!userId || this.scoutRunning) return false;
+    this.scoutRunning = true;
+    try {
+      const report = await this.scout.scan(userId);
+      if (!report.scanned && report.errors.length) {
+        await this.send(chatId, `💎 סוכן העמלות לא הצליח לקרוא את אלי אקספרס היום: ${report.errors[0]}`);
+        return true;
+      }
+      await this.send(chatId, reportHeader({ ...report, picks: report.picks.length }));
+      // Kept beyond the in-memory cache, so «פרסם לקבוצה» still works after a deploy.
+      await this.memory.save(`commission_scout_picks:${userId}`, report.picks, 3 * 86_400_000);
+      let index = 0;
+      for (const p of report.picks) {
+        index++;
+        this.remember(p);
+        const caption = [productCaption(p, index), '', ...pickLines(p)].join('\n');
+        const keyboard: Keyboard = [[{ text: '📤 פרסם לקבוצה', callback_data: encodeCallback('c', p.product_id) }]];
+        const sent = p.image_url ? await this.sendPhoto(chatId, p.image_url, caption, keyboard) : false;
+        if (!sent) await this.send(chatId, caption, keyboard);
+      }
+      await this.scout.markShown(userId, report.picks);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`commission scout failed: ${err?.message}`);
+      return false;
+    } finally {
+      this.scoutRunning = false;
+    }
+  }
+
+  /** A pick from the last reports, for a «פרסם לקבוצה» tap after the in-memory cache is gone. */
+  private async recallPick(productId: string): Promise<BotProduct | null> {
+    const userId = await this.ownerUserId();
+    if (!userId) return null;
+    const picks = await this.memory.load<ScoutPick[]>(`commission_scout_picks:${userId}`);
+    return (picks || []).find((p) => p.product_id === productId) || null;
   }
 
   // ── The members' product search ────────────────────────────────────────────
@@ -2059,7 +2130,7 @@ export class TelegramBotService implements OnModuleInit {
 
   /** Product tapped → offer the owner's active Telegram groups. */
   private async onPickChannel(chatId: string, cbId: string, productId: string): Promise<void> {
-    const product = this.recall(productId);
+    const product = this.recall(productId) || await this.recallPick(productId);
     if (!product) {
       await this.answer(cbId, 'התוצאה פגה');
       await this.send(chatId, 'התוצאות פגו — שלח חיפוש חדש כדי לפרסם.');
@@ -2089,7 +2160,7 @@ export class TelegramBotService implements OnModuleInit {
     chatId: string, cbId: string, messageId: number | undefined,
     productId: string, channelKey: string,
   ): Promise<void> {
-    const product = this.recall(productId);
+    const product = this.recall(productId) || await this.recallPick(productId);
     const userId = await this.ownerUserId();
     if (!product || !userId) {
       await this.answer(cbId, 'התוצאה פגה');

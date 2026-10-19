@@ -201,6 +201,16 @@ To see what the season actually did, don't read one run. The run note carries `�
   - It checks coupons whose window overlaps the sale, campaigns whose last run note names a refused key or empty credit (`aiFailureNote`), posts in the last 24 h, and the seasonal switch.
   - `/sale` in the owner's bot sends it now, for the next sale.
 
+### The commission scout (`products/commission-scout.ts`, `telegram-bot/commission-scout.service.ts`)
+The owner asked for products paying 12 % or more. The rate is not on the AliExpress site at all (only the affiliate API and portal carry it), so scraping the site could not find it, and the affiliate terms forbid scraping. The API cannot list every product, so the scan reads:
+- AliExpress's own promotion lists for affiliates (`featuredpromo.get` → `featuredpromo.products.get`, sorted `commissionDesc`, retried unsorted when refused), at most `MAX_SCAN_PROMOS` (8), two pages each;
+- every active campaign's keywords (`scanKeywords`, at most 12), in both `product.query` and `hotproduct.query`, with `commission_rate` in the fields. The rate used is the higher of `commission_rate` and `hot_product_commission_rate`.
+- Calls are spaced 1.1 s apart (`ApiCallLimit`). A refused call is reported in the header, never filled with mock data.
+
+**Ranking (`selectPicks`)**: a high rate alone is not the recommendation. Score = what a sale pays (USD price × rate) × log of recent sales × rating², × `NICHE_BOOST` (1.3) for products found through his own keywords. Floors: `MIN_ORDERS` 10, rating ≥ 4.3 (unrated allowed at a discount), at most `MAX_PER_CATEGORY` 3 per category. Left out: anything he posted in 30 days (failed posts aside) or was recommended in 30 days (`persistent_values` `commission_scout_seen:<user>`, merged, never assigned).
+
+**Delivery**: daily at 08:20 Israel time to the owner's chat (`dailyCommissionScout`, once a day via `commission_scout:<date>`), and on demand with `/commission`. Each pick is the usual product card plus «💵 עמלה X% · כ-$Y לכל מכירה» and where it was found, with the usual «📤 פרסם לקבוצה». The picks are kept in `commission_scout_picks:<user>` (3 d), so the button works after a deploy wipes the in-memory cache. The header says the rate is what the API declares; the paid rate can be lower (category caps, new vs returning buyer). Platform owner only. Env: `COMMISSION_SCOUT_MIN` (12), `COMMISSION_SCOUT_PICKS` (10, max 20), `COMMISSION_SCOUT_DISABLED=1`.
+
 ### Publishing pipeline
 `PostsService.buildPostBody` is the single choke point every platform (Telegram, Facebook, Instagram, WhatsApp, Pinterest) builds its message from. Anything that must apply to *published text* belongs there, at the end — after the footer, coupon, store and trust lines have been appended, so nothing added later can slip past it.
 

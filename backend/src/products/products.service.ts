@@ -9,6 +9,7 @@ import { AiService } from '../ai/ai.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { cacheGet, cacheSet } from '../common/safe-cache';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
+import { parseRate } from './commission-scout';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
 
@@ -30,6 +31,17 @@ const PRODUCT_FIELDS =
 
 const HOT_FIELDS =
   PRODUCT_FIELDS + ',promotion_type,hot_product_commission_rate';
+
+/** The commission scout (commission-scout.ts) also needs each product's commission rate. */
+const SCOUT_FIELDS = PRODUCT_FIELDS + ',commission_rate';
+const SCOUT_HOT_FIELDS = HOT_FIELDS + ',commission_rate';
+
+/** Where a commission scan looks: one keyword search, one hot-products search, or one of
+ *  AliExpress's own promotion lists for affiliates (featuredpromo). */
+export type ScoutSource =
+  | { kind: 'search'; keyword: string }
+  | { kind: 'hot'; keyword: string }
+  | { kind: 'promo'; name: string };
 
 const CATEGORIES_TTL_SEC = 24 * 60 * 60; // 24 hours
 
@@ -347,6 +359,100 @@ export class ProductsService {
     } catch (err: any) {
       this.logger.error(`AliExpress promotional failed: ${err?.response?.data ? JSON.stringify(err.response.data) : err?.message}`);
       throw err;
+    }
+  }
+
+  // ── Commission scout ──────────────────────────────────────────────────────
+
+  /**
+   * The names of the promotion lists AliExpress currently runs for affiliates (featuredpromo),
+   * the lists where it puts its boosted-commission products. Empty on any failure.
+   */
+  async featuredPromoNames(userId: string): Promise<string[]> {
+    const creds = await this.credentials.getRaw(userId);
+    if (!creds?.aliexpress_app_key) return [];
+    try {
+      const signed = signAliexpress({
+        method: 'aliexpress.affiliate.featuredpromo.get',
+        app_key: creds.aliexpress_app_key,
+        fields: 'promo_name,promo_desc,product_num',
+      }, creds.aliexpress_app_secret);
+      const res = await this.aliGet(signed);
+      const resp = res.data?.aliexpress_affiliate_featuredpromo_get_response?.resp_result;
+      if (resp?.resp_code !== 200) {
+        this.logger.warn(`featuredpromo.get: code=${resp?.resp_code} msg=${resp?.resp_msg}`);
+        return [];
+      }
+      const promos: any[] = resp?.result?.promos?.promo || [];
+      return promos.map((p) => String(p?.promo_name || '').trim()).filter(Boolean);
+    } catch (err: any) {
+      this.logger.warn(`featuredpromo.get failed: ${err?.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * One page of products from a scout source, each with its commission rate
+   * (`commission_rate`, the higher of the regular and hot rates, in %). Never mock data:
+   * a refused or failed call is returned as `error` with no products.
+   */
+  async scoutProducts(userId: string, source: ScoutSource, page = 1, limit = 50): Promise<{ data: any[]; error?: string }> {
+    const creds = await this.credentials.getRaw(userId);
+    if (!creds?.aliexpress_app_key) return { data: [], error: 'אין מפתחות AliExpress בהגדרות' };
+    const currency = targetCurrency(creds.currency_pair || 'USD_ILS');
+    const rate = await this.rates.getRate(creds.currency_pair || 'USD_ILS');
+    const common = {
+      app_key: creds.aliexpress_app_key,
+      page_no: page,
+      page_size: Math.min(limit, 50),
+      target_currency: currency,
+      tracking_id: creds.aliexpress_tracking_id,
+    };
+    try {
+      let params: Record<string, any>;
+      let responseKey: string;
+      if (source.kind === 'promo') {
+        params = {
+          ...common, method: 'aliexpress.affiliate.featuredpromo.products.get',
+          promotion_name: source.name, fields: SCOUT_HOT_FIELDS,
+          sort: 'commissionDesc', country: this.shipCountry(creds),
+        };
+        responseKey = 'aliexpress_affiliate_featuredpromo_products_get_response';
+      } else {
+        const keyword = await this.normalizeKeyword(source.keyword, creds);
+        params = {
+          ...common, keywords: keyword, ship_to_country: this.shipCountry(creds), sort: 'LAST_VOLUME_DESC',
+          ...(source.kind === 'hot'
+            ? { method: 'aliexpress.affiliate.hotproduct.query', fields: SCOUT_HOT_FIELDS }
+            : { method: 'aliexpress.affiliate.product.query', fields: SCOUT_FIELDS }),
+        };
+        responseKey = source.kind === 'hot'
+          ? 'aliexpress_affiliate_hotproduct_query_response'
+          : 'aliexpress_affiliate_product_query_response';
+      }
+      let res = await this.aliGet(signAliexpress(params, creds.aliexpress_app_secret));
+      let resp = res.data?.[responseKey]?.resp_result;
+      // A promotion list that refuses the commission sort is read in its own order.
+      if (resp?.resp_code !== 200 && params.sort === 'commissionDesc') {
+        const { sort: _sort, ...unsorted } = params;
+        res = await this.aliGet(signAliexpress(unsorted, creds.aliexpress_app_secret));
+        resp = res.data?.[responseKey]?.resp_result;
+      }
+      if (resp?.resp_code !== 200) {
+        const msg = res.data?.error_response?.msg || resp?.resp_msg || `code ${resp?.resp_code ?? '?'}`;
+        return { data: [], error: String(msg) };
+      }
+      const items: any[] = resp?.result?.products?.product || [];
+      const mapped = this.mapProducts(items, rate, currency, this.pricingFrom(creds));
+      return {
+        data: mapped.map((p, i) => ({
+          ...p,
+          commission_rate: Math.max(parseRate(items[i]?.commission_rate), parseRate(items[i]?.hot_product_commission_rate)),
+        })),
+      };
+    } catch (err: any) {
+      this.logger.warn(`scout ${source.kind} failed: ${err?.message}`);
+      return { data: [], error: String(err?.message || err) };
     }
   }
 

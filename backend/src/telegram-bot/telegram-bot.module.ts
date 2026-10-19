@@ -15,6 +15,8 @@ import { PriceAlert } from './price-alert.entity';
 import { BotStart } from './bot-start.entity';
 import { ParcelTrack } from './parcel-track.entity';
 import { TelegramBotService } from './telegram-bot.service';
+import { CommissionScoutService } from './commission-scout.service';
+import { Campaign } from '../campaigns/campaign.entity';
 import { VideosModule } from '../videos/videos.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { TenantBotController } from './tenant-bot.controller';
@@ -31,7 +33,8 @@ import { CouponsModule } from '../coupons/coupons.module';
   imports: [
     // Post / ChannelMessage: the members' search also looks through what the channel
     // already published — as the system sent it, and as the channel shows it.
-    TypeOrmModule.forFeature([Channel, User, ShopperSearch, Post, ChannelMessage, PriceAlert, BotStart, ParcelTrack]),
+    // Campaign: the commission scout reads the active campaigns' keywords.
+    TypeOrmModule.forFeature([Channel, User, ShopperSearch, Post, ChannelMessage, PriceAlert, BotStart, ParcelTrack, Campaign]),
     ProductsModule, PostsModule, CredentialsModule, OptimizerModule,
     // /reel — a product Reel on demand.
     VideosModule,
@@ -44,7 +47,7 @@ import { CouponsModule } from '../coupons/coupons.module';
     CouponsModule,
   ],
   controllers: [TenantBotController],
-  providers: [TelegramBotService],
+  providers: [TelegramBotService, CommissionScoutService],
   exports: [TelegramBotService],
 })
 export class TelegramBotModule {}
