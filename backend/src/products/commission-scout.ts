@@ -50,6 +50,7 @@ export interface ScoutCandidate {
   commission_rate: number;
   category?: string;
   image_url?: string;
+  product_url?: string;
   affiliate_url?: string;
   /** What found it: a campaign keyword or a promotion list's name. */
   found_by: string;
@@ -91,35 +92,44 @@ export function scoreCandidate(c: ScoutCandidate): number {
   return earnPerSaleUsd(c) * demand * quality * boost;
 }
 
-/**
- * The report: every candidate at or above the bar, not posted or recommended recently,
- * selling and rated well enough, ranked by score, at most MAX_PER_CATEGORY per category.
- * A product found twice keeps its niche origin (the owner's own keyword is the better reason).
- */
-export function selectPicks(candidates: ScoutCandidate[], opts: {
-  minRate: number;
-  exclude: Set<string>;
-  max: number;
-}): { picks: ScoutPick[]; qualified: number } {
+/** One product per id; a product found twice keeps its niche origin (the owner's own keyword is the better reason). */
+function dedupe(candidates: ScoutCandidate[]): ScoutCandidate[] {
   const byId = new Map<string, ScoutCandidate>();
   for (const c of candidates) {
     if (!c?.product_id) continue;
     const prev = byId.get(c.product_id);
     if (!prev || (prev.origin === 'promo' && c.origin === 'niche')) byId.set(c.product_id, c);
   }
-  const qualified = [...byId.values()].filter((c) =>
-    c.commission_rate >= opts.minRate
-    && !opts.exclude.has(c.product_id)
+  return [...byId.values()];
+}
+
+/** At or above the bar, selling, rated well enough, with a price. */
+function qualifies(c: ScoutCandidate, minRate: number): boolean {
+  return c.commission_rate >= minRate
     && (c.orders_count || 0) >= MIN_ORDERS
     && (c.rating === 0 || c.rating >= MIN_RATING)
-    && (c.sale_price_usd || 0) > 0,
-  );
-  const ranked = qualified
+    && (c.sale_price_usd || 0) > 0;
+}
+
+function ranked(candidates: ScoutCandidate[]): ScoutPick[] {
+  return candidates
     .map((c) => ({ ...c, earn_per_sale_usd: earnPerSaleUsd(c), score: scoreCandidate(c) }))
     .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * The Telegram report: every qualifying candidate not posted or recommended recently,
+ * ranked by score, at most MAX_PER_CATEGORY per category.
+ */
+export function selectPicks(candidates: ScoutCandidate[], opts: {
+  minRate: number;
+  exclude: Set<string>;
+  max: number;
+}): { picks: ScoutPick[]; qualified: number } {
+  const qualified = dedupe(candidates).filter((c) => qualifies(c, opts.minRate) && !opts.exclude.has(c.product_id));
   const perCategory = new Map<string, number>();
   const picks: ScoutPick[] = [];
-  for (const p of ranked) {
+  for (const p of ranked(qualified)) {
     if (picks.length >= opts.max) break;
     const cat = (p.category || '—').toLowerCase();
     const n = perCategory.get(cat) || 0;
@@ -128,6 +138,25 @@ export function selectPicks(candidates: ScoutCandidate[], opts: {
     picks.push(p);
   }
   return { picks, qualified: qualified.length };
+}
+
+/** The most products the high-commission screen keeps from one scan. */
+export const CATALOG_MAX = 300;
+
+export interface CatalogItem extends ScoutPick {
+  /** The account posted it in the last 30 days — shown, marked, never hidden. */
+  posted_recently: boolean;
+}
+
+/**
+ * The high-commission screen: every qualifying product, best first, up to CATALOG_MAX. Unlike
+ * the Telegram report nothing is left out for having been posted; it is marked instead, so
+ * the owner can see what he already covers.
+ */
+export function rankCatalog(candidates: ScoutCandidate[], opts: { minRate: number; posted: Set<string> }): CatalogItem[] {
+  return ranked(dedupe(candidates).filter((c) => qualifies(c, opts.minRate)))
+    .slice(0, CATALOG_MAX)
+    .map((p) => ({ ...p, posted_recently: opts.posted.has(p.product_id) }));
 }
 
 /** The keywords a scan reads: every active campaign's rotation, de-duplicated, capped. */

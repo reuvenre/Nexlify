@@ -9,6 +9,7 @@ import type {
   CampaignRunResult,
   CampaignInput,
   AliProduct,
+  ScoutCatalogResponse,
   AliCategory,
   Post,
   PostPreview,
@@ -630,6 +631,12 @@ export const productsApi = {
 
   affiliateLink: (product_id: string) =>
     http.post<{ url: string }>('/products/affiliate-link', { product_id }).then(extract),
+};
+
+/** The high-commission screen: the commission scout's last scan, and "scan now" (runs in the background). */
+export const commissionScoutApi = {
+  catalog: () => http.get<ScoutCatalogResponse>('/commission-scout').then(extract),
+  scan: () => http.post<{ started: boolean; reason?: string }>('/commission-scout/scan').then(extract),
 };
 
 // ─── Posts API ───────────────────────────────────────────────────────────────

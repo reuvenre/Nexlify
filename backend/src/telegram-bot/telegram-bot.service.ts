@@ -52,7 +52,7 @@ import { LinksService } from '../links/links.service';
 import { ManagerAgentService, ManagerAnswer, isAuthError } from '../manager/manager-agent.service';
 import { AgentClient } from '../agents/agent-client.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
-import { CommissionScoutService } from './commission-scout.service';
+import { CommissionScoutService } from '../products/commission-scout.service';
 import { ScoutPick, pickLines, reportHeader } from '../products/commission-scout';
 import {
   REWRITE_EMPTY_TTL_MS, REWRITE_MODEL, REWRITE_SYSTEM, REWRITE_TTL_MS, parseRewrites, titleMatchesSearch, rewriteKey, rewritePrompt,

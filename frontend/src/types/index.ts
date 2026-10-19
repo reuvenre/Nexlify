@@ -555,6 +555,30 @@ export interface AliProduct {
   currency: string;
 }
 
+/** One product on the high-commission screen (backend products/commission-scout.ts). */
+export interface ScoutItem extends AliProduct {
+  /** The rate AliExpress declares, in %. */
+  commission_rate: number;
+  /** What one sale pays, in USD. */
+  earn_per_sale_usd: number;
+  /** The scout's ranking: money per sale × sales × rating (× 1.3 in the owner's niche). */
+  score: number;
+  /** A campaign keyword or a promotion list's name. */
+  found_by: string;
+  origin: 'niche' | 'promo';
+  posted_recently: boolean;
+  subcategory?: string;
+}
+
+export interface ScoutCatalogResponse {
+  catalog: { scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[] } | null;
+  running: boolean;
+  /** Set while the last scan is too recent for another. */
+  next_scan_at: string | null;
+  /** Why the last scan read nothing (no keys, refused by AliExpress, nothing to scan). */
+  last_error?: string | null;
+}
+
 // ─── Scheduled custom posts ──────────────────────────────────────────────────
 
 export type CustomPostRepeat = 'none' | 'daily' | 'weekly';

@@ -3,17 +3,30 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThan, Not, Repository } from 'typeorm';
 import { Campaign } from '../campaigns/campaign.entity';
 import { Post } from '../posts/post.entity';
-import { ProductsService, ScoutSource } from '../products/products.service';
+import { ProductsService, ScoutSource } from './products.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import {
-  MAX_SCAN_PROMOS, SEEN_TTL_MS, ScoutCandidate, ScoutPick,
-  minCommissionPct, picksPerReport, scanKeywords, selectPicks,
-} from '../products/commission-scout';
+  CatalogItem, MAX_SCAN_PROMOS, SEEN_TTL_MS, ScoutCandidate, ScoutPick,
+  minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks,
+} from './commission-scout';
 
 /** AliExpress bans bursts over ~1 call a second; the scan stays under it. */
 const CALL_GAP_MS = 1100;
 /** What the account published this recently is not recommended again. */
 const POSTED_WINDOW_MS = 30 * 86_400_000;
+/** The screen's "scan now" waits this long between scans, so it cannot eat the API quota. */
+export const SCAN_COOLDOWN_MS = 10 * 60_000;
+/** How long the last scan is kept for the screen. */
+const CATALOG_TTL_MS = 7 * 86_400_000;
+
+/** The high-commission screen's data: the last scan, as it was. */
+export interface ScoutCatalog {
+  scanned_at: string;
+  scanned: number;
+  min_rate: number;
+  errors: string[];
+  items: CatalogItem[];
+}
 
 export interface ScoutReport {
   picks: ScoutPick[];
@@ -27,8 +40,12 @@ export interface ScoutReport {
  * Runs the commission scan (products/commission-scout.ts) for one account: AliExpress's
  * promotion lists for affiliates, then every active campaign's keywords in the regular and
  * the hot-products search. Products the account posted or was recommended in the last 30
- * days are left out; the recommended ones are remembered in persistent_values
- * (`commission_scout_seen:<user>`), so a deploy cannot make them come back.
+ * days are left out of the Telegram report; the recommended ones are remembered in
+ * persistent_values (`commission_scout_seen:<user>`), so a deploy cannot make them come back.
+ *
+ * Every scan also keeps the whole ranked list for the high-commission screen
+ * (`commission_scout_catalog:<user>`, 7 d): a scan takes about a minute of API calls, far too
+ * long for a page load, so the screen reads the last one and can start a new one.
  */
 @Injectable()
 export class CommissionScoutService {
@@ -71,10 +88,49 @@ export class CommissionScoutService {
       await read({ kind: 'hot', keyword: kw }, 1, kw, 'niche');
     }
 
-    const exclude = await this.excluded(userId, candidates.map((c) => c.product_id));
+    const posted = await this.postedRecently(userId, candidates.map((c) => c.product_id));
+    const exclude = new Set([...posted, ...(await this.recommendedRecently(userId))]);
     const { picks, qualified } = selectPicks(candidates, { minRate, exclude, max: picksPerReport() });
     this.logger.log(`commission scout ${userId}: ${scanned} scanned, ${qualified} ≥ ${minRate}%, ${picks.length} picked`);
+
+    // A scan that read nothing at all keeps the previous list on the screen, and says why.
+    await this.memory.save(`commission_scout_error:${userId}`, scanned > 0 ? null
+      : (errors[0] || 'לא נמצא מה לסרוק: אין קמפיין פעיל עם מילות מפתח, ואלי אקספרס לא החזירה רשימות מבצעים'), CATALOG_TTL_MS);
+    if (scanned > 0) {
+      const catalog: ScoutCatalog = {
+        scanned_at: new Date().toISOString(),
+        scanned, min_rate: minRate, errors: errors.slice(0, 5),
+        items: rankCatalog(candidates, { minRate, posted }),
+      };
+      await this.memory.save(`commission_scout_catalog:${userId}`, catalog, CATALOG_TTL_MS);
+    }
     return { picks, qualified, scanned, minRate, errors };
+  }
+
+  private readonly running = new Set<string>();
+
+  /** The screen: the last scan, and whether one is running now. */
+  async catalog(userId: string): Promise<{ catalog: ScoutCatalog | null; running: boolean; next_scan_at: string | null; last_error: string | null }> {
+    const catalog = await this.memory.load<ScoutCatalog>(`commission_scout_catalog:${userId}`);
+    const lastError = await this.memory.load<string>(`commission_scout_error:${userId}`);
+    const last = catalog ? Date.parse(catalog.scanned_at) : 0;
+    const next = last && Date.now() - last < SCAN_COOLDOWN_MS ? new Date(last + SCAN_COOLDOWN_MS).toISOString() : null;
+    return { catalog, running: this.running.has(userId), next_scan_at: next, last_error: lastError || null };
+  }
+
+  /**
+   * "Scan now" from the screen. Runs in the background (about a minute); the screen polls
+   * catalog(). Refused while one runs or within SCAN_COOLDOWN_MS of the last.
+   */
+  async startScan(userId: string): Promise<{ started: boolean; reason?: string }> {
+    if (this.running.has(userId)) return { started: false, reason: 'סריקה כבר רצה' };
+    const { next_scan_at } = await this.catalog(userId);
+    if (next_scan_at) return { started: false, reason: 'הסריקה האחרונה הייתה לפני פחות מ-10 דקות' };
+    this.running.add(userId);
+    void this.scan(userId)
+      .catch((err) => this.logger.warn(`commission scan ${userId} failed: ${err?.message}`))
+      .finally(() => this.running.delete(userId));
+    return { started: true };
   }
 
   /** Remember the picks the owner was actually shown, so they are not recommended again. */
@@ -89,12 +145,17 @@ export class CommissionScoutService {
     await this.memory.save(key, seen, SEEN_TTL_MS);
   }
 
-  /** Recommended in the last 30 days, or posted by the account in the last 30 days (a failed post does not count). */
-  private async excluded(userId: string, ids: string[]): Promise<Set<string>> {
-    const out = new Set<string>();
+  /** Recommended in the Telegram report in the last 30 days. */
+  private async recommendedRecently(userId: string): Promise<string[]> {
     const now = Date.now();
     const seen = (await this.memory.load<Record<string, number>>(`commission_scout_seen:${userId}`)) || {};
-    for (const [id, at] of Object.entries(seen)) if (now - at <= SEEN_TTL_MS) out.add(id);
+    return Object.entries(seen).filter(([, at]) => now - at <= SEEN_TTL_MS).map(([id]) => id);
+  }
+
+  /** Posted by the account in the last 30 days (a failed post does not count). */
+  private async postedRecently(userId: string, ids: string[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    const now = Date.now();
     const unique = [...new Set(ids)].filter(Boolean);
     for (let i = 0; i < unique.length; i += 500) {
       const rows = await this.posts.find({

@@ -1,6 +1,6 @@
 import {
-  MAX_PER_CATEGORY, ScoutCandidate, earnPerSaleUsd, minCommissionPct, parseRate, pickLines,
-  picksPerReport, reportHeader, scanKeywords, scoreCandidate, selectPicks,
+  CATALOG_MAX, MAX_PER_CATEGORY, ScoutCandidate, earnPerSaleUsd, minCommissionPct, parseRate, pickLines,
+  picksPerReport, rankCatalog, reportHeader, scanKeywords, scoreCandidate, selectPicks,
 } from './commission-scout';
 
 const base = (over: Partial<ScoutCandidate> = {}): ScoutCandidate => ({
@@ -97,5 +97,24 @@ describe('commission scout', () => {
     expect(text).toContain('נסרקו 900 מוצרים');
     expect(text).toContain('לא נמצא היום');
     expect(text).toContain('1 חיפושים נכשלו');
+  });
+
+  it('keeps every qualifying product for the screen, posted ones marked rather than hidden', () => {
+    const items = rankCatalog([
+      base({ product_id: 'a', orders_count: 9000 }),
+      base({ product_id: 'b' }),
+      base({ product_id: 'low', commission_rate: 8 }),
+      ...Array.from({ length: 5 }, (_, i) => base({ product_id: `same-cat-${i}` })),
+    ], { minRate: 12, posted: new Set(['b']) });
+    expect(items.map((i) => i.product_id)).not.toContain('low');
+    expect(items).toHaveLength(7); // no per-category cap on the screen
+    expect(items[0].product_id).toBe('a');
+    expect(items.find((i) => i.product_id === 'b')?.posted_recently).toBe(true);
+    expect(items.find((i) => i.product_id === 'a')?.posted_recently).toBe(false);
+  });
+
+  it('caps the screen list', () => {
+    const many = Array.from({ length: CATALOG_MAX + 40 }, (_, i) => base({ product_id: `p${i}` }));
+    expect(rankCatalog(many, { minRate: 12, posted: new Set() })).toHaveLength(CATALOG_MAX);
   });
 });
