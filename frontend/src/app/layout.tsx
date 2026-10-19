@@ -1,13 +1,10 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/lib/hooks/useAuth';
 import { ThemeProvider } from '@/lib/hooks/useTheme';
 import { PwaRegister } from '@/components/PwaRegister';
 import { CookieConsent } from '@/components/CookieConsent';
 import { Analytics } from '@/components/Analytics';
 import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://nexlify.win-solutions.co.il';
 
@@ -146,7 +143,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={`${inter.className} antialiased`} style={{ backgroundColor: 'var(--bg-primary)' }}>
+      <body className="font-sans antialiased" style={{ backgroundColor: 'var(--bg-primary)' }}>
         {/* First stop for keyboard and screen-reader users (WCAG 2.4.1). Every page type
             marks its content with id="main". */}
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:right-3 focus:z-[200] focus:rounded-xl focus:bg-blue-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white">

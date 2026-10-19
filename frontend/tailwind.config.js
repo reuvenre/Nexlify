@@ -62,6 +62,14 @@ module.exports = {
       // Migration map for arbitrary values in the codebase:
       //   text-[10px] → text-2xs    text-[13px] → text-body
       //   text-[12px] → text-xs     text-[14px] → text-sm
+      // ── One font for the whole system: Arial (the owner asked for it) ─────────
+      // sans, serif and mono all map to it, so no class can bring another face back.
+      fontFamily: {
+        sans: ['Arial', 'Helvetica', 'sans-serif'],
+        serif: ['Arial', 'Helvetica', 'sans-serif'],
+        mono: ['Arial', 'Helvetica', 'sans-serif'],
+      },
+
       fontSize: {
         '2xs':  ['10px', { lineHeight: '14px' }],
         'body': ['13px', { lineHeight: '20px' }],

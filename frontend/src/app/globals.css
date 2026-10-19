@@ -48,6 +48,11 @@ html { scroll-behavior: smooth; }
    Wide content must scroll inside its own container, not drag the page with it. */
 html, body { overflow-x: hidden; max-width: 100%; }
 
+/* One font for the whole system: Arial. Form controls do not inherit it on their own. */
+html, body, button, input, select, textarea, optgroup {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text);
