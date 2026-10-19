@@ -58,6 +58,7 @@ import {
   buildSmartIntakePrompt, fallbackKeyword, parseIntakeVerdict,
   IntakeCampaignProfile, IntakeVerdict, SMART_INTAKE_SYSTEM,
 } from './smart-intake';
+import { ProductRoute, RouteCampaign, RouteMethod, campaignByKeyword, campaignForGroup, methodReason } from './product-routing';
 import { tidyRtlBody } from './rtl';
 import { Template } from '../templates/template.entity';
 import { Campaign } from '../campaigns/campaign.entity';
@@ -504,6 +505,127 @@ export class PostsService {
     return own || await this.getBodyText(userId, creds).catch(() => '');
   }
 
+  /** The AliExpress campaigns a hand-picked product can be routed through (smartIntake's set). */
+  private async routeCampaigns(userId: string): Promise<Campaign[]> {
+    return (await this.campaignRepo.find({ where: { user_id: userId } }))
+      .filter((c) => (c.source || 'aliexpress') === 'aliexpress' && ['active', 'paused'].includes(c.status));
+  }
+
+  private toRouteCampaign(c: Campaign): RouteCampaign {
+    return { id: c.id, name: c.name, status: c.status, keywords: c.keywords || [], targets: this.parseTargetChannels(c.target_channels) };
+  }
+
+  /** The template a campaign's automatic posts are written with: exactly runCampaign's rule. */
+  private async campaignTemplate(userId: string, creds: DecryptedCredentials, c: Campaign): Promise<{ text: string; source: ProductRoute['template_source'] }> {
+    const own = c.post_template?.trim();
+    if (own) return { text: own, source: 'campaign' };
+    const platforms = this.parseTargetPlatforms(c.target_platforms);
+    if (platforms && platforms.size === 1 && platforms.has('pinterest')) return { text: '', source: 'none' };
+    const account = await this.getBodyText(userId, creds).catch(() => '');
+    return { text: account, source: account ? 'account' : 'none' };
+  }
+
+  /**
+   * The body template a hand-published post to this group gets: the same as an automatic post
+   * to it. That is the template of the campaign feeding the group (its own, else the account
+   * default). A group no campaign feeds keeps the group's own template, else the account default.
+   */
+  private async autoTemplateForGroup(userId: string, creds: DecryptedCredentials, channelId?: string): Promise<string> {
+    if (channelId) {
+      const campaigns = await this.routeCampaigns(userId).catch(() => [] as Campaign[]);
+      const route = campaignForGroup(campaigns.map((c) => this.toRouteCampaign(c)), channelId);
+      const campaign = route ? campaigns.find((c) => c.id === route.id) : null;
+      if (campaign) return (await this.campaignTemplate(userId, creds, campaign)).text;
+    }
+    return this.bodyTemplateFor(userId, creds, channelId);
+  }
+
+  /**
+   * Which group a hand-picked product belongs to, and the template its automatic post would
+   * use (product-routing.ts). With `channel_id` the owner has chosen the group and only the
+   * template is resolved. Never guesses: when nothing is sure, `confident` is false and the
+   * owner gets the list of groups.
+   */
+  async routeProduct(userId: string, input: {
+    product_id: string; title?: string; category?: string; keyword?: string; channel_id?: string;
+  }): Promise<ProductRoute> {
+    const creds = await this.credentials.getRaw(userId);
+    if (!creds) throw new BadRequestException('חסרים פרטי חיבור — הגדר אותם במסך ההגדרות');
+    const campaigns = await this.routeCampaigns(userId);
+    const routes = campaigns.map((c) => this.toRouteCampaign(c));
+    const groups = await this.channels.activeTelegramGroups(userId).catch(() => []);
+    const nameOf = (id: string) => groups.find((g) => g.channel_id === id)?.name || id;
+
+    const answer = async (c: Campaign, method: RouteMethod, detail: string): Promise<ProductRoute> => {
+      const r = this.toRouteCampaign(c);
+      const tpl = await this.campaignTemplate(userId, creds, c);
+      return {
+        confident: true, method, reason: methodReason(method, detail),
+        campaign: { id: c.id, name: c.name },
+        channels: r.targets,
+        group_names: r.targets.length ? r.targets.map(nameOf) : ['ערוץ ברירת המחדל'],
+        template: tpl.text, template_source: tpl.source,
+        language: c.language || 'he', options: [],
+      };
+    };
+
+    // The owner chose the group: only its automatic template is left to find.
+    if (input.channel_id) {
+      const viaCampaign = campaignForGroup(routes, input.channel_id);
+      const c = viaCampaign ? campaigns.find((x) => x.id === viaCampaign.id) : null;
+      if (c) return { ...(await answer(c, 'chosen', '')), channels: [input.channel_id], group_names: [nameOf(input.channel_id)] };
+      const own = await this.resolveBodyTemplate(userId, input.channel_id).catch(() => '');
+      const account = own ? '' : await this.getBodyText(userId, creds).catch(() => '');
+      return {
+        confident: true, method: 'group', reason: methodReason('group', ''), campaign: null,
+        channels: [input.channel_id], group_names: [nameOf(input.channel_id)],
+        template: own || account, template_source: own ? 'group' : account ? 'account' : 'none',
+        language: 'he', options: [],
+      };
+    }
+
+    // 1. The keyword that found it.
+    const byKeyword = campaignByKeyword(routes, input.keyword);
+    if (byKeyword) return answer(campaigns.find((c) => c.id === byKeyword.id)!, 'keyword', String(input.keyword));
+
+    // 2. A campaign that already posted it.
+    const posted = await this.postedRepo.find({
+      where: { product_id: String(input.product_id) }, order: { created_at: 'DESC' }, take: 5,
+    }).catch(() => [] as PostedProduct[]);
+    const prior = posted.map((p) => campaigns.find((c) => c.id === p.campaign_id)).find(Boolean);
+    if (prior) return answer(prior, 'history', '');
+
+    // 3. The smart-intake judge, by audience, with each group's core focus.
+    if (campaigns.length && this.ai.hasAnyKey(creds) && input.title) {
+      const profiles: IntakeCampaignProfile[] = routes.map((r) => ({
+        name: r.name,
+        keywords: r.keywords.slice(0, 12),
+        channels: r.targets.map(nameOf),
+        focus: r.targets.map((t) => groups.find((g) => g.channel_id === t)?.core_focus || '').filter(Boolean),
+      }));
+      try {
+        const res = await this.ai.generate(creds, {
+          system: SMART_INTAKE_SYSTEM,
+          prompt: buildSmartIntakePrompt({ title: input.title, category: input.category }, profiles),
+          maxTokens: 160,
+          temperature: 0,
+        });
+        const verdict = res?.text ? parseIntakeVerdict(res.text, campaigns.length) : null;
+        if (verdict && verdict.campaign >= 0) return answer(campaigns[verdict.campaign], 'ai', verdict.reason);
+      } catch { /* the owner is asked below */ }
+    }
+
+    return {
+      confident: false, method: null,
+      reason: campaigns.length ? 'לא הצלחתי לזהות לאיזו קבוצה המוצר שייך' : 'אין קמפיין שמפרסם לקבוצות, אז אין לפי מה לזהות',
+      campaign: null, channels: [], group_names: [], template: '', template_source: 'none', language: 'he',
+      options: groups.map((g) => {
+        const c = campaignForGroup(routes, g.channel_id);
+        return { channel_id: g.channel_id, name: g.name, campaign_name: c?.name || null };
+      }),
+    };
+  }
+
   /**
    * Footer for a post: when routed to a specific saved channel that has its OWN footer
    * template (each group has its own join link), use that; otherwise the global default.
@@ -868,8 +990,8 @@ export class PostsService {
       || await this.getAffiliateLink(productId, creds);
 
     const parts = this.priceParts(product, rate);
-    // Write in the voice of the group this is going to, exactly as a campaign post would.
-    const template = textOverride ? '' : await this.bodyTemplateFor(userId, creds, channels?.[0] || channelOverride);
+    // Write in the template an automatic post to this group gets (product-routing.ts).
+    const template = textOverride ? '' : await this.autoTemplateForGroup(userId, creds, channels?.[0] || channelOverride);
     const text = textOverride || await this.generateText(
       product || { title: productId, sale_price: 0, original_price: 0, discount_percent: 0, orders_count: 0, rating: 0, currency: 'USD' },
       'he', rate, creds, template || undefined, parts.localOverride, undefined, undefined, false,
@@ -938,8 +1060,8 @@ export class PostsService {
       || await this.getAffiliateLink(productId, creds);
 
     const parts = this.priceParts(product, rate);
-    // Same group voice as an immediate publish — a scheduled post must not read differently.
-    const template = textOverride ? '' : await this.bodyTemplateFor(userId, creds, channels?.[0] || channelOverride);
+    // Same template as an immediate publish — a scheduled post must not read differently.
+    const template = textOverride ? '' : await this.autoTemplateForGroup(userId, creds, channels?.[0] || channelOverride);
     const text = textOverride || await this.generateText(
       product || { title: productId, sale_price: 0, original_price: 0, discount_percent: 0, orders_count: 0, rating: 0, currency: 'USD' },
       'he', rate, creds, template || undefined, parts.localOverride, undefined, undefined, false,

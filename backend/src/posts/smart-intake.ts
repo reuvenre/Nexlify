@@ -21,6 +21,8 @@ export interface IntakeCampaignProfile {
   keywords: string[];
   /** Target group names — the audience in the owner's own words. */
   channels: string[];
+  /** The groups' core focus, in the owner's words (channels.core_focus), when they have one. */
+  focus?: string[];
 }
 
 export interface IntakeVerdict {
@@ -48,7 +50,8 @@ export function buildSmartIntakePrompt(
 ): string {
   const lines = campaigns.map((c, i) =>
     `${i}. "${c.name}" — keywords: ${c.keywords.slice(0, 12).join(', ') || '(none)'}`
-    + (c.channels.length ? ` — groups: ${c.channels.join(', ')}` : ''));
+    + (c.channels.length ? ` — groups: ${c.channels.join(', ')}` : '')
+    + (c.focus?.length ? ` — group focus: ${c.focus.join(' / ')}` : ''));
   return [
     // The seller's words, fenced: a title must not be able to pick its own campaign or
     // write the keyword that goes into the owner's rotation.

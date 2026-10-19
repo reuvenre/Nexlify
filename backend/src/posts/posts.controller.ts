@@ -150,6 +150,27 @@ export class PostsController {
     return this.svc.saveUploadedImage(this.uid(req), normalized);
   }
 
+  /** Which group a hand-picked product belongs to, and its automatic post's template (product-routing.ts). */
+  @Post('route')
+  @HttpCode(200)
+  route(
+    @Req() req: Request,
+    @Body('product_id') productId: string,
+    @Body('title') title?: string,
+    @Body('category') category?: string,
+    @Body('keyword') keyword?: string,
+    @Body('channel_id') channelId?: string,
+  ) {
+    if (!productId) throw new BadRequestException('חסר מזהה מוצר');
+    return this.svc.routeProduct(this.uid(req), {
+      product_id: String(productId).slice(0, 40),
+      title: title ? String(title).slice(0, 300) : undefined,
+      category: category ? String(category).slice(0, 120) : undefined,
+      keyword: keyword ? String(keyword).slice(0, 80) : undefined,
+      channel_id: channelId ? String(channelId).slice(0, 64) : undefined,
+    });
+  }
+
   @Post('smart-intake')
   @HttpCode(200)
   smartIntake(

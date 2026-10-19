@@ -166,6 +166,8 @@ export default function CommissionsPage() {
       original_price: it.original_price, sale_price: it.sale_price, discount_percent: it.discount_percent,
       image_url: it.image_url, product_url: it.product_url, affiliate_url: it.affiliate_url,
       category: it.category, orders_count: it.orders_count, rating: it.rating, currency: it.currency,
+      // The campaign keyword that found it: quick post places the product in that campaign's group.
+      route_keyword: it.origin === 'niche' ? it.found_by : undefined,
     }));
     router.push('/quick-post?from_catalog=1');
   };

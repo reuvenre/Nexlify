@@ -827,6 +827,14 @@ export class ChannelsService {
       .map((c) => ({ channelId: c.channel_id, name: c.name, focus: c.core_focus!.trim(), share: focusShare(c.core_focus_share) }));
   }
 
+  /** The account's active Telegram groups, for the "which group?" question. No side effects. */
+  async activeTelegramGroups(userId: string): Promise<Array<{ channel_id: string; name: string; core_focus: string | null }>> {
+    const rows = await this.repo.find({ where: { user_id: userId, is_active: true }, order: { created_at: 'ASC' } });
+    return rows
+      .filter((c) => (c.platform || 'telegram') === 'telegram' && !!c.channel_id)
+      .map((c) => ({ channel_id: c.channel_id, name: c.name, core_focus: c.core_focus?.trim() || null }));
+  }
+
   /** The saved channel's display name (for multi-group error labels). Null if unknown. */
   async getName(userId: string, channelId: string): Promise<string | null> {
     const c = await this.repo.findOne({ where: { user_id: userId, channel_id: channelId } });

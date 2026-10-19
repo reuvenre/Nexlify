@@ -2128,7 +2128,11 @@ export class TelegramBotService implements OnModuleInit {
     await this.runSearch(chatId, last.keyword, page > 0 ? page : last.page + 1);
   }
 
-  /** Product tapped → offer the owner's active Telegram groups. */
+  /**
+   * Product tapped → the system places it in its group (PostsService.routeProduct) and publishes
+   * there in the template an automatic post to that group gets. Only when it cannot tell does
+   * it ask, with the owner's active Telegram groups.
+   */
   private async onPickChannel(chatId: string, cbId: string, productId: string): Promise<void> {
     const product = this.recall(productId) || await this.recallPick(productId);
     if (!product) {
@@ -2145,6 +2149,23 @@ export class TelegramBotService implements OnModuleInit {
       return;
     }
 
+    // A commission-scout pick carries the campaign keyword that found it.
+    const scout = product as Partial<ScoutPick>;
+    const route = await this.posts.routeProduct(userId!, {
+      product_id: productId,
+      title: product.title,
+      category: scout.category,
+      keyword: scout.origin === 'niche' ? scout.found_by : undefined,
+    }).catch((err) => { this.logger.warn(`route ${productId} failed: ${err?.message}`); return null; });
+
+    if (route?.confident) {
+      await this.answer(cbId, 'מפרסם…');
+      const label = route.group_names.join(', ');
+      await this.send(chatId, `⏳ מפרסם ל${label}…\n🎯 ${route.reason}${route.campaign ? ` (קמפיין «${route.campaign.name}»)` : ''}`);
+      await this.publishTo(chatId, undefined, userId!, productId, product, route.channels, label);
+      return;
+    }
+
     const keyboard: Keyboard = groups.map((g) => [{
       text: `📣 ${g.name}`,
       callback_data: encodeCallback('g', productId, g.id),
@@ -2152,7 +2173,36 @@ export class TelegramBotService implements OnModuleInit {
     keyboard.push([{ text: '❌ ביטול', callback_data: 'x' }]);
 
     await this.answer(cbId);
-    await this.send(chatId, `לאן לפרסם את «${truncate(product.title, 60)}»?`, keyboard);
+    await this.send(chatId, `לא זיהיתי לאיזו קבוצה «${truncate(product.title, 60)}» שייך. לאן לפרסם?`, keyboard);
+  }
+
+  /** Publish through the dashboard's quickPost path (the automatic template of the group), then report on `messageId`. */
+  private async publishTo(
+    chatId: string, messageId: number | undefined, userId: string,
+    productId: string, product: BotProduct, channels: string[], label: string,
+  ): Promise<void> {
+    try {
+      const post = await this.posts.quickPost(
+        userId, productId,
+        undefined,               // text — the AI writes it in the group's automatic template
+        undefined,               // channelOverride — superseded by `channels` below
+        product.image_url,
+        product.affiliate_url,
+        product,
+        channels.length ? channels : undefined, // empty = the default channel, as the campaign would
+      );
+      const title = truncate(product.title, 60);
+      const text = post.status === 'sent'
+        ? `✅ פורסם ל${label}\n${title}${post.error_message ? `\n⚠️ ${post.error_message}` : ''}`
+        : `❌ הפרסום ל${label} נכשל: ${post.error_message || 'שגיאה לא ידועה'}`;
+      if (messageId) await this.editText(chatId, messageId, text);
+      else await this.send(chatId, text);
+    } catch (err: any) {
+      this.logger.warn(`bot publish ${productId} → ${label} failed: ${err?.message}`);
+      const text = `❌ הפרסום נכשל: ${err?.message || err}`;
+      if (messageId) await this.editText(chatId, messageId, text);
+      else await this.send(chatId, text);
+    }
   }
 
   /** Group tapped → publish now through the same path the dashboard uses. */
@@ -2179,25 +2229,7 @@ export class TelegramBotService implements OnModuleInit {
     // Editing the message drops its keyboard too, so a second tap can't double-publish.
     await this.answer(cbId, 'מפרסם…');
     await this.editText(chatId, messageId, `⏳ מפרסם ל${group.name}…`);
-
-    try {
-      const post = await this.posts.quickPost(
-        userId, productId,
-        undefined,               // text — let the AI write it, as the dashboard does
-        undefined,               // channelOverride — superseded by `channels` below
-        product.image_url,
-        product.affiliate_url,
-        product,
-        [group.channel_id],
-      );
-      const title = truncate(product.title, 60);
-      await this.editText(chatId, messageId, post.status === 'sent'
-        ? `✅ פורסם ל${group.name}\n${title}${post.error_message ? `\n⚠️ ${post.error_message}` : ''}`
-        : `❌ הפרסום ל${group.name} נכשל: ${post.error_message || 'שגיאה לא ידועה'}`);
-    } catch (err: any) {
-      this.logger.warn(`bot publish ${productId} → ${group.name} failed: ${err?.message}`);
-      await this.editText(chatId, messageId, `❌ הפרסום נכשל: ${err?.message || err}`);
-    }
+    await this.publishTo(chatId, messageId, userId, productId, product, [group.channel_id], group.name);
   }
 
   // ── Owner / groups ─────────────────────────────────────────────────────────

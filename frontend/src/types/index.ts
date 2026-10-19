@@ -555,6 +555,22 @@ export interface AliProduct {
   currency: string;
 }
 
+/** Which group a hand-picked product belongs to (backend posts/product-routing.ts). */
+export interface ProductRoute {
+  confident: boolean;
+  method: 'keyword' | 'history' | 'ai' | 'chosen' | 'group' | null;
+  reason: string;
+  campaign: { id: string; name: string } | null;
+  /** Telegram chat ids; empty = the default channel. */
+  channels: string[];
+  group_names: string[];
+  /** The template an automatic post to these groups is written with ('' = the built-in voice). */
+  template: string;
+  template_source: 'campaign' | 'account' | 'group' | 'none';
+  language: string;
+  options: Array<{ channel_id: string; name: string; campaign_name: string | null }>;
+}
+
 /** One product on the high-commission screen (backend products/commission-scout.ts). */
 export interface ScoutItem extends AliProduct {
   /** The rate AliExpress declares, in %. */

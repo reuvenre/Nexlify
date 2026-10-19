@@ -13,7 +13,7 @@ import { ProductEditPanel } from '@/components/products/ProductEditPanel';
 import { TemplatePanel } from '@/components/templates/TemplatePanel';
 import { productsApi, postsApi, templatesApi, credentialsApi, catalogApi, channelsApi } from '@/lib/api-client';
 import { GroupMultiSelect } from '@/components/GroupMultiSelect';
-import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate, CatalogProduct, Channel } from '@/types';
+import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate, CatalogProduct, Channel, ProductRoute } from '@/types';
 
 /** The quick-post grid renders AliProduct — adapt a catalog row to that shape. */
 function catalogToAli(c: CatalogProduct): AliProduct {
@@ -124,6 +124,17 @@ export default function QuickPostPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [channelIds, setChannelIds] = useState<string[]>([]); // target groups (empty = default channel)
 
+  // ── Which group the product belongs to (POST /posts/route): the system places it, and asks
+  // only when it cannot tell. The post is written in that group's automatic-post template.
+  const [route, setRoute] = useState<ProductRoute | null>(null);
+  const [routing, setRouting] = useState(false);
+  const [pickingGroup, setPickingGroup] = useState(false);
+  const routePending = useRef<Promise<void> | null>(null);
+  /** The group whose template is applied, so a manual change of groups re-resolves it once. */
+  const resolvedFor = useRef('');
+  /** handleGenerate may run right after a route lands; state from its closure would be stale. */
+  const templateRef = useRef<PostTemplate | null>(null);
+
   // ── Infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -149,6 +160,49 @@ export default function QuickPostPage() {
       .catch(() => {});
   }, []);
 
+  const applyRoute = (r: ProductRoute) => {
+    setRoute(r);
+    if (!r.confident) { setPickingGroup(true); return; }
+    setPickingGroup(false);
+    // A group the owner chose keeps his own selection of groups; only the template follows it.
+    if (r.method !== 'chosen' && r.method !== 'group') setChannelIds(r.channels);
+    resolvedFor.current = r.channels[0] || '';
+    const tpl: PostTemplate = {
+      id: `auto_${r.channels[0] || 'default'}`, name: 'כמו בפוסט האוטומטי', icon: '🤖', content: r.template, builtin: true,
+    };
+    templateRef.current = tpl;
+    setSelectedTemplate(tpl);
+    if (POST_LANGS.some((l) => l.value === r.language)) setPostLang(r.language as PostLang);
+  };
+
+  const runRoute = (p: AliProduct, extra: { keyword?: string; channel_id?: string } = {}) => {
+    // A new product starts clean; a chosen group keeps the banner while its template loads.
+    if (!extra.channel_id) { setRoute(null); setPickingGroup(false); resolvedFor.current = ''; templateRef.current = null; }
+    setRouting(true);
+    const job = postsApi.route({ product_id: p.product_id, title: p.title, category: p.category, ...extra })
+      .then(applyRoute)
+      .catch(() => { setRoute(null); setPickingGroup(true); })
+      .finally(() => setRouting(false));
+    routePending.current = job;
+    return job;
+  };
+
+  const chooseGroup = (channelId: string) => {
+    if (!selected) return;
+    setChannelIds([channelId]);
+    resolvedFor.current = channelId;
+    void runRoute(selected, { channel_id: channelId });
+  };
+
+  // Groups changed by hand → the template follows the first one, as its automatic post would.
+  useEffect(() => {
+    const first = channelIds[0] || '';
+    if (!selected || !first || first === resolvedFor.current) return;
+    resolvedFor.current = first;
+    void runRoute(selected, { channel_id: first });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelIds[0]]);
+
   // ── Pre-load catalog product (from /products page "צור פוסט")
   useEffect(() => {
     if (searchParams.get('from_catalog') !== '1') return;
@@ -157,11 +211,12 @@ export default function QuickPostPage() {
       const raw = sessionStorage.getItem('quick_post_catalog_product');
       if (!raw) return;
       sessionStorage.removeItem('quick_post_catalog_product');
-      const product: AliProduct = JSON.parse(raw);
+      const product: AliProduct & { route_keyword?: string } = JSON.parse(raw);
       setSelected(product);
       setPreview(null);
       setAffiliateUrl('');
       setView('review');
+      void runRoute(product, { keyword: product.route_keyword });
       // Always generate the short affiliate link (catalog links may be raw URLs).
       setAffiliateLoading(true);
       productsApi.affiliateLink(product.product_id)
@@ -322,6 +377,7 @@ export default function QuickPostPage() {
     setSelected(product);
     setPreview(null);
     setView('review');
+    void runRoute(product);
 
     // Generate the SHORT affiliate link (s.click.aliexpress.com/e/_xxx) via
     // link.generate. The product's inline promotion_link is the long /s/ form,
@@ -367,7 +423,10 @@ export default function QuickPostPage() {
     setIsLoadingPreview(true);
     setPreviewError(null);
     try {
-      const p = await postsApi.preview(editedProduct.product_id, postLang, editedProduct, selectedTemplate.content || undefined);
+      // The group's template must be known before the copy is written.
+      if (routePending.current) await routePending.current;
+      const template = templateRef.current || selectedTemplate;
+      const p = await postsApi.preview(editedProduct.product_id, postLang, editedProduct, template.content || undefined);
       // Append affiliate link if available and not already in text
       if (affiliateUrl && !p.generated_text.includes(affiliateUrl)) {
         p.generated_text = p.generated_text + '\n\n🔗 ' + affiliateUrl;
@@ -601,7 +660,7 @@ export default function QuickPostPage() {
             {/* Template panel */}
             <TemplatePanel
               selectedId={selectedTemplate.id}
-              onSelect={setSelectedTemplate}
+              onSelect={(t) => { templateRef.current = t; setSelectedTemplate(t); }}
             />
           </div>
 
@@ -624,6 +683,15 @@ export default function QuickPostPage() {
                 ))}
               </div>
             </div>
+
+            <RouteBanner
+              route={route}
+              routing={routing}
+              picking={pickingGroup}
+              channels={channels}
+              onPick={chooseGroup}
+              onChange={() => setPickingGroup(true)}
+            />
 
             {/* Edit panel */}
             <ProductEditPanel
@@ -873,6 +941,70 @@ export default function QuickPostPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Route banner ─────────────────────────────────────────────────────────────
+
+const TEMPLATE_SOURCE: Record<ProductRoute['template_source'], string> = {
+  campaign: 'התבנית של הקמפיין',
+  account: 'תבנית ברירת המחדל של החשבון',
+  group: 'התבנית של הקבוצה',
+  none: 'הסגנון המובנה',
+};
+
+/** Where the product goes: what the system recognised, or the question when it could not. */
+function RouteBanner({ route, routing, picking, channels, onPick, onChange }: {
+  route: ProductRoute | null;
+  routing: boolean;
+  picking: boolean;
+  channels: Channel[];
+  onPick: (channelId: string) => void;
+  onChange: () => void;
+}) {
+  if (routing && !route) {
+    return (
+      <div className="card px-4 py-3 text-sm text-white/70 flex items-center gap-2" role="status">
+        <Loader2 size={14} className="animate-spin" aria-hidden="true" /> מזהה לאיזו קבוצה המוצר שייך…
+      </div>
+    );
+  }
+  const telegram = channels.filter((c) => (c.platform || 'telegram') === 'telegram' && c.channel_id && c.is_active !== false);
+  const options = route?.options?.length
+    ? route.options
+    : telegram.map((c) => ({ channel_id: c.channel_id, name: c.name, campaign_name: null as string | null }));
+
+  if (picking || (route && !route.confident)) {
+    return (
+      <div className="card p-4 border-amber-500/30" role="group" aria-labelledby="route-pick-title">
+        <p id="route-pick-title" className="text-sm font-medium text-amber-300 mb-1">
+          {route && !route.confident ? `${route.reason}. לאיזו קבוצה לפרסם?` : 'לאיזו קבוצה לפרסם?'}
+        </p>
+        <p className="text-xs text-white/60 mb-3">הפוסט ייכתב בתבנית שהקבוצה מקבלת בפוסטים האוטומטיים.</p>
+        <div className="flex flex-wrap gap-2">
+          {options.map((o) => (
+            <button key={o.channel_id} type="button" onClick={() => onPick(o.channel_id)} className="btn btn-ghost btn-sm">
+              📣 {o.name}{o.campaign_name ? <span className="text-white/50 text-[11px]">· {o.campaign_name}</span> : null}
+            </button>
+          ))}
+          {!options.length && <span className="text-xs text-white/60">אין קבוצת טלגרם פעילה. הוסף קבוצה במסך הערוצים.</span>}
+        </div>
+      </div>
+    );
+  }
+  if (!route?.confident) return null;
+  return (
+    <div className="card px-4 py-3 border-emerald-500/30 flex flex-wrap items-start justify-between gap-3" role="status">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-emerald-300">🎯 {route.group_names.join(', ')}</p>
+        <p className="text-xs text-white/60 mt-0.5">
+          {route.reason}{route.campaign ? ` · קמפיין «${route.campaign.name}»` : ''}
+          {' · '}{TEMPLATE_SOURCE[route.template_source]}, כמו בפוסט האוטומטי
+          {routing && ' · מעדכן…'}
+        </p>
+      </div>
+      <button type="button" onClick={onChange} className="btn btn-ghost btn-xs shrink-0">קבוצה אחרת</button>
     </div>
   );
 }

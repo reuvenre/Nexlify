@@ -10,6 +10,7 @@ import type {
   CampaignInput,
   AliProduct,
   ScoutCatalogResponse,
+  ProductRoute,
   AliCategory,
   Post,
   PostPreview,
@@ -672,6 +673,10 @@ export const postsApi = {
    *  post's actual photo(s) to the AI (vision) with the edited title as ground truth. */
   regeneratePost: (id: string, data: { title?: string; price_ils?: number; image_url?: string }) =>
     http.post<PostPreview>(`/posts/${id}/regenerate`, data, { timeout: AI_TIMEOUT }).then(extract),
+
+  /** Which group this product belongs to, and its automatic post's template. `channel_id` = the owner chose. */
+  route: (data: { product_id: string; title?: string; category?: string; keyword?: string; channel_id?: string }) =>
+    http.post<ProductRoute>('/posts/route', data, { timeout: AI_TIMEOUT }).then(extract),
 
   quickPost: (data: { product_id: string; text?: string; channel_override?: string; channels?: string[]; product_image?: string; affiliate_url?: string; product?: QuickPostProduct; promo?: PromoInput }) =>
     http.post<Post>('/posts/quick', data, { timeout: AI_TIMEOUT }).then(extract),
