@@ -39,7 +39,7 @@ const SCOUT_HOT_FIELDS = HOT_FIELDS + ',commission_rate';
 /** Where a commission scan looks: one keyword search, one hot-products search, or one of
  *  AliExpress's own promotion lists for affiliates (featuredpromo). */
 export type ScoutSource =
-  | { kind: 'search'; keyword: string }
+  | { kind: 'search'; keyword?: string; category_id?: string }
   | { kind: 'hot'; keyword?: string; category_id?: string }
   | { kind: 'promo'; name: string };
 
@@ -422,7 +422,7 @@ export class ProductsService {
         const keyword = source.keyword ? await this.normalizeKeyword(source.keyword, creds) : undefined;
         params = {
           ...common, keywords: keyword, ship_to_country: this.shipCountry(creds), sort: 'LAST_VOLUME_DESC',
-          category_ids: source.kind === 'hot' ? source.category_id : undefined,
+          category_ids: source.category_id,
           ...(source.kind === 'hot'
             ? { method: 'aliexpress.affiliate.hotproduct.query', fields: SCOUT_HOT_FIELDS }
             : { method: 'aliexpress.affiliate.product.query', fields: SCOUT_FIELDS }),

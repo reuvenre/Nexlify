@@ -10,6 +10,10 @@ import {
   SEEN_TTL_MS, ScoutCandidate, ScoutOrigin, ScoutPick,
   maxScanCalls, minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks, worthNextPage,
 } from './commission-scout';
+import {
+  NICHE_CATEGORY_HOT_PAGES, NICHE_CATEGORY_SEARCH_PAGES, NICHE_COOLDOWN_MS, NICHE_KEYWORD_HOT_PAGES,
+  NICHE_KEYWORD_SEARCH_PAGES, NICHE_MAX_CALLS, NICHE_TTL_MS, PRESET_NICHES, categoryLabel, parseNicheId,
+} from './scout-niches';
 
 /** AliExpress bans bursts over ~1 call a second; the scan stays under it. */
 const CALL_GAP_MS = 1100;
@@ -31,6 +35,18 @@ export interface ScoutCatalog {
   calls?: number;
   budget_hit?: boolean;
 }
+
+/** One entry in the niche list. */
+export interface NicheOption { id: string; label: string }
+
+/** A niche search's result, as it was: the same shape as the daily catalog, plus the niche. */
+export interface NicheCatalog extends ScoutCatalog {
+  niche_id: string;
+  label: string;
+}
+
+/** A source a scan reads, with how many pages and how its products are labelled. */
+interface ScanStep { source: ScoutSource; pages: number; foundBy: string; origin: ScoutOrigin }
 
 export interface ScoutReport {
   picks: ScoutPick[];
@@ -70,32 +86,9 @@ export class CommissionScoutService {
 
   async scan(userId: string): Promise<ScoutReport> {
     const minRate = minCommissionPct();
-    const candidates: ScoutCandidate[] = [];
-    const errors: string[] = [];
-    let scanned = 0;
-
-    const budget = maxScanCalls();
-    let calls = 0;
-    let failsInARow = 0;
-    const out = () => calls >= budget || failsInARow >= MAX_FAILS_IN_A_ROW;
-
-    const read = async (source: ScoutSource, page: number, foundBy: string, origin: ScoutOrigin) => {
-      if (out()) return { data: [] as any[], sorted: false };
-      calls++;
-      const res = await this.products.scoutProducts(userId, source, page);
-      if (res.error) { errors.push(`${foundBy}: ${res.error}`); failsInARow++; } else failsInARow = 0;
-      scanned += res.data.length;
-      for (const p of res.data) candidates.push({ ...p, found_by: foundBy, origin });
-      await new Promise((r) => setTimeout(r, CALL_GAP_MS));
-      return res;
-    };
-    /** Page on while a full page still has something at or above the bar. */
-    const readPages = async (source: ScoutSource, pages: number, foundBy: string, origin: ScoutOrigin) => {
-      for (let page = 1; page <= pages && !out(); page++) {
-        const res = await read(source, page, foundBy, origin);
-        if (!worthNextPage(res.data, minRate)) break;
-      }
-    };
+    const reader = this.makeReader(userId, minRate, maxScanCalls());
+    const { readPages, candidates, errors } = reader;
+    const out = reader.out;
 
     // 1. AliExpress's own promotion lists, highest commission first.
     const promos = (await this.products.featuredPromoNames(userId)).slice(0, MAX_SCAN_PROMOS);
@@ -119,7 +112,7 @@ export class CommissionScoutService {
       const c = cats[(day + i) % cats.length];
       await readPages({ kind: 'hot', category_id: c.id }, HOT_CATEGORY_PAGES, c.name, 'hot');
     }
-    const budgetHit = calls >= budget;
+    const { calls, scanned, budgetHit } = reader.stats();
 
     const posted = await this.postedRecently(userId, candidates.map((c) => c.product_id));
     const exclude = new Set([...posted, ...(await this.recommendedRecently(userId))]);
@@ -165,6 +158,137 @@ export class CommissionScoutService {
       .catch((err) => this.logger.warn(`commission scan ${userId} failed: ${err?.message}`))
       .finally(() => this.running.delete(userId));
     return { started: true };
+  }
+
+  /**
+   * Reads scout sources within a budget of API calls, spaced 1.1 s apart, paging on while a full
+   * page still has something at or above the bar, and stopping after MAX_FAILS_IN_A_ROW failures.
+   */
+  private makeReader(userId: string, minRate: number, budget: number) {
+    const candidates: ScoutCandidate[] = [];
+    const errors: string[] = [];
+    let scanned = 0;
+    let calls = 0;
+    let failsInARow = 0;
+    const out = () => calls >= budget || failsInARow >= MAX_FAILS_IN_A_ROW;
+    const read = async (source: ScoutSource, page: number, foundBy: string, origin: ScoutOrigin) => {
+      if (out()) return { data: [] as any[], sorted: false };
+      calls++;
+      const res = await this.products.scoutProducts(userId, source, page);
+      if (res.error) { errors.push(`${foundBy}: ${res.error}`); failsInARow++; } else failsInARow = 0;
+      scanned += res.data.length;
+      for (const p of res.data) candidates.push({ ...p, found_by: foundBy, origin });
+      await new Promise((r) => setTimeout(r, CALL_GAP_MS));
+      return res;
+    };
+    const readPages = async (source: ScoutSource, pages: number, foundBy: string, origin: ScoutOrigin) => {
+      for (let page = 1; page <= pages && !out(); page++) {
+        const res = await read(source, page, foundBy, origin);
+        if (!worthNextPage(res.data, minRate)) break;
+      }
+    };
+    return { readPages, out, candidates, errors, stats: () => ({ calls, scanned, budgetHit: calls >= budget }) };
+  }
+
+  // ── Search by niche ──────────────────────────────────────────────────────
+
+  /** The list the owner picks a niche from: his campaign keywords, the ready niches, AliExpress's categories. */
+  async niches(userId: string): Promise<{ mine: NicheOption[]; presets: NicheOption[]; categories: NicheOption[] }> {
+    const active = await this.campaigns.find({ where: { user_id: userId, status: 'active' as any } })
+      .catch(() => [] as Campaign[]);
+    const cats = await this.products.getCategories(userId).catch(() => [] as Array<{ id: string; name: string }>);
+    return {
+      mine: scanKeywords(active.map((c) => c.keywords || []), 60).map((k) => ({ id: `kw:${k}`, label: k })),
+      presets: PRESET_NICHES.map((n) => ({ id: `preset:${n.key}`, label: n.label })),
+      categories: cats.map((c) => ({ id: `cat:${c.id}`, label: categoryLabel(c.name) }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'he')),
+    };
+  }
+
+  /** What a niche id on the list reads. Null for an id that is not on the owner's list. */
+  private async nicheSteps(userId: string, id: string): Promise<{ label: string; steps: ScanStep[] } | null> {
+    const n = parseNicheId(id);
+    if (!n) return null;
+    if (n.kind === 'preset') {
+      const preset = PRESET_NICHES.find((p) => p.key === n.value);
+      if (!preset) return null;
+      return {
+        label: preset.label,
+        steps: preset.keywords.flatMap((kw) => [
+          { source: { kind: 'hot', keyword: kw } as ScoutSource, pages: NICHE_KEYWORD_HOT_PAGES, foundBy: `${preset.label} · ${kw}`, origin: 'hot' as ScoutOrigin },
+          { source: { kind: 'search', keyword: kw } as ScoutSource, pages: NICHE_KEYWORD_SEARCH_PAGES, foundBy: `${preset.label} · ${kw}`, origin: 'hot' as ScoutOrigin },
+        ]),
+      };
+    }
+    const list = await this.niches(userId);
+    if (n.kind === 'kw') {
+      const mine = list.mine.find((o) => o.id === id);
+      if (!mine) return null;
+      // A campaign keyword keeps origin `niche`, so quick post routes the product to that campaign.
+      return {
+        label: mine.label,
+        steps: [
+          { source: { kind: 'hot', keyword: mine.label }, pages: NICHE_KEYWORD_HOT_PAGES, foundBy: mine.label, origin: 'niche' },
+          { source: { kind: 'search', keyword: mine.label }, pages: NICHE_KEYWORD_SEARCH_PAGES, foundBy: mine.label, origin: 'niche' },
+        ],
+      };
+    }
+    const cat = list.categories.find((o) => o.id === id);
+    if (!cat) return null;
+    return {
+      label: cat.label,
+      steps: [
+        { source: { kind: 'hot', category_id: n.value }, pages: NICHE_CATEGORY_HOT_PAGES, foundBy: cat.label, origin: 'hot' },
+        { source: { kind: 'search', category_id: n.value }, pages: NICHE_CATEGORY_SEARCH_PAGES, foundBy: cat.label, origin: 'hot' },
+      ],
+    };
+  }
+
+  private nicheKey(userId: string, id: string): string {
+    return `commission_scout_niche:${userId}:${id.slice(0, 90)}`;
+  }
+
+  /** A niche's last result, and whether a search of it runs now. */
+  async nicheResult(userId: string, id: string): Promise<{ result: NicheCatalog | null; running: boolean; next_scan_at: string | null }> {
+    const result = await this.memory.load<NicheCatalog>(this.nicheKey(userId, id));
+    const last = result ? Date.parse(result.scanned_at) : 0;
+    const next = last && Date.now() - last < NICHE_COOLDOWN_MS ? new Date(last + NICHE_COOLDOWN_MS).toISOString() : null;
+    return { result, running: this.running.has(`${userId}:${id}`), next_scan_at: next };
+  }
+
+  /** Search one niche in the background (about a minute); the screen polls nicheResult. */
+  async startNicheScan(userId: string, id: string): Promise<{ started: boolean; reason?: string }> {
+    const plan = await this.nicheSteps(userId, id);
+    if (!plan) return { started: false, reason: 'הנישה לא נמצאה ברשימה' };
+    const runKey = `${userId}:${id}`;
+    if (this.running.has(runKey)) return { started: false, reason: 'החיפוש בנישה הזאת כבר רץ' };
+    const { next_scan_at } = await this.nicheResult(userId, id);
+    if (next_scan_at) return { started: false, reason: 'הנישה נסרקה לפני פחות מ-5 דקות' };
+    this.running.add(runKey);
+    void this.scanNiche(userId, id, plan.label, plan.steps)
+      .catch((err) => this.logger.warn(`niche scan ${id} failed: ${err?.message}`))
+      .finally(() => this.running.delete(runKey));
+    return { started: true };
+  }
+
+  private async scanNiche(userId: string, id: string, label: string, steps: ScanStep[]): Promise<void> {
+    const minRate = minCommissionPct();
+    const reader = this.makeReader(userId, minRate, NICHE_MAX_CALLS);
+    for (const st of steps) {
+      if (reader.out()) break;
+      await reader.readPages(st.source, st.pages, st.foundBy, st.origin);
+    }
+    const { calls, scanned, budgetHit } = reader.stats();
+    const posted = await this.postedRecently(userId, reader.candidates.map((c) => c.product_id));
+    const result: NicheCatalog = {
+      niche_id: id, label,
+      scanned_at: new Date().toISOString(),
+      scanned, min_rate: minRate, errors: reader.errors.slice(0, 5),
+      items: rankCatalog(reader.candidates, { minRate, posted }),
+      calls, budget_hit: budgetHit,
+    };
+    await this.memory.save(this.nicheKey(userId, id), result, NICHE_TTL_MS);
+    this.logger.log(`niche scan ${userId} ${id}: ${calls} calls, ${scanned} scanned, ${result.items.length} ≥ ${minRate}%`);
   }
 
   /** Remember the picks the owner was actually shown, so they are not recommended again. */

@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, Search, AlertTriangle, TrendingUp, DollarSign, Layers, Flame,
 } from 'lucide-react';
 import { commissionScoutApi } from '@/lib/api-client';
-import type { ScoutCatalogResponse, ScoutItem } from '@/types';
+import type { ScoutCatalogResponse, ScoutItem, ScoutNicheList, ScoutNicheResponse } from '@/types';
 
 /**
  * Products that pay a high commission (the commission scout, backend products/commission-scout.ts).
@@ -88,6 +88,50 @@ export default function CommissionsPage() {
   const [query, setQuery] = useState('');
   const poll = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Search by niche: one niche from the list, searched on its own (backend scout-niches.ts).
+  const [niches, setNiches] = useState<ScoutNicheList | null>(null);
+  const [nicheId, setNicheId] = useState('');
+  const [niche, setNiche] = useState<ScoutNicheResponse | null>(null);
+  /** The niche's results replace the daily list until the owner goes back. */
+  const [nicheActive, setNicheActive] = useState(false);
+  const nichePoll = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    commissionScoutApi.niches().then(setNiches).catch(() => {});
+    return () => { if (nichePoll.current) clearTimeout(nichePoll.current); };
+  }, []);
+
+  const loadNiche = useCallback(async (id: string) => {
+    if (nichePoll.current) clearTimeout(nichePoll.current);
+    try {
+      const res = await commissionScoutApi.niche(id);
+      setNiche(res);
+      if (res.result) setNicheActive(true);
+      if (res.running) nichePoll.current = setTimeout(() => loadNiche(id), 5000);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'טעינת הנישה נכשלה');
+    }
+  }, []);
+
+  const pickNiche = (id: string) => {
+    setNicheId(id);
+    setNiche(null);
+    setNicheActive(false);
+    if (id) void loadNiche(id);
+  };
+
+  const searchNiche = async () => {
+    if (!nicheId) return;
+    setNotice('');
+    try {
+      const res = await commissionScoutApi.nicheScan(nicheId);
+      if (!res.started) setNotice(res.reason || 'לא ניתן לחפש כרגע');
+      await loadNiche(nicheId);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'החיפוש לא התחיל');
+    }
+  };
+
   const load = useCallback(async () => {
     try {
       const res = await commissionScoutApi.catalog();
@@ -120,7 +164,8 @@ export default function CommissionsPage() {
   };
 
   const catalog = data?.catalog || null;
-  const all = useMemo(() => catalog?.items || [], [catalog]);
+  const nicheItems = niche?.result?.items;
+  const all = useMemo(() => (nicheActive && nicheItems ? nicheItems : catalog?.items || []), [catalog, nicheActive, nicheItems]);
 
   /** Categories by how many products they hold, for the chips and the shelves. */
   const categories = useMemo(() => {
@@ -202,9 +247,20 @@ export default function CommissionsPage() {
         </div>
       )}
 
+      <NichePicker
+        list={niches}
+        value={nicheId}
+        onPick={pickNiche}
+        onSearch={searchNiche}
+        state={niche}
+        active={nicheActive}
+        onBack={() => setNicheActive(false)}
+        onShow={() => setNicheActive(true)}
+      />
+
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="animate-spin text-white/50" aria-label="טוען" /></div>
-      ) : !catalog ? (
+      ) : !catalog && !nicheActive ? (
         <EmptyState running={running} onScan={scan} />
       ) : (
         <>
@@ -276,7 +332,7 @@ export default function CommissionsPage() {
           <p className="text-xs text-white/50 leading-relaxed">
             אחוז העמלה הוא מה שאלי אקספרס מצהירה ב-API לשותפים. בפועל העמלה יכולה להיות נמוכה יותר (תקרות לפי קטגוריה, לקוח חדש מול חוזר).
             הסוכן סורק את רשימות המבצעים של אלי אקספרס, את פיד המוצרים החמים (שם נמצאות עמלות של 50–90%) בכל הקטגוריות ואת מילות המפתח של הקמפיינים הפעילים שלך, 50 מוצרים בכל קריאה. כל בוקר וגם כשתלחץ «סרוק עכשיו».
-            {catalog.budget_hit && ' הסריקה האחרונה עצרה במכסת הקריאות שלה, והבאה תתחיל מקטגוריות אחרות.'}
+            {!nicheActive && catalog?.budget_hit && ' הסריקה האחרונה עצרה במכסת הקריאות שלה, והבאה תתחיל מקטגוריות אחרות.'}
           </p>
         </>
       )}
@@ -597,5 +653,81 @@ function EmptyState({ running, onScan }: { running: boolean; onScan: () => void 
         {running ? 'סורק…' : 'סרוק עכשיו'}
       </button>
     </div>
+  );
+}
+
+// ── Niche picker ─────────────────────────────────────────────────────────────
+
+/** Pick a niche from the list and search its high-commission products on their own. */
+function NichePicker({ list, value, onPick, onSearch, state, active, onBack, onShow }: {
+  list: ScoutNicheList | null;
+  value: string;
+  onPick: (id: string) => void;
+  onSearch: () => void;
+  state: ScoutNicheResponse | null;
+  active: boolean;
+  onBack: () => void;
+  onShow: () => void;
+}) {
+  const running = !!state?.running;
+  const result = state?.result || null;
+  const cooling = !!state?.next_scan_at && !running;
+  return (
+    <section className="card p-4" aria-labelledby="niche-title">
+      <div className="flex flex-col md:flex-row md:items-end gap-3">
+        <div className="flex-1 min-w-0">
+          <h2 id="niche-title" className="text-sm font-semibold flex items-center gap-1.5 mb-1">
+            <Target size={15} className="text-emerald-400" aria-hidden="true" /> חיפוש לפי נישה
+          </h2>
+          <p className="text-xs text-white/60 mb-2">בחר נישה מהרשימה, והסוכן יחפש רק בה מוצרים עם עמלה גבוהה, לעומק (כדקה).</p>
+          <select
+            value={value}
+            onChange={(e) => onPick(e.target.value)}
+            className="input"
+            aria-label="נישה"
+            disabled={!list}
+          >
+            <option value="">{list ? 'בחר נישה…' : 'טוען את הרשימה…'}</option>
+            {!!list?.mine.length && (
+              <optgroup label="הנישות שלי (מילות המפתח של הקמפיינים)">
+                {list.mine.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </optgroup>
+            )}
+            {!!list?.presets.length && (
+              <optgroup label="נישות פופולריות">
+                {list.presets.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </optgroup>
+            )}
+            {!!list?.categories.length && (
+              <optgroup label="קטגוריות של אלי אקספרס">
+                {list.categories.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </optgroup>
+            )}
+          </select>
+        </div>
+        <button type="button" onClick={onSearch} disabled={!value || running || cooling} className="btn btn-primary shrink-0">
+          {running ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Search size={15} aria-hidden="true" />}
+          {running ? 'מחפש בנישה…' : result ? 'חפש שוב' : 'חפש בנישה'}
+        </button>
+      </div>
+
+      {value && result && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 bg-emerald-500/10" role="status">
+          <span className="text-xs text-emerald-300">
+            {result.items.length.toLocaleString('en-US')} מוצרים עם עמלה של {result.min_rate}%+ ב«{result.label}» · נסרק {ago(result.scanned_at)}
+            {cooling && ' · אפשר לחפש שוב בעוד כמה דקות'}
+          </span>
+          {active
+            ? <button type="button" onClick={onBack} className="btn btn-ghost btn-xs">חזרה לכל המוצרים</button>
+            : <button type="button" onClick={onShow} className="btn btn-ghost btn-xs">הצג את התוצאות</button>}
+        </div>
+      )}
+      {value && !result && !running && state && (
+        <p className="mt-3 text-xs text-white/60">הנישה עוד לא נסרקה. לחץ «חפש בנישה».</p>
+      )}
+      {running && (
+        <p className="mt-3 text-xs text-white/60" role="status">מחפש… התוצאות יופיעו כאן לבד.</p>
+      )}
+    </section>
   );
 }

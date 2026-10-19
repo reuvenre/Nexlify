@@ -10,6 +10,8 @@ import type {
   CampaignInput,
   AliProduct,
   ScoutCatalogResponse,
+  ScoutNicheList,
+  ScoutNicheResponse,
   ProductRoute,
   AliCategory,
   Post,
@@ -638,6 +640,9 @@ export const productsApi = {
 export const commissionScoutApi = {
   catalog: () => http.get<ScoutCatalogResponse>('/commission-scout').then(extract),
   scan: () => http.post<{ started: boolean; reason?: string }>('/commission-scout/scan').then(extract),
+  niches: () => http.get<ScoutNicheList>('/commission-scout/niches').then(extract),
+  niche: (id: string) => http.get<ScoutNicheResponse>('/commission-scout/niche', { params: { id } }).then(extract),
+  nicheScan: (id: string) => http.post<{ started: boolean; reason?: string }>('/commission-scout/niche/scan', { id }).then(extract),
 };
 
 // ─── Posts API ───────────────────────────────────────────────────────────────

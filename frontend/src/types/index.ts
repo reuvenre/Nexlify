@@ -586,6 +586,19 @@ export interface ScoutItem extends AliProduct {
   subcategory?: string;
 }
 
+/** The niche list of the high-commission screen. Ids are `kw:` / `preset:` / `cat:` (backend scout-niches.ts). */
+export interface ScoutNicheList {
+  mine: Array<{ id: string; label: string }>;
+  presets: Array<{ id: string; label: string }>;
+  categories: Array<{ id: string; label: string }>;
+}
+
+export interface ScoutNicheResponse {
+  result: (NonNullable<ScoutCatalogResponse['catalog']> & { niche_id: string; label: string }) | null;
+  running: boolean;
+  next_scan_at: string | null;
+}
+
 export interface ScoutCatalogResponse {
   catalog: { scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[]; calls?: number; budget_hit?: boolean } | null;
   running: boolean;
