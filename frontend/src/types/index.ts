@@ -565,13 +565,13 @@ export interface ScoutItem extends AliProduct {
   score: number;
   /** A campaign keyword or a promotion list's name. */
   found_by: string;
-  origin: 'niche' | 'promo';
+  origin: 'niche' | 'promo' | 'hot';
   posted_recently: boolean;
   subcategory?: string;
 }
 
 export interface ScoutCatalogResponse {
-  catalog: { scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[] } | null;
+  catalog: { scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[]; calls?: number; budget_hit?: boolean } | null;
   running: boolean;
   /** Set while the last scan is too recent for another. */
   next_scan_at: string | null;

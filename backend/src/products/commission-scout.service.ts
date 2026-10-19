@@ -6,8 +6,9 @@ import { Post } from '../posts/post.entity';
 import { ProductsService, ScoutSource } from './products.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import {
-  CatalogItem, MAX_SCAN_PROMOS, SEEN_TTL_MS, ScoutCandidate, ScoutPick,
-  minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks,
+  CatalogItem, HOT_CATEGORY_PAGES, HOT_PAGES, KEYWORD_PAGES, MAX_FAILS_IN_A_ROW, MAX_SCAN_PROMOS, PROMO_PAGES,
+  SEEN_TTL_MS, ScoutCandidate, ScoutOrigin, ScoutPick,
+  maxScanCalls, minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks, worthNextPage,
 } from './commission-scout';
 
 /** AliExpress bans bursts over ~1 call a second; the scan stays under it. */
@@ -26,6 +27,9 @@ export interface ScoutCatalog {
   min_rate: number;
   errors: string[];
   items: CatalogItem[];
+  /** API calls the scan spent, and whether it stopped at its budget with more left to read. */
+  calls?: number;
+  budget_hit?: boolean;
 }
 
 export interface ScoutReport {
@@ -37,14 +41,20 @@ export interface ScoutReport {
 }
 
 /**
- * Runs the commission scan (products/commission-scout.ts) for one account: AliExpress's
- * promotion lists for affiliates, then every active campaign's keywords in the regular and
- * the hot-products search. Products the account posted or was recommended in the last 30
+ * Runs the commission scan (products/commission-scout.ts) for one account, within a budget of
+ * API calls (`maxScanCalls`, 300 ≈ 5–6 minutes):
+ *  1. AliExpress's promotion lists for affiliates, sorted by commission, paged until a page
+ *     falls under the bar;
+ *  2. the hot-products feed overall, where the boosted 50–90 % rates sit;
+ *  3. every active campaign's keywords, in the regular and the hot search;
+ *  4. the hot-products feed per category, rotating the starting category by day, so a budget
+ *     that runs out still covers different categories on different days.
+ * Every read asks for the API's maximum page (50). Products the account posted or was recommended in the last 30
  * days are left out of the Telegram report; the recommended ones are remembered in
  * persistent_values (`commission_scout_seen:<user>`), so a deploy cannot make them come back.
  *
  * Every scan also keeps the whole ranked list for the high-commission screen
- * (`commission_scout_catalog:<user>`, 7 d): a scan takes about a minute of API calls, far too
+ * (`commission_scout_catalog:<user>`, 7 d): a scan takes minutes of API calls, far too
  * long for a page load, so the screen reads the last one and can start a new one.
  */
 @Injectable()
@@ -64,34 +74,57 @@ export class CommissionScoutService {
     const errors: string[] = [];
     let scanned = 0;
 
-    const read = async (source: ScoutSource, page: number, foundBy: string, origin: 'niche' | 'promo') => {
+    const budget = maxScanCalls();
+    let calls = 0;
+    let failsInARow = 0;
+    const out = () => calls >= budget || failsInARow >= MAX_FAILS_IN_A_ROW;
+
+    const read = async (source: ScoutSource, page: number, foundBy: string, origin: ScoutOrigin) => {
+      if (out()) return { data: [] as any[], sorted: false };
+      calls++;
       const res = await this.products.scoutProducts(userId, source, page);
-      if (res.error) errors.push(`${foundBy}: ${res.error}`);
+      if (res.error) { errors.push(`${foundBy}: ${res.error}`); failsInARow++; } else failsInARow = 0;
       scanned += res.data.length;
       for (const p of res.data) candidates.push({ ...p, found_by: foundBy, origin });
       await new Promise((r) => setTimeout(r, CALL_GAP_MS));
-      return res.data.length;
+      return res;
+    };
+    /** Page on while a full page still has something at or above the bar. */
+    const readPages = async (source: ScoutSource, pages: number, foundBy: string, origin: ScoutOrigin) => {
+      for (let page = 1; page <= pages && !out(); page++) {
+        const res = await read(source, page, foundBy, origin);
+        if (!worthNextPage(res.data, minRate)) break;
+      }
     };
 
     // 1. AliExpress's own promotion lists, highest commission first.
     const promos = (await this.products.featuredPromoNames(userId)).slice(0, MAX_SCAN_PROMOS);
-    for (const name of promos) {
-      const got = await read({ kind: 'promo', name }, 1, name, 'promo');
-      if (got >= 50) await read({ kind: 'promo', name }, 2, name, 'promo');
-    }
+    for (const name of promos) await readPages({ kind: 'promo', name }, PROMO_PAGES, name, 'promo');
 
-    // 2. The owner's niche: every active campaign's keywords, regular and hot search.
+    // 2. The hot-products feed, overall.
+    await readPages({ kind: 'hot' }, HOT_PAGES, 'כל הקטגוריות', 'hot');
+
+    // 3. The owner's niche: every active campaign's keywords, regular and hot search.
     const active = await this.campaigns.find({ where: { user_id: userId, status: 'active' as any } })
       .catch(() => [] as Campaign[]);
     for (const kw of scanKeywords(active.map((c) => c.keywords || []))) {
-      await read({ kind: 'search', keyword: kw }, 1, kw, 'niche');
-      await read({ kind: 'hot', keyword: kw }, 1, kw, 'niche');
+      await readPages({ kind: 'search', keyword: kw }, KEYWORD_PAGES, kw, 'niche');
+      await readPages({ kind: 'hot', keyword: kw }, KEYWORD_PAGES, kw, 'niche');
     }
+
+    // 4. The hot-products feed per category, from a different category each day.
+    const cats = await this.products.getCategories(userId).catch(() => [] as Array<{ id: string; name: string }>);
+    const day = Math.floor(Date.now() / 86_400_000);
+    for (let i = 0; i < cats.length && !out(); i++) {
+      const c = cats[(day + i) % cats.length];
+      await readPages({ kind: 'hot', category_id: c.id }, HOT_CATEGORY_PAGES, c.name, 'hot');
+    }
+    const budgetHit = calls >= budget;
 
     const posted = await this.postedRecently(userId, candidates.map((c) => c.product_id));
     const exclude = new Set([...posted, ...(await this.recommendedRecently(userId))]);
     const { picks, qualified } = selectPicks(candidates, { minRate, exclude, max: picksPerReport() });
-    this.logger.log(`commission scout ${userId}: ${scanned} scanned, ${qualified} ≥ ${minRate}%, ${picks.length} picked`);
+    this.logger.log(`commission scout ${userId}: ${calls} calls, ${scanned} scanned, ${qualified} ≥ ${minRate}%, ${picks.length} picked`);
 
     // A scan that read nothing at all keeps the previous list on the screen, and says why.
     await this.memory.save(`commission_scout_error:${userId}`, scanned > 0 ? null
@@ -101,6 +134,7 @@ export class CommissionScoutService {
         scanned_at: new Date().toISOString(),
         scanned, min_rate: minRate, errors: errors.slice(0, 5),
         items: rankCatalog(candidates, { minRate, posted }),
+        calls, budget_hit: budgetHit,
       };
       await this.memory.save(`commission_scout_catalog:${userId}`, catalog, CATALOG_TTL_MS);
     }

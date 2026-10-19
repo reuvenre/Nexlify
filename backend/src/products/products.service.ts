@@ -40,7 +40,7 @@ const SCOUT_HOT_FIELDS = HOT_FIELDS + ',commission_rate';
  *  AliExpress's own promotion lists for affiliates (featuredpromo). */
 export type ScoutSource =
   | { kind: 'search'; keyword: string }
-  | { kind: 'hot'; keyword: string }
+  | { kind: 'hot'; keyword?: string; category_id?: string }
   | { kind: 'promo'; name: string };
 
 const CATEGORIES_TTL_SEC = 24 * 60 * 60; // 24 hours
@@ -396,7 +396,7 @@ export class ProductsService {
    * (`commission_rate`, the higher of the regular and hot rates, in %). Never mock data:
    * a refused or failed call is returned as `error` with no products.
    */
-  async scoutProducts(userId: string, source: ScoutSource, page = 1, limit = 50): Promise<{ data: any[]; error?: string }> {
+  async scoutProducts(userId: string, source: ScoutSource, page = 1, limit = 50): Promise<{ data: any[]; error?: string; sorted?: boolean }> {
     const creds = await this.credentials.getRaw(userId);
     if (!creds?.aliexpress_app_key) return { data: [], error: 'אין מפתחות AliExpress בהגדרות' };
     const currency = targetCurrency(creds.currency_pair || 'USD_ILS');
@@ -419,9 +419,10 @@ export class ProductsService {
         };
         responseKey = 'aliexpress_affiliate_featuredpromo_products_get_response';
       } else {
-        const keyword = await this.normalizeKeyword(source.keyword, creds);
+        const keyword = source.keyword ? await this.normalizeKeyword(source.keyword, creds) : undefined;
         params = {
           ...common, keywords: keyword, ship_to_country: this.shipCountry(creds), sort: 'LAST_VOLUME_DESC',
+          category_ids: source.kind === 'hot' ? source.category_id : undefined,
           ...(source.kind === 'hot'
             ? { method: 'aliexpress.affiliate.hotproduct.query', fields: SCOUT_HOT_FIELDS }
             : { method: 'aliexpress.affiliate.product.query', fields: SCOUT_FIELDS }),
@@ -432,8 +433,10 @@ export class ProductsService {
       }
       let res = await this.aliGet(signAliexpress(params, creds.aliexpress_app_secret));
       let resp = res.data?.[responseKey]?.resp_result;
+      let sorted = params.sort === 'commissionDesc';
       // A promotion list that refuses the commission sort is read in its own order.
       if (resp?.resp_code !== 200 && params.sort === 'commissionDesc') {
+        sorted = false;
         const { sort: _sort, ...unsorted } = params;
         res = await this.aliGet(signAliexpress(unsorted, creds.aliexpress_app_secret));
         resp = res.data?.[responseKey]?.resp_result;
@@ -445,6 +448,7 @@ export class ProductsService {
       const items: any[] = resp?.result?.products?.product || [];
       const mapped = this.mapProducts(items, rate, currency, this.pricingFrom(creds));
       return {
+        sorted,
         data: mapped.map((p, i) => ({
           ...p,
           commission_rate: Math.max(parseRate(items[i]?.commission_rate), parseRate(items[i]?.hot_product_commission_rate)),

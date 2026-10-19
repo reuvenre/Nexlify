@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Gem, RefreshCw, Loader2, Star, ExternalLink, Sparkles, Target, Tag, CheckCircle2,
-  ChevronLeft, ChevronRight, Search, AlertTriangle, TrendingUp, DollarSign, Layers,
+  ChevronLeft, ChevronRight, Search, AlertTriangle, TrendingUp, DollarSign, Layers, Flame,
 } from 'lucide-react';
 import { commissionScoutApi } from '@/lib/api-client';
 import type { ScoutCatalogResponse, ScoutItem } from '@/types';
@@ -28,7 +28,13 @@ const SORTS: { key: SortKey; label: string; hint: string }[] = [
   { key: 'sold', label: 'הכי נמכר', hint: 'הכי הרבה מכירות לאחרונה' },
 ];
 
-const RATE_STEPS = [12, 15, 20, 30];
+const RATE_STEPS = [12, 20, 30, 50, 70, 90];
+/** The grid shows this many at a time («טען עוד»), so 2,000 products do not render at once. */
+const GRID_PAGE = 60;
+/** A shelf carries this many cards; «הצג את כל» opens the rest. */
+const SHELF_SIZE = 24;
+/** «עמלות ענק»: the shelf for the boosted rates. */
+const HUGE_RATE = 50;
 
 const SYMBOLS: Record<string, string> = { ILS: '₪', USD: '$', EUR: '€', GBP: '£' };
 
@@ -139,11 +145,17 @@ export default function CommissionsPage() {
 
   const stats = useMemo(() => {
     if (!all.length) return null;
-    const avg = all.reduce((s, it) => s + it.commission_rate, 0) / all.length;
+    const top = all.reduce((m, it) => Math.max(m, it.commission_rate), 0);
     const bestEarn = all.reduce((m, it) => Math.max(m, it.earn_per_sale_usd), 0);
-    const niche = all.filter((it) => it.origin === 'niche').length;
-    return { count: all.length, avg, bestEarn, niche };
+    const huge = all.filter((it) => it.commission_rate >= HUGE_RATE).length;
+    return { count: all.length, top, bestEarn, huge };
   }, [all]);
+
+  /** The boosted rates, highest first: the shelf the owner asked for. */
+  const huge = useMemo(() => sortItems(filtered.filter((it) => it.commission_rate >= HUGE_RATE), 'rate'), [filtered]);
+
+  const [shown, setShown] = useState(GRID_PAGE);
+  useEffect(() => { setShown(GRID_PAGE); }, [minRate, category, nicheOnly, hidePosted, query, sort]);
 
   // The shelves view (like a storefront) is the default; any filter switches to one grid.
   const browsing = !category && !query.trim() && !nicheOnly && !hidePosted && minRate === 12 && sort === 'smart';
@@ -208,21 +220,30 @@ export default function CommissionsPage() {
           {browsing ? (
             <div className="space-y-8">
               <Shelf
+                title={`עמלות ענק: ${HUGE_RATE}% ומעלה`}
+                subtitle={`${huge.length} מוצרים, העמלה הגבוהה ביותר קודם`}
+                icon={Flame}
+                items={huge.slice(0, SHELF_SIZE)}
+                onAll={huge.length > SHELF_SIZE ? () => { setMinRate(HUGE_RATE); setSort('rate'); } : undefined}
+                allCount={huge.length}
+                onPost={createPost}
+              />
+              <Shelf
                 title="ההמלצות של הסוכן"
                 subtitle="המוצרים שהכי שווה לפרסם עכשיו: הרבה כסף לכל מכירה, מוצר שנמכר ודירוג גבוה"
                 icon={Sparkles}
-                items={filtered.slice(0, 12)}
+                items={filtered.slice(0, SHELF_SIZE)}
                 ranked
                 onPost={createPost}
               />
-              {categories.slice(0, 8).map(([cat, n]) => (
+              {categories.slice(0, 12).map(([cat, n]) => (
                 <Shelf
                   key={cat}
                   title={cat}
                   subtitle={`${n} מוצרים בקטגוריה`}
                   icon={Layers}
-                  items={filtered.filter((it) => (it.category || 'אחר') === cat).slice(0, 12)}
-                  onAll={n > 1 ? () => setCategory(cat) : undefined}
+                  items={filtered.filter((it) => (it.category || 'אחר') === cat).slice(0, SHELF_SIZE)}
+                  onAll={n > SHELF_SIZE ? () => setCategory(cat) : undefined}
                   allCount={n}
                   onPost={createPost}
                 />
@@ -232,9 +253,18 @@ export default function CommissionsPage() {
             <section aria-label="תוצאות">
               <p className="text-sm text-white/60 mb-3" role="status">{filtered.length} מוצרים</p>
               {filtered.length ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-                  {filtered.map((it) => <ProductCard key={it.product_id} item={it} onPost={createPost} />)}
-                </div>
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+                    {filtered.slice(0, shown).map((it) => <ProductCard key={it.product_id} item={it} onPost={createPost} />)}
+                  </div>
+                  {shown < filtered.length && (
+                    <div className="flex justify-center pt-5">
+                      <button type="button" onClick={() => setShown((n) => n + GRID_PAGE)} className="btn btn-ghost">
+                        טען עוד ({(filtered.length - shown).toLocaleString('en-US')} נוספים)
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="card p-10 text-center text-sm text-white/60">אין מוצרים שמתאימים לסינון הזה.</div>
               )}
@@ -243,7 +273,8 @@ export default function CommissionsPage() {
 
           <p className="text-xs text-white/50 leading-relaxed">
             אחוז העמלה הוא מה שאלי אקספרס מצהירה ב-API לשותפים. בפועל העמלה יכולה להיות נמוכה יותר (תקרות לפי קטגוריה, לקוח חדש מול חוזר).
-            הסוכן סורק את רשימות המבצעים של אלי אקספרס ואת מילות המפתח של הקמפיינים הפעילים שלך, כל בוקר וגם כשתלחץ «סרוק עכשיו».
+            הסוכן סורק את רשימות המבצעים של אלי אקספרס, את פיד המוצרים החמים (שם נמצאות עמלות של 50–90%) בכל הקטגוריות ואת מילות המפתח של הקמפיינים הפעילים שלך, 50 מוצרים בכל קריאה. כל בוקר וגם כשתלחץ «סרוק עכשיו».
+            {catalog.budget_hit && ' הסריקה האחרונה עצרה במכסת הקריאות שלה, והבאה תתחיל מקטגוריות אחרות.'}
           </p>
         </>
       )}
@@ -258,7 +289,7 @@ const ON_HERO = { color: '#fff' } as const;
 const HERO_TILE = { background: 'rgba(255,255,255,0.13)', border: '1px solid rgba(255,255,255,0.18)' } as const;
 
 function Hero({ stats, catalog, running, cooling, nextScanAt, onScan }: {
-  stats: { count: number; avg: number; bestEarn: number; niche: number } | null;
+  stats: { count: number; top: number; bestEarn: number; huge: number } | null;
   catalog: ScoutCatalogResponse['catalog'];
   running: boolean;
   cooling: boolean;
@@ -267,9 +298,9 @@ function Hero({ stats, catalog, running, cooling, nextScanAt, onScan }: {
 }) {
   const tiles = stats ? [
     { value: String(stats.count), label: 'מוצרים מעל הסף', icon: Gem },
-    { value: `${stats.avg.toFixed(1)}%`, label: 'עמלה ממוצעת', icon: TrendingUp },
+    { value: rateLabel(stats.top), label: 'העמלה הגבוהה ביותר', icon: TrendingUp },
+    { value: String(stats.huge), label: `עמלה של ${HUGE_RATE}%+`, icon: Flame },
     { value: `$${stats.bestEarn.toFixed(2)}`, label: 'הכי הרבה למכירה', icon: DollarSign },
-    { value: String(stats.niche), label: 'מהנישה שלך', icon: Target },
   ] : [];
   const waitMin = nextScanAt ? Math.max(1, Math.ceil((Date.parse(nextScanAt) - Date.now()) / 60_000)) : 0;
 
@@ -289,7 +320,7 @@ function Hero({ stats, catalog, running, cooling, nextScanAt, onScan }: {
             מוצרים עם עמלה גבוהה, מדורגים לפי מה שבאמת ישתלם לך
           </h1>
           <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.88)' }}>
-            {catalog?.min_rate ?? 12}% עמלה ומעלה, רק מוצרים שנמכרים ומדורגים טוב. הסוכן לא מסתפק באחוז: מוצר ב-15% שאף אחד לא קונה שווה פחות ממוצר ב-12% שנמכר באלפים.
+            כל המוצרים עם {catalog?.min_rate ?? 12}% עמלה ומעלה, עד 90%. הדירוג לא מסתפק באחוז: הוא שוקל כמה מכירה משלמת, כמה המוצר נמכר והדירוג שלו, כי מוצר ב-15% שאף אחד לא קונה שווה פחות ממוצר ב-12% שנמכר באלפים.
           </p>
           {/* Before the first scan the empty state below carries the one button. */}
           {catalog && <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -301,7 +332,7 @@ function Hero({ stats, catalog, running, cooling, nextScanAt, onScan }: {
               style={{ background: '#fff', color: '#064e3b' }}
             >
               {running ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}
-              {running ? 'סורק… (כדקה)' : cooling ? `אפשר לסרוק שוב בעוד ${waitMin} דק׳` : 'סרוק עכשיו'}
+              {running ? 'סורק… (כמה דקות)' : cooling ? `אפשר לסרוק שוב בעוד ${waitMin} דק׳` : 'סרוק עכשיו'}
             </button>
             <span className="text-xs" style={{ color: 'rgba(255,255,255,0.85)' }}>
               נסרק {ago(catalog.scanned_at)} · {catalog.scanned.toLocaleString('en-US')} מוצרים נבדקו
@@ -523,6 +554,8 @@ function ProductCard({ item: it, rank, onPost }: { item: ScoutItem; rank?: numbe
         <p className="text-[11px] text-white/55 truncate flex items-center gap-1" title={it.found_by}>
           {it.origin === 'niche'
             ? <><Target size={11} className="shrink-0" aria-hidden="true" /> מילת המפתח «{it.found_by}»</>
+            : it.origin === 'hot'
+              ? <><Flame size={11} className="shrink-0" aria-hidden="true" /> מוצרים חמים «{it.found_by}»</>
             : <><Tag size={11} className="shrink-0" aria-hidden="true" /> מבצע «{it.found_by}»</>}
         </p>
 
@@ -555,7 +588,7 @@ function EmptyState({ running, onScan }: { running: boolean; onScan: () => void 
       <Gem size={36} className="mx-auto text-emerald-400 mb-3" aria-hidden="true" />
       <h2 className="text-lg font-semibold mb-1">עוד לא נסרק</h2>
       <p className="text-sm text-white/60 mb-5">
-        הסוכן סורק את רשימות המבצעים של אלי אקספרס ואת מילות המפתח של הקמפיינים שלך, ומביא את המוצרים עם עמלה של 12% ומעלה. הסריקה לוקחת כדקה.
+        הסוכן סורק את רשימות המבצעים של אלי אקספרס ואת מילות המפתח של הקמפיינים שלך, ומביא את המוצרים עם עמלה של 12% ומעלה, כולל העמלות של 50–90%. הסריקה לוקחת כמה דקות.
       </p>
       <button type="button" onClick={onScan} disabled={running} className="btn btn-primary">
         {running ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}

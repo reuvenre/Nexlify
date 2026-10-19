@@ -517,7 +517,7 @@ export class TelegramBotService implements OnModuleInit {
     }
     // The commission scout's report (12 % and up), now — the same one 08:20 brings.
     if (/^\/commission(@\S+)?$/i.test(text)) {
-      await this.send(chatId, '💎 סורק את אלי אקספרס למוצרים עם עמלה גבוהה… זה לוקח כדקה.');
+      await this.send(chatId, '💎 סורק את אלי אקספרס למוצרים עם עמלה גבוהה (כולל 50–90%)… זה לוקח כמה דקות.');
       if (!(await this.sendCommissionReport(chatId))) await this.send(chatId, '❌ הסריקה לא הצליחה. נסה שוב בעוד כמה דקות.');
       return;
     }

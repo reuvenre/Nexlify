@@ -13,13 +13,14 @@ describe('CommissionScoutService', () => {
     };
     const products = {
       featuredPromoNames: jest.fn(async () => ['Hot Product']),
-      scoutProducts: jest.fn(async () => ({ data: [item] })),
+      scoutProducts: jest.fn(async (..._a: any[]) => ({ data: [item] }) as any),
+      getCategories: jest.fn(async () => [{ id: '44', name: 'Tools' }]),
     };
     const campaigns = { find: jest.fn(async () => [{ keywords: ['knife'] }]) };
     const posts = { find: jest.fn(async () => [{ product_id: '9' }]) };
     const svc = new CommissionScoutService(campaigns as any, posts as any, products as any, memory as any);
     (global as any).setTimeout = ((fn: any) => { fn(); return 0 as any; }) as any;
-    return { svc, memory, stored, products };
+    return { svc, memory, stored, products, item };
   }
   const realTimeout = global.setTimeout;
   afterEach(() => { global.setTimeout = realTimeout; });
@@ -27,7 +28,8 @@ describe('CommissionScoutService', () => {
   it('keeps the whole ranked list for the screen, with what was posted marked', async () => {
     const { svc, stored } = build();
     const report = await svc.scan('u1');
-    expect(report.scanned).toBe(3); // one promo page, then the keyword in both searches
+    // one promo page, the hot feed, the keyword in both searches, one category of the hot feed
+    expect(report.scanned).toBe(5);
     expect(report.picks).toHaveLength(0); // posted in the last 30 days: not recommended again
     const saved = stored['commission_scout_catalog:u1'];
     expect(saved.items).toHaveLength(1);
@@ -39,6 +41,7 @@ describe('CommissionScoutService', () => {
     const { svc, stored, products } = build({ 'commission_scout_catalog:u1': { items: ['old'] } });
     products.featuredPromoNames.mockResolvedValue([]);
     products.scoutProducts.mockResolvedValue({ data: [], error: 'App Call Limited' } as any);
+    products.getCategories.mockResolvedValue([]);
     await svc.scan('u1');
     expect(stored['commission_scout_catalog:u1']).toEqual({ items: ['old'] });
     expect((await svc.catalog('u1')).last_error).toContain('App Call Limited');
@@ -61,5 +64,38 @@ describe('CommissionScoutService', () => {
     expect((await svc.catalog('u1')).running).toBe(true);
     expect((await svc.startScan('u1')).started).toBe(false);
     release();
+  });
+
+  it('pages on while a full page still pays, and stops at the first page under the bar', async () => {
+    const { svc, products, item } = build();
+    const full = (rate: number) => ({ data: Array.from({ length: 50 }, (_, i) => ({ ...item, product_id: `${rate}-${i}`, commission_rate: rate })) });
+    products.featuredPromoNames.mockResolvedValue(['Hot Product']);
+    products.getCategories.mockResolvedValue([]);
+    products.scoutProducts.mockImplementation(async (_u: string, src: any, page: number) =>
+      src.kind === 'promo' ? (page < 3 ? full(70) : full(5)) : ({ data: [] }));
+    await svc.scan('u1');
+    const promoPages = products.scoutProducts.mock.calls.filter((c: any[]) => c[1].kind === 'promo').map((c: any[]) => c[2]);
+    expect(promoPages).toEqual([1, 2, 3]); // page 3 fell under the bar: no page 4
+  });
+
+  it('stops after five failures in a row (the quota, not bad luck)', async () => {
+    const { svc, products } = build();
+    products.featuredPromoNames.mockResolvedValue(Array.from({ length: 20 }, (_, i) => `P${i}`));
+    products.scoutProducts.mockResolvedValue({ data: [], error: 'App Call Limited' } as any);
+    await svc.scan('u1');
+    expect(products.scoutProducts).toHaveBeenCalledTimes(5);
+  });
+
+  it('never spends more than its call budget', async () => {
+    process.env.COMMISSION_SCOUT_MAX_CALLS = '12';
+    try {
+      const { svc, products, item } = build();
+      products.featuredPromoNames.mockResolvedValue(Array.from({ length: 20 }, (_, i) => `P${i}`));
+      products.scoutProducts.mockResolvedValue({ data: Array.from({ length: 50 }, (_, i) => ({ ...item, product_id: String(i), commission_rate: 80 })) });
+      await svc.scan('u1');
+      expect(products.scoutProducts).toHaveBeenCalledTimes(12);
+    } finally {
+      delete process.env.COMMISSION_SCOUT_MAX_CALLS;
+    }
   });
 });

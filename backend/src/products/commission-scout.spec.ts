@@ -1,6 +1,6 @@
 import {
   CATALOG_MAX, MAX_PER_CATEGORY, ScoutCandidate, earnPerSaleUsd, minCommissionPct, parseRate, pickLines,
-  picksPerReport, rankCatalog, reportHeader, scanKeywords, scoreCandidate, selectPicks,
+  picksPerReport, rankCatalog, reportHeader, scanKeywords, scoreCandidate, selectPicks, worthNextPage,
 } from './commission-scout';
 
 const base = (over: Partial<ScoutCandidate> = {}): ScoutCandidate => ({
@@ -97,6 +97,34 @@ describe('commission scout', () => {
     expect(text).toContain('נסרקו 900 מוצרים');
     expect(text).toContain('לא נמצא היום');
     expect(text).toContain('1 חיפושים נכשלו');
+  });
+
+  it('shows the 50–90 % products on the screen even with few sales or no rating', () => {
+    const items = rankCatalog([
+      base({ product_id: 'new-90', commission_rate: 90, orders_count: 0, rating: 0 }),
+      base({ product_id: 'bad-rated-70', commission_rate: 70, orders_count: 2, rating: 3.8 }),
+      base({ product_id: 'seller-12', commission_rate: 12, orders_count: 20_000 }),
+    ], { minRate: 12, posted: new Set() });
+    // All three are shown; the ranking still puts a badly rated, barely sold one under a bestseller.
+    expect(items.map((i) => i.product_id).sort()).toEqual(['bad-rated-70', 'new-90', 'seller-12']);
+    expect(items[0].product_id).toBe('new-90');
+  });
+
+  it('takes the best rate any source quoted for the same product', () => {
+    const items = rankCatalog([
+      base({ product_id: 'x', commission_rate: 9, origin: 'niche' }),
+      base({ product_id: 'x', commission_rate: 85, origin: 'hot', found_by: 'Tools' }),
+    ], { minRate: 12, posted: new Set() });
+    expect(items).toHaveLength(1);
+    expect(items[0].commission_rate).toBe(85);
+    expect(items[0].origin).toBe('niche');
+  });
+
+  it('pages on only from a full page with something at or above the bar', () => {
+    const page = (n: number, rate: number) => Array.from({ length: n }, () => ({ commission_rate: rate }));
+    expect(worthNextPage(page(50, 80), 12)).toBe(true);
+    expect(worthNextPage(page(50, 8), 12)).toBe(false);
+    expect(worthNextPage(page(30, 80), 12)).toBe(false);
   });
 
   it('keeps every qualifying product for the screen, posted ones marked rather than hidden', () => {

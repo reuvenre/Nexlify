@@ -28,14 +28,24 @@ export const MIN_RATING = 4.3;
 export const MAX_PER_CATEGORY = 3;
 /** A product recommended once is not recommended again for this long. */
 export const SEEN_TTL_MS = 30 * 86_400_000;
-/** Keyword searches per scan (each keyword is read twice: regular and hot). */
-export const MAX_SCAN_KEYWORDS = 12;
-/** Promotion lists per scan, two pages each. */
-export const MAX_SCAN_PROMOS = 8;
+/** Campaign keywords per scan (each read in the regular and the hot search, KEYWORD_PAGES each). */
+export const MAX_SCAN_KEYWORDS = 20;
+export const KEYWORD_PAGES = 2;
+/** Promotion lists per scan. Sorted by commission, so paging stops once a page falls under the bar. */
+export const MAX_SCAN_PROMOS = 20;
+export const PROMO_PAGES = 5;
+/** The hot-products feed (where AliExpress puts its boosted 50–90 % rates): overall, then per category. */
+export const HOT_PAGES = 5;
+export const HOT_CATEGORY_PAGES = 3;
+/** API calls one scan may spend (1.1 s apart: 300 ≈ 5–6 minutes). COMMISSION_SCOUT_MAX_CALLS overrides it. */
+export const DEFAULT_MAX_CALLS = 300;
+/** This many failed calls in a row is the quota or the keys, not bad luck: the scan stops. */
+export const MAX_FAILS_IN_A_ROW = 5;
 /** Picks from the owner's own keywords weigh this much more than the same money elsewhere. */
 export const NICHE_BOOST = 1.3;
 
-export type ScoutOrigin = 'niche' | 'promo';
+/** niche = a campaign keyword, promo = a promotion list, hot = the hot-products feed (a category's or overall). */
+export type ScoutOrigin = 'niche' | 'promo' | 'hot';
 
 export interface ScoutCandidate {
   product_id: string;
@@ -74,6 +84,16 @@ export function minCommissionPct(env: NodeJS.ProcessEnv = process.env): number {
   return Number.isFinite(n) && n > 0 && n < 100 ? n : MIN_COMMISSION_PCT;
 }
 
+export function maxScanCalls(env: NodeJS.ProcessEnv = process.env): number {
+  const n = parseInt(String(env.COMMISSION_SCOUT_MAX_CALLS || ''), 10);
+  return Number.isFinite(n) && n >= 10 ? Math.min(2000, n) : DEFAULT_MAX_CALLS;
+}
+
+/** A full page with something at or above the bar is worth reading the next page of. */
+export function worthNextPage(page: Array<{ commission_rate: number }>, minRate: number, pageSize = 50): boolean {
+  return page.length >= pageSize && page.some((p) => p.commission_rate >= minRate);
+}
+
 export function picksPerReport(env: NodeJS.ProcessEnv = process.env): number {
   const n = parseInt(String(env.COMMISSION_SCOUT_PICKS || ''), 10);
   return Number.isFinite(n) && n >= 1 ? Math.min(20, n) : DEFAULT_PICKS;
@@ -92,13 +112,16 @@ export function scoreCandidate(c: ScoutCandidate): number {
   return earnPerSaleUsd(c) * demand * quality * boost;
 }
 
-/** One product per id; a product found twice keeps its niche origin (the owner's own keyword is the better reason). */
+/** One product per id: a product found twice keeps its niche origin (the owner's own keyword is the better reason) and the best rate quoted. */
 function dedupe(candidates: ScoutCandidate[]): ScoutCandidate[] {
   const byId = new Map<string, ScoutCandidate>();
   for (const c of candidates) {
     if (!c?.product_id) continue;
     const prev = byId.get(c.product_id);
-    if (!prev || (prev.origin === 'promo' && c.origin === 'niche')) byId.set(c.product_id, c);
+    if (!prev) { byId.set(c.product_id, c); continue; }
+    // The niche label wins; the rate is the best any source quoted (the hot feed quotes the boosted one).
+    const keep = prev.origin !== 'niche' && c.origin === 'niche' ? c : prev;
+    byId.set(c.product_id, { ...keep, commission_rate: Math.max(prev.commission_rate, c.commission_rate) });
   }
   return [...byId.values()];
 }
@@ -141,7 +164,7 @@ export function selectPicks(candidates: ScoutCandidate[], opts: {
 }
 
 /** The most products the high-commission screen keeps from one scan. */
-export const CATALOG_MAX = 300;
+export const CATALOG_MAX = 2000;
 
 export interface CatalogItem extends ScoutPick {
   /** The account posted it in the last 30 days — shown, marked, never hidden. */
@@ -149,12 +172,14 @@ export interface CatalogItem extends ScoutPick {
 }
 
 /**
- * The high-commission screen: every qualifying product, best first, up to CATALOG_MAX. Unlike
- * the Telegram report nothing is left out for having been posted; it is marked instead, so
- * the owner can see what he already covers.
+ * The high-commission screen: every product at or above the bar, best first, up to CATALOG_MAX.
+ * Unlike the Telegram report it has no sales or rating floor: the 50–90 % products are often
+ * new listings with few sales, and the owner asked to see them all. The ranking still puts a
+ * product that sells ahead, and the card shows its sales. Nothing is left out for having been
+ * posted; it is marked instead, so the owner can see what he already covers.
  */
 export function rankCatalog(candidates: ScoutCandidate[], opts: { minRate: number; posted: Set<string> }): CatalogItem[] {
-  return ranked(dedupe(candidates).filter((c) => qualifies(c, opts.minRate)))
+  return ranked(dedupe(candidates).filter((c) => c.commission_rate >= opts.minRate && (c.sale_price_usd || 0) > 0))
     .slice(0, CATALOG_MAX)
     .map((p) => ({ ...p, posted_recently: opts.posted.has(p.product_id) }));
 }
@@ -181,7 +206,9 @@ export function pickLines(p: ScoutPick): string[] {
   const rate = Number.isInteger(p.commission_rate) ? String(p.commission_rate) : p.commission_rate.toFixed(1);
   return [
     `💵 עמלה ${rate}% · כ-$${p.earn_per_sale_usd.toFixed(2)} לכל מכירה`,
-    p.origin === 'niche' ? `🎯 נמצא במילת המפתח «${p.found_by}»` : `🏷️ מרשימת המבצעים «${p.found_by}»`,
+    p.origin === 'niche' ? `🎯 נמצא במילת המפתח «${p.found_by}»`
+      : p.origin === 'hot' ? `🔥 מהמוצרים החמים «${p.found_by}»`
+        : `🏷️ מרשימת המבצעים «${p.found_by}»`,
   ];
 }
 
