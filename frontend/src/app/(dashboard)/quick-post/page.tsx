@@ -13,6 +13,7 @@ import { ProductEditPanel } from '@/components/products/ProductEditPanel';
 import { TemplatePanel } from '@/components/templates/TemplatePanel';
 import { productsApi, postsApi, templatesApi, credentialsApi, catalogApi, channelsApi } from '@/lib/api-client';
 import { GroupMultiSelect } from '@/components/GroupMultiSelect';
+import { BACK_TARGETS, markCommissionPosted } from '@/lib/commissions-return';
 import type { AliProduct, AliCategory, PostPreview as PostPreviewType, PostTemplate, CatalogProduct, Channel, ProductRoute } from '@/types';
 
 /** The quick-post grid renders AliProduct — adapt a catalog row to that shape. */
@@ -121,6 +122,8 @@ export default function QuickPostPage() {
   const router = useRouter();
   /** Arrived from the /products catalog — governs where "back" returns to. */
   const [fromCatalog, setFromCatalog] = useState(false);
+  /** `back=commissions`: arrived from the high-commission list, so «חזרה» returns there (lib/commissions-return.ts). */
+  const backTarget = BACK_TARGETS[searchParams.get('back') || ''] || null;
   const [channels, setChannels] = useState<Channel[]>([]);
   const [channelIds, setChannelIds] = useState<string[]>([]); // target groups (empty = default channel)
 
@@ -402,7 +405,7 @@ export default function QuickPostPage() {
    */
   const handleBackToProducts = () => {
     if (fromCatalog) {
-      router.push('/products');
+      router.push(backTarget?.href || '/products');
       return;
     }
     setView('products');
@@ -480,6 +483,7 @@ export default function QuickPostPage() {
         },
       });
       setPosted(true);
+      if (backTarget) markCommissionPosted(selected.product_id);
       setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
     } catch (e: any) {
       // A failed send (timeout / out of credits / no channel) must surface — the
@@ -513,6 +517,7 @@ export default function QuickPostPage() {
         },
       });
       setPosted(true);
+      if (backTarget) markCommissionPosted(selected.product_id);
       setTimeout(() => { setPosted(false); handleBackToProducts(); }, 3000);
     } catch (e: any) {
       setPreviewError(e?.response?.data?.message || 'התזמון נכשל — נסה שוב');
@@ -568,7 +573,9 @@ export default function QuickPostPage() {
             className="flex items-center gap-2 text-white/50 hover:text-white/90 text-sm transition-colors shrink-0"
           >
             <ArrowRight size={16} />
-            <span className="hidden sm:inline">חזרה למוצרים</span>
+            {backTarget
+              ? <><span className="sm:hidden">{backTarget.short}</span><span className="hidden sm:inline">{backTarget.label}</span></>
+              : <span className="hidden sm:inline">חזרה למוצרים</span>}
           </button>
           <div className="h-4 w-px bg-white/10 shrink-0" />
           <div className="min-w-0 flex-1">
