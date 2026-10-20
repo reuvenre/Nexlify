@@ -246,7 +246,8 @@ export default function CommissionsPage() {
     return sortItems(all.filter((it) =>
       it.commission_rate >= minRate
       && (!category || (it.category || 'אחר') === category)
-      && (!nicheOnly || it.origin === 'niche')
+      // His niche: found by his own keyword, or in the categories and words his channels live on.
+      && (!nicheOnly || it.origin === 'niche' || it.relevant === true)
       && (!hidePosted || !it.posted_recently)
       && (!q || it.title.toLowerCase().includes(q) || (it.found_by || '').toLowerCase().includes(q)),
     ), sort);
@@ -259,6 +260,12 @@ export default function CommissionsPage() {
     const huge = all.filter((it) => it.commission_rate >= HUGE_RATE).length;
     return { count: all.length, top, bestEarn, huge };
   }, [all]);
+
+  /** The agent's shelf: products for his audience first; the rest only when there are none. */
+  const agentPicks = useMemo(() => {
+    const mine = filtered.filter((it) => it.relevant !== false);
+    return (mine.length ? mine : filtered).slice(0, SHELF_SIZE);
+  }, [filtered]);
 
   /** The boosted rates, highest first: the shelf the owner asked for. */
   const huge = useMemo(() => sortItems(filtered.filter((it) => it.commission_rate >= HUGE_RATE), 'rate'), [filtered]);
@@ -382,7 +389,7 @@ export default function CommissionsPage() {
                 title="ההמלצות של הסוכן"
                 subtitle="המוצרים שהכי שווה לפרסם עכשיו: הרבה כסף לכל מכירה, מוצר שנמכר ודירוג גבוה"
                 icon={Sparkles}
-                items={filtered.slice(0, SHELF_SIZE)}
+                items={agentPicks}
                 ranked
                 onPost={createPost}
               />
@@ -431,7 +438,7 @@ export default function CommissionsPage() {
           )}
 
           <p className="text-xs text-white/50 leading-relaxed">
-            אחוז העמלה הוא מה שאלי אקספרס מצהירה ב-API לשותפים. בפועל העמלה יכולה להיות נמוכה יותר (תקרות לפי קטגוריה, לקוח חדש מול חוזר).
+            אחוז העמלה הוא מה שאלי אקספרס מצהירה ב-API לשותפים. בפועל העמלה יכולה להיות נמוכה יותר (תקרות לפי קטגוריה, לקוח חדש מול חוזר), ולכן כשההזמנות שלך מראות כמה שולם בפועל, הדירוג והרווח למכירה מחושבים לפיהן.
             הסוכן סורק את רשימות המבצעים של אלי אקספרס, את פיד המוצרים החמים (שם נמצאות עמלות של 50–90%) בכל הקטגוריות ואת מילות המפתח של הקמפיינים הפעילים שלך, 50 מוצרים בכל קריאה. כל בוקר וגם כשתלחץ «סרוק עכשיו».
             {!nicheActive && catalog?.budget_hit && ' הסריקה האחרונה עצרה במכסת הקריאות שלה, והבאה תתחיל מקטגוריות אחרות.'}
           </p>
@@ -751,7 +758,13 @@ function ProductCard({ item: it, rank, onPost }: { item: ScoutItem; rank?: numbe
           </span>
         </div>
 
-        {/* What one sale pays: the number the owner decides by. */}
+        {it.paid_basis && it.effective_rate !== undefined && (
+          <p className="text-[11px] text-amber-300 leading-snug" title="לפי ההזמנות שלך ב-90 הימים האחרונים">
+            בפועל שולם לך כ-{rateLabel(it.effective_rate)} {it.paid_basis === 'product' ? 'על המוצר הזה' : 'בקטגוריה הזו'}
+          </p>
+        )}
+
+        {/* What one sale pays: the number the owner decides by (at the paid rate when his orders know it). */}
         <div className="rounded-xl px-2.5 py-2 bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between gap-1 whitespace-nowrap">
           <span className="text-[11px] text-emerald-300 font-medium">רווח למכירה</span>
           {/* bdi: a dollar figure inside Hebrew otherwise renders as "$4.50-כ". */}

@@ -10,6 +10,7 @@ import { signAliexpress } from '../common/aliexpress-sign';
 import { cacheGet, cacheSet } from '../common/safe-cache';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
 import { parseRate } from './commission-scout';
+import { SCOUT_SORTS, ScoutSort } from './scout-learning';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
 
@@ -39,8 +40,8 @@ const SCOUT_HOT_FIELDS = HOT_FIELDS + ',commission_rate';
 /** Where a commission scan looks: one keyword search, one hot-products search, or one of
  *  AliExpress's own promotion lists for affiliates (featuredpromo). */
 export type ScoutSource =
-  | { kind: 'search'; keyword?: string; category_id?: string }
-  | { kind: 'hot'; keyword?: string; category_id?: string }
+  | { kind: 'search'; keyword?: string; category_id?: string; sort?: ScoutSort }
+  | { kind: 'hot'; keyword?: string; category_id?: string; sort?: ScoutSort }
   | { kind: 'promo'; name: string };
 
 const CATEGORIES_TTL_SEC = 24 * 60 * 60; // 24 hours
@@ -421,7 +422,9 @@ export class ProductsService {
       } else {
         const keyword = source.keyword ? await this.normalizeKeyword(source.keyword, creds) : undefined;
         params = {
-          ...common, keywords: keyword, ship_to_country: this.shipCountry(creds), sort: 'LAST_VOLUME_DESC',
+          ...common, keywords: keyword, ship_to_country: this.shipCountry(creds),
+          // The scan rotates the sort day by day (scout-learning.ts rotationSlice); only the known ones are sent.
+          sort: source.sort && (SCOUT_SORTS as readonly string[]).includes(source.sort) ? source.sort : 'LAST_VOLUME_DESC',
           category_ids: source.category_id,
           ...(source.kind === 'hot'
             ? { method: 'aliexpress.affiliate.hotproduct.query', fields: SCOUT_HOT_FIELDS }

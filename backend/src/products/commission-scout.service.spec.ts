@@ -18,9 +18,10 @@ describe('CommissionScoutService', () => {
     };
     const campaigns = { find: jest.fn(async () => [{ keywords: ['knife'] }]) };
     const posts = { find: jest.fn(async () => [{ product_id: '9' }]) };
-    const svc = new CommissionScoutService(campaigns as any, posts as any, products as any, memory as any);
+    const earnings = { find: jest.fn(async (..._a: any[]) => [] as any[]) };
+    const svc = new CommissionScoutService(campaigns as any, posts as any, products as any, memory as any, earnings as any);
     (global as any).setTimeout = ((fn: any) => { fn(); return 0 as any; }) as any;
-    return { svc, memory, stored, products, item };
+    return { svc, memory, stored, products, item, posts, earnings };
   }
   const realTimeout = global.setTimeout;
   afterEach(() => { global.setTimeout = realTimeout; });
@@ -64,6 +65,33 @@ describe('CommissionScoutService', () => {
     expect((await svc.catalog('u1')).running).toBe(true);
     expect((await svc.startScan('u1')).started).toBe(false);
     release();
+  });
+
+  it("reads each keyword at the day's rotated slice, and page 1 when that slice is past the end", async () => {
+    const { svc, products } = build();
+    // day % 6 === 2 → keyword 0 reads the best sellers from page 3 today
+    const now = jest.spyOn(Date, 'now').mockReturnValue((6 * 3000 + 2) * 86_400_000 + 3600_000);
+    products.featuredPromoNames.mockResolvedValue([]);
+    products.getCategories.mockResolvedValue([]);
+    products.scoutProducts.mockImplementation(async (_u: string, _src: any, page: number) => ({ data: page === 1 ? [] : [] }));
+    await svc.scan('u1');
+    now.mockRestore();
+    const search = products.scoutProducts.mock.calls.filter((c: any[]) => c[1].kind === 'search');
+    expect(search.map((c: any[]) => c[2])).toEqual([3, 1]);
+    expect(search[0][1].sort).toBe('LAST_VOLUME_DESC');
+  });
+
+  it("ranks by what his own orders of a product paid, not by the declared rate", async () => {
+    const { svc, stored, posts, earnings } = build();
+    posts.find.mockResolvedValue([]);
+    earnings.find.mockResolvedValue([
+      { product_id: '9', order_amount_usd: 50, commission_usd: 2, incentive_commission_usd: 0.5, keyword: 'knife' },
+      { product_id: '9', order_amount_usd: 50, commission_usd: 2, incentive_commission_usd: null, keyword: 'knife' },
+    ]);
+    await svc.scan('u1');
+    const item = stored['commission_scout_catalog:u1'].items[0];
+    expect(item).toMatchObject({ commission_rate: 15, effective_rate: 4.5, paid_basis: 'product' });
+    expect(stored['commission_scout_paid:u1'].tools.orders).toBe(2);
   });
 
   it('pages on while a full page still pays, and stops at the first page under the bar', async () => {

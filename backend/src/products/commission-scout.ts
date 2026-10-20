@@ -13,8 +13,16 @@
  * (price × rate), how much it sells, and how it is rated. Products found through the owner's
  * own keywords rank ahead of the same money from a general promotion list.
  *
+ * The owner's own results refine all of it (products/scout-learning.ts): what his orders
+ * really paid replaces the declared rate, keywords that sold lift their products, products
+ * outside his channels' categories rank lower, and a listing of something already posted
+ * under another store's id counts as posted.
+ *
  * Kept free of Nest so the ranking can be unit tested.
  */
+
+import { ProductLike, PublishedProducts, imageKey } from '../posts/product-similarity';
+import { Learning, OFF_NICHE_FACTOR, PaidBasis, learnedFor } from './scout-learning';
 
 /** The bar the owner set: 12 % and up. COMMISSION_SCOUT_MIN overrides it. */
 export const MIN_COMMISSION_PCT = 12;
@@ -24,6 +32,15 @@ export const DEFAULT_PICKS = 10;
 export const MIN_ORDERS = 10;
 /** Below this, buyers complain more than they buy (0 = unrated, allowed at a discount). */
 export const MIN_RATING = 4.3;
+/**
+ * When the strict floors leave the report short, relevant products are taken at these
+ * instead. An empty report was the other complaint: a newer listing with a few sales and a
+ * 4.0 rating is a fair pick when it is for his audience and pays.
+ */
+export const RELAXED_MIN_ORDERS = 3;
+export const RELAXED_MIN_RATING = 4.0;
+/** Products outside his niche fill at most this many of a short report, and say so. */
+export const OFF_NICHE_MAX_PICKS = 3;
 /** No more than this many picks from one category, so one category cannot fill the list. */
 export const MAX_PER_CATEGORY = 3;
 /** A product recommended once is not recommended again for this long. */
@@ -65,12 +82,19 @@ export interface ScoutCandidate {
   /** What found it: a campaign keyword or a promotion list's name. */
   found_by: string;
   origin: ScoutOrigin;
+  /** Set by the learning step (scout-learning.ts); absent, the declared rate stands. */
+  effective_rate?: number;
+  paid_basis?: PaidBasis;
+  relevant?: boolean;
+  boost?: number;
 }
 
 export interface ScoutPick extends ScoutCandidate {
-  /** What one sale pays, in USD (commissions are paid in USD). */
+  /** What one sale pays, in USD (commissions are paid in USD), at the effective rate. */
   earn_per_sale_usd: number;
   score: number;
+  /** Filled a short report from outside his niche: the card says so. */
+  off_niche?: boolean;
 }
 
 /** "12.5%" / "12.5" / 12.5 → 12.5; anything unreadable → 0. */
@@ -99,21 +123,35 @@ export function picksPerReport(env: NodeJS.ProcessEnv = process.env): number {
   return Number.isFinite(n) && n >= 1 ? Math.min(20, n) : DEFAULT_PICKS;
 }
 
-/** What one sale pays, in USD. */
-export function earnPerSaleUsd(c: Pick<ScoutCandidate, 'sale_price_usd' | 'commission_rate'>): number {
-  return +((c.sale_price_usd || 0) * (c.commission_rate || 0) / 100).toFixed(2);
+/** The rate a sale is counted at: what his orders say it pays, else what the API declares. */
+function rateOf(c: Pick<ScoutCandidate, 'commission_rate' | 'effective_rate'>): number {
+  return c.effective_rate ?? c.commission_rate ?? 0;
 }
 
-/** Money per sale × how much it sells × how it is rated (× the niche boost). */
+/** What one sale pays, in USD. */
+export function earnPerSaleUsd(c: Pick<ScoutCandidate, 'sale_price_usd' | 'commission_rate' | 'effective_rate'>): number {
+  return +((c.sale_price_usd || 0) * rateOf(c) / 100).toFixed(2);
+}
+
+/**
+ * Money per sale × how much it sells × how it is rated (× the niche boost), × what his own
+ * results with its keyword say, × OFF_NICHE_FACTOR for a product outside his audience.
+ */
 export function scoreCandidate(c: ScoutCandidate): number {
   const demand = Math.log10((c.orders_count || 0) + 10);
   const quality = c.rating > 0 ? Math.min(1, c.rating / 5) ** 2 : 0.7;
   const boost = c.origin === 'niche' ? NICHE_BOOST : 1;
-  return earnPerSaleUsd(c) * demand * quality * boost;
+  const learned = (c.boost ?? 1) * (c.relevant === false ? OFF_NICHE_FACTOR : 1);
+  return earnPerSaleUsd(c) * demand * quality * boost * learned;
+}
+
+/** The learning step, when there is one: effective rate, relevance and keyword boost on every candidate. */
+function learn(candidates: ScoutCandidate[], learning?: Learning): ScoutCandidate[] {
+  return learning ? candidates.map((c) => ({ ...c, ...learnedFor(c, learning) })) : candidates;
 }
 
 /** One product per id: a product found twice keeps its niche origin (the owner's own keyword is the better reason) and the best rate quoted. */
-function dedupe(candidates: ScoutCandidate[]): ScoutCandidate[] {
+export function dedupe(candidates: ScoutCandidate[]): ScoutCandidate[] {
   const byId = new Map<string, ScoutCandidate>();
   for (const c of candidates) {
     if (!c?.product_id) continue;
@@ -126,12 +164,10 @@ function dedupe(candidates: ScoutCandidate[]): ScoutCandidate[] {
   return [...byId.values()];
 }
 
-/** At or above the bar, selling, rated well enough, with a price. */
-function qualifies(c: ScoutCandidate, minRate: number): boolean {
-  return c.commission_rate >= minRate
-    && (c.orders_count || 0) >= MIN_ORDERS
-    && (c.rating === 0 || c.rating >= MIN_RATING)
-    && (c.sale_price_usd || 0) > 0;
+/** Selling and rated well enough (strict, or the relaxed floors for a short report). */
+function meetsFloors(c: ScoutCandidate, relaxed = false): boolean {
+  return (c.orders_count || 0) >= (relaxed ? RELAXED_MIN_ORDERS : MIN_ORDERS)
+    && (c.rating === 0 || c.rating >= (relaxed ? RELAXED_MIN_RATING : MIN_RATING));
 }
 
 function ranked(candidates: ScoutCandidate[]): ScoutPick[] {
@@ -140,34 +176,83 @@ function ranked(candidates: ScoutCandidate[]): ScoutPick[] {
     .sort((a, b) => b.score - a.score);
 }
 
+/** Why products did not make the report: the line that turns "only 3 picks" into a reason. */
+export interface PickFunnel {
+  /** Distinct products the scan found. */
+  unique: number;
+  /** At or above the bar by the declared rate. */
+  at_bar: number;
+  /** At the bar by the declared rate, under it by what his orders say it pays. */
+  pays_less: number;
+  /** Posted, or recommended before, in the last 30 days (by id, photo or title). */
+  already: number;
+  /** Outside his niche (his keywords' categories and his clicked posts' words). */
+  off_niche: number;
+  /** Too few sales or too low a rating, even at the relaxed floors. */
+  floors: number;
+}
+
 /**
- * The Telegram report: every qualifying candidate not posted or recommended recently,
- * ranked by score, at most MAX_PER_CATEGORY per category.
+ * The Telegram report, filled in tiers so it is neither repetitive nor empty:
+ *  1. relevant products at the strict floors;
+ *  2. relevant products at the relaxed floors (RELAXED_MIN_ORDERS / RELAXED_MIN_RATING);
+ *  3. at most OFF_NICHE_MAX_PICKS products outside his niche at the strict floors, marked.
+ * The bar is the effective rate: a declared 15 % in a category his orders show pays a
+ * third of that does not count as 15 %. Nothing posted or recommended in 30 days comes
+ * back, under its own id or another store's (`published`), and no two picks are the same
+ * product. At most MAX_PER_CATEGORY per category.
  */
 export function selectPicks(candidates: ScoutCandidate[], opts: {
   minRate: number;
   exclude: Set<string>;
   max: number;
-}): { picks: ScoutPick[]; qualified: number } {
-  const qualified = dedupe(candidates).filter((c) => qualifies(c, opts.minRate) && !opts.exclude.has(c.product_id));
-  const perCategory = new Map<string, number>();
-  const picks: ScoutPick[] = [];
-  for (const p of ranked(qualified)) {
-    if (picks.length >= opts.max) break;
-    const cat = (p.category || '—').toLowerCase();
-    const n = perCategory.get(cat) || 0;
-    if (n >= MAX_PER_CATEGORY) continue;
-    perCategory.set(cat, n + 1);
-    picks.push(p);
+  /** Posted and recommended products, matched by id, photo or title. */
+  published?: { has(p: ProductLike): boolean };
+  learning?: Learning;
+}): { picks: ScoutPick[]; qualified: number; funnel: PickFunnel } {
+  const unique = learn(dedupe(candidates), opts.learning);
+  const funnel: PickFunnel = { unique: unique.length, at_bar: 0, pays_less: 0, already: 0, off_niche: 0, floors: 0 };
+  const pool: ScoutCandidate[] = [];
+  for (const c of unique) {
+    if (c.commission_rate < opts.minRate || !((c.sale_price_usd || 0) > 0)) continue;
+    funnel.at_bar++;
+    if (rateOf(c) < opts.minRate) { funnel.pays_less++; continue; }
+    if (opts.exclude.has(c.product_id) || opts.published?.has(c)) { funnel.already++; continue; }
+    pool.push(c);
   }
-  return { picks, qualified: qualified.length };
+  const best = ranked(pool);
+  const tiers: Array<{ items: ScoutPick[]; cap: number; offNiche?: boolean }> = [
+    { items: best.filter((p) => p.relevant !== false && meetsFloors(p)), cap: opts.max },
+    { items: best.filter((p) => p.relevant !== false && !meetsFloors(p) && meetsFloors(p, true)), cap: opts.max },
+    { items: best.filter((p) => p.relevant === false && meetsFloors(p)), cap: OFF_NICHE_MAX_PICKS, offNiche: true },
+  ];
+  funnel.off_niche = best.filter((p) => p.relevant === false).length;
+  funnel.floors = best.filter((p) => p.relevant !== false && !meetsFloors(p, true)).length;
+
+  const perCategory = new Map<string, number>();
+  const taken = new PublishedProducts();
+  const picks: ScoutPick[] = [];
+  for (const tier of tiers) {
+    let fromTier = 0;
+    for (const p of tier.items) {
+      if (picks.length >= opts.max || fromTier >= tier.cap) break;
+      const cat = (p.category || '—').toLowerCase();
+      const n = perCategory.get(cat) || 0;
+      if (n >= MAX_PER_CATEGORY || taken.has(p)) continue;
+      perCategory.set(cat, n + 1);
+      taken.add(p);
+      picks.push(tier.offNiche ? { ...p, off_niche: true } : p);
+      fromTier++;
+    }
+  }
+  return { picks, qualified: pool.length, funnel };
 }
 
 /** The most products the high-commission screen keeps from one scan. */
 export const CATALOG_MAX = 2000;
 
 export interface CatalogItem extends ScoutPick {
-  /** The account posted it in the last 30 days — shown, marked, never hidden. */
+  /** The account posted it in the last 30 days (by id, photo or title) — shown, marked, never hidden. */
   posted_recently: boolean;
 }
 
@@ -178,10 +263,27 @@ export interface CatalogItem extends ScoutPick {
  * product that sells ahead, and the card shows its sales. Nothing is left out for having been
  * posted; it is marked instead, so the owner can see what he already covers.
  */
-export function rankCatalog(candidates: ScoutCandidate[], opts: { minRate: number; posted: Set<string> }): CatalogItem[] {
-  return ranked(dedupe(candidates).filter((c) => c.commission_rate >= opts.minRate && (c.sale_price_usd || 0) > 0))
-    .slice(0, CATALOG_MAX)
-    .map((p) => ({ ...p, posted_recently: opts.posted.has(p.product_id) }));
+export function rankCatalog(candidates: ScoutCandidate[], opts: {
+  minRate: number;
+  posted: Set<string>;
+  /** Posted products matched by id, photo or title (another store's listing of a posted item). */
+  published?: { has(p: ProductLike): boolean };
+  learning?: Learning;
+}): CatalogItem[] {
+  const listed = learn(dedupe(candidates), opts.learning)
+    .filter((c) => c.commission_rate >= opts.minRate && (c.sale_price_usd || 0) > 0);
+  // One card per photo: several stores' listings of one item would otherwise fill a shelf
+  // with the same product. The best-ranked listing is the one kept.
+  const photos = new Set<string>();
+  const out: CatalogItem[] = [];
+  for (const p of ranked(listed)) {
+    if (out.length >= CATALOG_MAX) break;
+    const photo = imageKey(p.image_url);
+    if (photo && photos.has(photo)) continue;
+    if (photo) photos.add(photo);
+    out.push({ ...p, posted_recently: opts.posted.has(p.product_id) || !!opts.published?.has(p) });
+  }
+  return out;
 }
 
 /** The keywords a scan reads: every active campaign's rotation, de-duplicated, capped. */
@@ -202,20 +304,29 @@ export function scanKeywords(lists: string[][], max = MAX_SCAN_KEYWORDS): string
 }
 
 /** The lines a pick adds under the ordinary product card. */
+function pct(r: number): string {
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
 export function pickLines(p: ScoutPick): string[] {
-  const rate = Number.isInteger(p.commission_rate) ? String(p.commission_rate) : p.commission_rate.toFixed(1);
-  return [
-    `💵 עמלה ${rate}% · כ-$${p.earn_per_sale_usd.toFixed(2)} לכל מכירה`,
+  const paid = p.paid_basis && p.effective_rate !== undefined
+    ? ` (בפועל כ-${pct(p.effective_rate)}% ${p.paid_basis === 'product' ? 'לפי ההזמנות שלך במוצר הזה' : 'לפי ההזמנות שלך בקטגוריה'})`
+    : '';
+  const lines = [
+    `💵 עמלה ${pct(p.commission_rate)}%${paid} · כ-$${p.earn_per_sale_usd.toFixed(2)} לכל מכירה`,
     p.origin === 'niche' ? `🎯 נמצא במילת המפתח «${p.found_by}»`
       : p.origin === 'hot' ? `🔥 מהמוצרים החמים «${p.found_by}»`
         : `🏷️ מרשימת המבצעים «${p.found_by}»`,
   ];
+  if (p.off_niche) lines.push('🌐 מחוץ לנישה של הערוצים שלך: נכנס כי לא היו מספיק מוצרים מהנישה');
+  return lines;
 }
 
 /** The report's opening message. */
-export function reportHeader(r: { picks: number; qualified: number; scanned: number; minRate: number; errors: string[] }): string {
+export function reportHeader(r: { picks: number; qualified: number; scanned: number; minRate: number; errors: string[]; funnel?: PickFunnel }): string {
   const lines = [`💎 סוכן העמלות: מוצרים עם עמלה של ${r.minRate}% ומעלה`, ''];
   lines.push(`נסרקו ${r.scanned.toLocaleString('en-US')} מוצרים, ${r.qualified} עברו את הסף.`);
+  if (r.funnel) lines.push(funnelLine(r.funnel, r.minRate));
   if (r.picks) {
     lines.push(`הנה ${r.picks} הכי משתלמים: מדורגים לפי כמה מכירה משלמת, כמה המוצר נמכר והדירוג שלו.`);
     lines.push('העמלה היא מה שאלי אקספרס מצהירה ב-API. בפועל היא יכולה להיות נמוכה יותר (תקרות לפי קטגוריה, לקוח חדש מול חוזר).');
@@ -224,4 +335,14 @@ export function reportHeader(r: { picks: number; qualified: number; scanned: num
   }
   if (r.errors.length) lines.push('', `⚠️ ${r.errors.length} חיפושים נכשלו (למשל: ${r.errors[0]}).`);
   return lines.join('\n');
+}
+
+/** "Of 1,240 distinct products: 310 at the bar, 41 already posted, …" — only the parts that are not zero. */
+export function funnelLine(f: PickFunnel, minRate: number): string {
+  const parts = [`${f.at_bar.toLocaleString('en-US')} מעל ${minRate}%`];
+  if (f.pays_less) parts.push(`${f.pays_less} משלמים לך בפועל פחות (לפי ההזמנות שלך)`);
+  if (f.already) parts.push(`${f.already} כבר פורסמו או הומלצו ב-30 יום`);
+  if (f.off_niche) parts.push(`${f.off_niche} מחוץ לנישה שלך`);
+  if (f.floors) parts.push(`${f.floors} עם מעט מדי מכירות או דירוג נמוך`);
+  return `📊 מתוך ${f.unique.toLocaleString('en-US')} מוצרים שונים: ${parts.join(' · ')}.`;
 }

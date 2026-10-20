@@ -38,14 +38,46 @@ describe('commission scout', () => {
     const { picks, qualified } = selectPicks([
       base({ product_id: 'ok' }),
       base({ product_id: 'low', commission_rate: 11.9 }),
-      base({ product_id: 'unsold', orders_count: 3 }),
+      base({ product_id: 'unsold', orders_count: 1 }),
       base({ product_id: 'badly-rated', rating: 3.9 }),
       base({ product_id: 'unrated', rating: 0 }),
       base({ product_id: 'seen' }),
       base({ product_id: 'no-price', sale_price_usd: 0 }),
     ], { minRate: 12, exclude: new Set(['seen']), max: 10 });
     expect(picks.map((p) => p.product_id).sort()).toEqual(['ok', 'unrated']);
-    expect(qualified).toBe(2);
+    // at the bar and not seen: ok, unsold, badly-rated, unrated
+    expect(qualified).toBe(4);
+  });
+
+  it('fills a short report at the relaxed floors, after every strict pick', () => {
+    const { picks, funnel } = selectPicks([
+      base({ product_id: 'strict', orders_count: 40 }),
+      // pays more, but sells little and is rated lower: only in the second tier
+      base({ product_id: 'newer', orders_count: 4, rating: 4.1, commission_rate: 40 }),
+      base({ product_id: 'too-new', orders_count: 1, commission_rate: 60 }),
+    ], { minRate: 12, exclude: new Set(), max: 10 });
+    expect(picks.map((p) => p.product_id)).toEqual(['strict', 'newer']);
+    expect(funnel.floors).toBe(1);
+  });
+
+  it('never picks the same product twice under two stores\' ids', () => {
+    const photo = 'https://ae01.alicdn.com/kf/S7a1b2c3d4e5f6.jpg_220x220.jpg';
+    const { picks } = selectPicks([
+      base({ product_id: 'store-a', image_url: photo, orders_count: 900 }),
+      base({ product_id: 'store-b', image_url: photo.replace('_220x220.jpg', ''), orders_count: 800 }),
+      base({ product_id: 'other', category: 'Knives' }),
+    ], { minRate: 12, exclude: new Set(), max: 10 });
+    expect(picks.map((p) => p.product_id)).toEqual(['store-a', 'other']);
+  });
+
+  it('counts another store\'s listing of a posted product as posted', () => {
+    const posted = { has: (p: any) => p.title === 'Rechargeable LED tactical flashlight 2000 lumens zoom' };
+    const { picks, funnel } = selectPicks([
+      base({ product_id: 'new-id', title: 'Rechargeable LED tactical flashlight 2000 lumens zoom' }),
+      base({ product_id: 'fresh', title: 'Folding knife' }),
+    ], { minRate: 12, exclude: new Set(), max: 10, published: posted });
+    expect(picks.map((p) => p.product_id)).toEqual(['fresh']);
+    expect(funnel.already).toBe(1);
   });
 
   it('lets one category fill at most MAX_PER_CATEGORY places', () => {

@@ -575,9 +575,14 @@ export interface ProductRoute {
 export interface ScoutItem extends AliProduct {
   /** The rate AliExpress declares, in %. */
   commission_rate: number;
-  /** What one sale pays, in USD. */
+  /** What one sale pays, in USD, at the effective rate. */
   earn_per_sale_usd: number;
-  /** The scout's ranking: money per sale × sales × rating (× 1.3 in the owner's niche). */
+  /** The rate his own orders show it pays (per product, else per category), when that is lower. */
+  effective_rate?: number;
+  paid_basis?: 'product' | 'category';
+  /** For his audience: his keywords' categories or his clicked posts' words (backend scout-learning.ts). */
+  relevant?: boolean;
+  /** The scout's ranking: money per sale × sales × rating, × his own results (backend scout-learning.ts). */
   score: number;
   /** A campaign keyword or a promotion list's name. */
   found_by: string;
