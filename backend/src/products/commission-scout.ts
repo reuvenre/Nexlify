@@ -248,6 +248,24 @@ export function selectPicks(candidates: ScoutCandidate[], opts: {
   return { picks, qualified: pool.length, funnel };
 }
 
+/**
+ * One kind of source in one scan: calls spent, products read, how many at the bar, and the
+ * failures. "Only 3 picks" has many causes (a refused promo list, a keyword the API reads
+ * nothing for, a budget spent before the categories); this is what tells them apart.
+ */
+export interface SourceStat {
+  group: SourceGroup;
+  calls: number;
+  read: number;
+  at_bar: number;
+  errors: number;
+  /** The first failure's text, when there was one. */
+  error?: string;
+}
+
+/** promo = AliExpress's promotion lists, hot = the hot feed overall, keywords = his own, categories = per category. */
+export type SourceGroup = 'promo' | 'hot' | 'keywords' | 'categories';
+
 /** The most products the high-commission screen keeps from one scan. */
 export const CATALOG_MAX = 2000;
 
@@ -323,9 +341,13 @@ export function pickLines(p: ScoutPick): string[] {
 }
 
 /** The report's opening message. */
-export function reportHeader(r: { picks: number; qualified: number; scanned: number; minRate: number; errors: string[]; funnel?: PickFunnel }): string {
+export function reportHeader(r: {
+  picks: number; qualified: number; scanned: number; minRate: number; errors: string[];
+  funnel?: PickFunnel; sources?: SourceStat[];
+}): string {
   const lines = [`💎 סוכן העמלות: מוצרים עם עמלה של ${r.minRate}% ומעלה`, ''];
   lines.push(`נסרקו ${r.scanned.toLocaleString('en-US')} מוצרים, ${r.qualified} עברו את הסף.`);
+  if (r.sources?.length) lines.push(sourcesLine(r.sources, r.minRate));
   if (r.funnel) lines.push(funnelLine(r.funnel, r.minRate));
   if (r.picks) {
     lines.push(`הנה ${r.picks} הכי משתלמים: מדורגים לפי כמה מכירה משלמת, כמה המוצר נמכר והדירוג שלו.`);
@@ -345,4 +367,20 @@ export function funnelLine(f: PickFunnel, minRate: number): string {
   if (f.off_niche) parts.push(`${f.off_niche} מחוץ לנישה שלך`);
   if (f.floors) parts.push(`${f.floors} עם מעט מדי מכירות או דירוג נמוך`);
   return `📊 מתוך ${f.unique.toLocaleString('en-US')} מוצרים שונים: ${parts.join(' · ')}.`;
+}
+
+export const SOURCE_LABELS: Record<SourceGroup, string> = {
+  promo: 'רשימות המבצעים',
+  hot: 'המוצרים החמים',
+  keywords: 'מילות המפתח שלך',
+  categories: 'הקטגוריות',
+};
+
+/** "🔎 רשימות המבצעים: 40 מעל 12% · מילות המפתח שלך: 12 (2 חיפושים נכשלו) · …" */
+export function sourcesLine(sources: SourceStat[], minRate: number): string {
+  const parts = sources.map((s) => {
+    const fail = s.errors ? ` (${s.errors === s.calls ? 'כל החיפושים נכשלו' : `${s.errors} חיפושים נכשלו`})` : '';
+    return `${SOURCE_LABELS[s.group]}: ${s.at_bar.toLocaleString('en-US')}${fail}`;
+  });
+  return `🔎 מעל ${minRate}% לפי מקור: ${parts.join(' · ')}.`;
 }

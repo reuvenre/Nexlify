@@ -36,6 +36,11 @@ describe('CommissionScoutService', () => {
     expect(saved.items).toHaveLength(1);
     expect(saved.items[0].posted_recently).toBe(true);
     expect(saved.min_rate).toBe(12);
+    // what each kind of source gave, for the screen's breakdown
+    expect(saved.sources.map((x: any) => [x.group, x.calls, x.at_bar])).toEqual([
+      ['promo', 1, 1], ['hot', 1, 1], ['keywords', 2, 2], ['categories', 1, 1],
+    ]);
+    expect(saved.funnel).toMatchObject({ unique: 1, already: 1 });
   });
 
   it('keeps the previous list when a scan read nothing', async () => {

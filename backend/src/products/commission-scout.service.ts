@@ -9,7 +9,7 @@ import { ProductsService, ScoutSource } from './products.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import {
   CatalogItem, HOT_CATEGORY_PAGES, HOT_PAGES, KEYWORD_PAGES, MAX_FAILS_IN_A_ROW, MAX_SCAN_PROMOS, PROMO_PAGES,
-  PickFunnel, SEEN_TTL_MS, ScoutCandidate, ScoutOrigin, ScoutPick,
+  PickFunnel, SEEN_TTL_MS, ScoutCandidate, ScoutOrigin, ScoutPick, SourceGroup, SourceStat,
   dedupe, maxScanCalls, minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks, worthNextPage,
 } from './commission-scout';
 import {
@@ -52,6 +52,17 @@ export interface ScoutCatalog {
   /** API calls the scan spent, and whether it stopped at its budget with more left to read. */
   calls?: number;
   budget_hit?: boolean;
+  /** What each kind of source gave (the screen's «מה הסריקה מצאה»). */
+  sources?: SourceStat[];
+  /** Where products fell out of the daily report (daily scan only). */
+  funnel?: PickFunnel;
+}
+
+function sourceGroup(src: ScoutSource): SourceGroup {
+  if (src.kind === 'promo') return 'promo';
+  if (src.keyword) return 'keywords';
+  if (src.category_id) return 'categories';
+  return 'hot';
 }
 
 /** One entry in the niche list. */
@@ -73,6 +84,7 @@ export interface ScoutReport {
   minRate: number;
   errors: string[];
   funnel?: PickFunnel;
+  sources?: SourceStat[];
 }
 
 /**
@@ -161,10 +173,11 @@ export class CommissionScoutService {
         scanned, min_rate: minRate, errors: errors.slice(0, 5),
         items: rankCatalog(candidates, { minRate, posted: postedSet.ids, published: postedSet.set, learning }),
         calls, budget_hit: budgetHit,
+        sources: reader.sources(), funnel,
       };
       await this.memory.save(`commission_scout_catalog:${userId}`, catalog, CATALOG_TTL_MS);
     }
-    return { picks, qualified, scanned, minRate, errors, funnel };
+    return { picks, qualified, scanned, minRate, errors, funnel, sources: reader.sources() };
   }
 
   private readonly running = new Set<string>();
@@ -203,11 +216,19 @@ export class CommissionScoutService {
     let scanned = 0;
     let calls = 0;
     let failsInARow = 0;
+    const bySource = new Map<SourceGroup, SourceStat>();
     const out = () => calls >= budget || failsInARow >= MAX_FAILS_IN_A_ROW;
     const read = async (source: ScoutSource, page: number, foundBy: string, origin: ScoutOrigin) => {
       if (out()) return { data: [] as any[], sorted: false };
       calls++;
       const res = await this.products.scoutProducts(userId, source, page);
+      const group = sourceGroup(source);
+      const st = bySource.get(group) || { group, calls: 0, read: 0, at_bar: 0, errors: 0 };
+      st.calls++;
+      st.read += res.data.length;
+      st.at_bar += res.data.filter((p: any) => (p.commission_rate || 0) >= minRate).length;
+      if (res.error) { st.errors++; st.error = st.error || `${foundBy}: ${res.error}`.slice(0, 160); }
+      bySource.set(group, st);
       if (res.error) { errors.push(`${foundBy}: ${res.error}`); failsInARow++; } else failsInARow = 0;
       scanned += res.data.length;
       for (const p of res.data) candidates.push({ ...p, found_by: foundBy, origin });
@@ -225,7 +246,12 @@ export class CommissionScoutService {
         if (!worthNextPage(res.data, minRate)) break;
       }
     };
-    return { readPages, out, candidates, errors, stats: () => ({ calls, scanned, budgetHit: calls >= budget }) };
+    const order: SourceGroup[] = ['promo', 'hot', 'keywords', 'categories'];
+    return {
+      readPages, out, candidates, errors,
+      stats: () => ({ calls, scanned, budgetHit: calls >= budget }),
+      sources: () => order.map((g) => bySource.get(g)).filter((x): x is SourceStat => !!x),
+    };
   }
 
   // ── Search by niche ──────────────────────────────────────────────────────
@@ -324,7 +350,7 @@ export class CommissionScoutService {
       scanned_at: new Date().toISOString(),
       scanned, min_rate: minRate, errors: reader.errors.slice(0, 5),
       items: rankCatalog(reader.candidates, { minRate, posted: posted.ids, published: posted.set, learning }),
-      calls, budget_hit: budgetHit,
+      calls, budget_hit: budgetHit, sources: reader.sources(),
     };
     await this.memory.save(this.nicheKey(userId, id), result, NICHE_TTL_MS);
     this.logger.log(`niche scan ${userId} ${id}: ${calls} calls, ${scanned} scanned, ${result.items.length} ≥ ${minRate}%`);

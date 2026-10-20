@@ -54,6 +54,7 @@ import { AgentClient } from '../agents/agent-client.service';
 import { PersistentValueStore } from '../common/persistent-value.store';
 import { CommissionScoutService } from '../products/commission-scout.service';
 import { ScoutPick, pickLines, reportHeader } from '../products/commission-scout';
+import { MissedVerdict, ScoutFailure, attemptDue, jerusalemNow, missedReportVerdict } from '../products/scout-delivery';
 import {
   REWRITE_EMPTY_TTL_MS, REWRITE_MODEL, REWRITE_SYSTEM, REWRITE_TTL_MS, parseRewrites, titleMatchesSearch, rewriteKey, rewritePrompt,
 } from './query-rewrite';
@@ -518,7 +519,8 @@ export class TelegramBotService implements OnModuleInit {
     // The commission scout's report (12 % and up), now — the same one 08:20 brings.
     if (/^\/commission(@\S+)?$/i.test(text)) {
       await this.send(chatId, '💎 סורק את אלי אקספרס למוצרים עם עמלה גבוהה (כולל 50–90%)… זה לוקח כמה דקות.');
-      if (!(await this.sendCommissionReport(chatId))) await this.send(chatId, '❌ הסריקה לא הצליחה. נסה שוב בעוד כמה דקות.');
+      const res = await this.sendCommissionReport(chatId);
+      if (!res.sent) await this.send(chatId, `❌ הסריקה לא הצליחה (${res.reason}). נסה שוב בעוד כמה דקות.`);
       return;
     }
     // A product Reel of the best post of the last two days, now (videos/).
@@ -801,31 +803,60 @@ export class TelegramBotService implements OnModuleInit {
 
   /**
    * Every morning, products that pay 12 % or more (commission-scout.ts), as cards with the
-   * usual «פרסם לקבוצה» button. The day's delivery is remembered in persistent_values, so a
-   * deploy neither loses it nor sends it twice. Platform owner only.
-   * Off with COMMISSION_SCOUT_DISABLED=1.
+   * usual «פרסם לקבוצה» button. Platform owner only. Off with COMMISSION_SCOUT_DISABLED=1.
+   *
+   * It tries every 20 minutes from 08:20 to 11:40 Israel time until one report goes out
+   * (scout-delivery.ts): a single 08:20 attempt was lost to any deploy, restart or error in
+   * the minutes a scan takes, with nothing to say so. The day's delivery is remembered in
+   * persistent_values, so a deploy neither loses it nor sends it twice, and every failed
+   * attempt's reason is kept for the watchdog's missed-report alert.
    */
-  @Cron('0 20 8 * * *', { timeZone: 'Asia/Jerusalem' })
+  @Cron('0 */20 8-11 * * *', { timeZone: 'Asia/Jerusalem' })
   async dailyCommissionScout(): Promise<void> {
     if (process.env.COMMISSION_SCOUT_DISABLED === '1') return;
     const chatId = String(process.env.WATCHDOG_TELEGRAM_CHAT_ID || '');
     if (!chatId) return;
-    const day = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+    const { day, hour, minute } = jerusalemNow();
+    if (!attemptDue(hour, minute)) return;
     const key = `commission_scout:${day}`;
     if (await this.memory.load(key)) return;
-    if (await this.sendCommissionReport(chatId)) await this.memory.save(key, true, 2 * 86_400_000);
+    const res = await this.sendCommissionReport(chatId);
+    if (res.sent) {
+      await this.memory.save(key, true, 2 * 86_400_000);
+      return;
+    }
+    const failKey = `commission_scout_fail:${day}`;
+    const prev = await this.memory.load<ScoutFailure>(failKey);
+    const at = new Date().toLocaleTimeString('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit' });
+    await this.memory.save(failKey, { at, reason: res.reason || 'לא ידוע', attempts: (prev?.attempts || 0) + 1 }, 2 * 86_400_000);
+    this.logger.warn(`commission scout attempt ${at} failed: ${res.reason}`);
   }
 
-  /** Scan, then send the header and one card per pick. False when nothing could be sent. */
-  private async sendCommissionReport(chatId: string): Promise<boolean> {
+  /**
+   * For the watchdog: today's morning report, once its window has closed without one going
+   * out. Null while it is due, when it went out, or when the scout is off.
+   */
+  async commissionScoutHealth(now = new Date()): Promise<(MissedVerdict & { day: string }) | null> {
+    if (process.env.COMMISSION_SCOUT_DISABLED === '1' || !process.env.WATCHDOG_TELEGRAM_CHAT_ID) return null;
+    const { day, hour } = jerusalemNow(now);
+    const delivered = !!(await this.memory.load(`commission_scout:${day}`));
+    const failure = await this.memory.load<ScoutFailure>(`commission_scout_fail:${day}`);
+    const verdict = missedReportVerdict({ hour, delivered, failure });
+    return verdict ? { ...verdict, day } : null;
+  }
+
+  /** Scan, then send the header and one card per pick. Not sent: why, for the retry and the watchdog. */
+  private async sendCommissionReport(chatId: string): Promise<{ sent: boolean; reason?: string }> {
     const userId = await this.ownerUserId();
-    if (!userId || this.scoutRunning) return false;
+    if (!userId) return { sent: false, reason: 'לא נמצא חשבון הבעלים' };
+    if (this.scoutRunning) return { sent: false, reason: 'סריקה אחרת עדיין רצה' };
     this.scoutRunning = true;
     try {
       const report = await this.scout.scan(userId);
       if (!report.scanned && report.errors.length) {
+        // Reported once rather than retried: a refused key does not mend itself by 11:40.
         await this.send(chatId, `💎 סוכן העמלות לא הצליח לקרוא את אלי אקספרס היום: ${report.errors[0]}`);
-        return true;
+        return { sent: true };
       }
       await this.send(chatId, reportHeader({ ...report, picks: report.picks.length }));
       // Kept beyond the in-memory cache, so «פרסם לקבוצה» still works after a deploy.
@@ -840,10 +871,10 @@ export class TelegramBotService implements OnModuleInit {
         if (!sent) await this.send(chatId, caption, keyboard);
       }
       await this.scout.markShown(userId, report.picks);
-      return true;
+      return { sent: true };
     } catch (err: any) {
       this.logger.warn(`commission scout failed: ${err?.message}`);
-      return false;
+      return { sent: false, reason: String(err?.message || err).slice(0, 200) };
     } finally {
       this.scoutRunning = false;
     }

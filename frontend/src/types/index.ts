@@ -604,8 +604,34 @@ export interface ScoutNicheResponse {
   next_scan_at: string | null;
 }
 
+/** One kind of source in one scan (backend commission-scout.ts SourceStat). */
+export interface ScoutSourceStat {
+  group: 'promo' | 'hot' | 'keywords' | 'categories';
+  calls: number;
+  read: number;
+  at_bar: number;
+  errors: number;
+  error?: string;
+}
+
+/** Where products fell out of the daily report (backend PickFunnel). */
+export interface ScoutFunnel {
+  unique: number;
+  at_bar: number;
+  pays_less: number;
+  already: number;
+  off_niche: number;
+  floors: number;
+}
+
 export interface ScoutCatalogResponse {
-  catalog: { scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[]; calls?: number; budget_hit?: boolean } | null;
+  catalog: {
+    scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[]; calls?: number; budget_hit?: boolean;
+    /** What each kind of source gave (backend SourceStat). */
+    sources?: ScoutSourceStat[];
+    /** Where products fell out of the daily Telegram report (daily scan only). */
+    funnel?: ScoutFunnel;
+  } | null;
   running: boolean;
   /** Set while the last scan is too recent for another. */
   next_scan_at: string | null;

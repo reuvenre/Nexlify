@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { commissionScoutApi } from '@/lib/api-client';
 import { readCommissionPosted } from '@/lib/commissions-return';
-import type { ScoutCatalogResponse, ScoutItem, ScoutNicheList, ScoutNicheResponse } from '@/types';
+import type { ScoutCatalogResponse, ScoutFunnel, ScoutItem, ScoutNicheList, ScoutNicheResponse, ScoutSourceStat } from '@/types';
 
 /**
  * Products that pay a high commission (the commission scout, backend products/commission-scout.ts).
@@ -359,6 +359,13 @@ export default function CommissionsPage() {
         <EmptyState running={running} onScan={scan} />
       ) : (
         <>
+          <ScanBreakdown
+            sources={(nicheActive ? niche?.result?.sources : catalog?.sources) || []}
+            funnel={nicheActive ? undefined : catalog?.funnel}
+            minRate={(nicheActive ? niche?.result?.min_rate : catalog?.min_rate) ?? 12}
+            calls={(nicheActive ? niche?.result?.calls : catalog?.calls) ?? 0}
+          />
+
           <Toolbar
             categories={categories}
             category={category} setCategory={setCategory}
@@ -520,6 +527,92 @@ function Hero({ stats, catalog, running, cooling, nextScanAt, onScan }: {
         )}
       </div>
     </section>
+  );
+}
+
+// ── What the scan found ──────────────────────────────────────────────────────
+
+const SOURCE_LABELS: Record<ScoutSourceStat['group'], string> = {
+  promo: 'רשימות המבצעים של אלי אקספרס',
+  hot: 'המוצרים החמים',
+  keywords: 'מילות המפתח שלך',
+  categories: 'הקטגוריות',
+};
+
+/**
+ * Where the products came from and where they fell out: the answer to "why so few". Closed
+ * by default, so it costs the screen one line.
+ */
+function ScanBreakdown({ sources, funnel, minRate, calls }: { sources: ScoutSourceStat[]; funnel?: ScoutFunnel; minRate: number; calls: number }) {
+  if (!sources.length && !funnel) return null;
+  const failed = sources.reduce((n, s) => n + s.errors, 0);
+  const steps = funnel ? [
+    { n: funnel.unique, label: 'מוצרים שונים נמצאו' },
+    { n: funnel.at_bar, label: `מעל ${minRate}% לפי מה שאלי אקספרס מצהירה` },
+    { n: -funnel.pays_less, label: 'משלמים לך בפועל פחות מהסף (לפי ההזמנות שלך)' },
+    { n: -funnel.already, label: 'כבר פורסמו או הומלצו ב-30 הימים האחרונים' },
+    { n: -funnel.off_niche, label: 'מחוץ לנישה של הערוצים שלך (נכנסים לדוח רק אם חסר)' },
+    { n: -funnel.floors, label: 'מעט מדי מכירות או דירוג נמוך' },
+  ].filter((s) => s.n !== 0) : [];
+  return (
+    <details className="card px-4 py-3 group/scan">
+      <summary className="cursor-pointer select-none text-sm font-medium flex items-center gap-2 list-none">
+        <Layers size={15} className="text-emerald-400 shrink-0" aria-hidden="true" />
+        מה הסריקה מצאה
+        <span className="text-xs text-white/55 font-normal">
+          {calls ? `${calls} קריאות` : ''}{failed ? ` · ${failed} נכשלו` : ''}
+        </span>
+        <ChevronLeft size={14} className="ms-auto text-white/50 transition group-open/scan:-rotate-90" aria-hidden="true" />
+      </summary>
+
+      {sources.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-white/55 text-right">
+                <th scope="col" className="font-medium py-1.5 pe-2">מקור</th>
+                <th scope="col" className="font-medium py-1.5 px-2 tabular-nums">קריאות</th>
+                <th scope="col" className="font-medium py-1.5 px-2 tabular-nums">מוצרים</th>
+                <th scope="col" className="font-medium py-1.5 px-2 tabular-nums">מעל {minRate}%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.group} className="border-t border-[var(--border)]">
+                  <th scope="row" className="font-normal text-right py-1.5 pe-2">
+                    {SOURCE_LABELS[s.group]}
+                    {s.errors > 0 && (
+                      <span className="block text-[11px] text-amber-300" title={s.error}>
+                        {s.errors === s.calls ? 'כל החיפושים נכשלו' : `${s.errors} חיפושים נכשלו`}{s.error ? `: ${s.error}` : ''}
+                      </span>
+                    )}
+                  </th>
+                  <td className="py-1.5 px-2 tabular-nums">{s.calls}</td>
+                  <td className="py-1.5 px-2 tabular-nums">{s.read.toLocaleString('en-US')}</td>
+                  <td className="py-1.5 px-2 tabular-nums font-semibold">{s.at_bar.toLocaleString('en-US')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {steps.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs text-white/60 mb-1.5">ההמלצות היומיות בטלגרם: איפה מוצרים נופלים בדרך</p>
+          <ul className="space-y-1 text-xs">
+            {steps.map((s) => (
+              <li key={s.label} className="flex items-baseline gap-2">
+                <span className={`tabular-nums font-semibold min-w-[3.5rem] ${s.n < 0 ? 'text-white/60' : ''}`}>
+                  <bdi dir="ltr">{s.n < 0 ? `−${(-s.n).toLocaleString('en-US')}` : s.n.toLocaleString('en-US')}</bdi>
+                </span>
+                <span className="text-white/75">{s.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </details>
   );
 }
 

@@ -1251,6 +1251,26 @@ export class WatchdogService implements OnModuleInit {
       });
     }
 
+    // 13. The morning commission report. It retries until 11:40; a day with none by noon is
+    //     reported once, with the last attempt's reason (products/scout-delivery.ts).
+    const scout = await this.bot?.commissionScoutHealth().catch(() => null);
+    if (scout) {
+      out.push({
+        key: `commission_scout_missed:${scout.day}`,
+        title: scout.title,
+        body: [
+          `**בדיקה:** האם דוח העמלות של הבוקר (dailyCommissionScout, ניסיון כל 20 דקות 08:20–11:40) יצא היום.`,
+          `**ממצא:** ${scout.detail}`,
+          '',
+          'כיווני חקירה: sendCommissionReport (telegram-bot.service), CommissionScoutService.scan, לוגים של Render בבוקר.',
+        ].join('\n'),
+        details: [scout.detail],
+        // One alert per missed day, not one every six hours until midnight.
+        throttleMs: 24 * 3600_000,
+        ...(scout.action ? { action: scout.action } : {}),
+      });
+    }
+
     return out;
   }
 
