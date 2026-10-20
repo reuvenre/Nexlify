@@ -633,6 +633,8 @@ export interface ScoutCatalogResponse {
     scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[]; calls?: number; budget_hit?: boolean;
     /** Products this scan found for the first time. */
     new_count?: number;
+    /** The price cap the scan applied, in ₪ (0 = none). */
+    max_price_ils?: number;
     /** What each kind of source gave (backend SourceStat). */
     sources?: ScoutSourceStat[];
     /** Where products fell out of the daily Telegram report (daily scan only). */

@@ -34,6 +34,7 @@ describe('CommissionScoutService — search by niche', () => {
     const products = {
       featuredPromoNames: jest.fn(async () => []),
       scoutProducts: jest.fn(async (..._a: any[]) => ({ data: [item] }) as any),
+      scoutPriceCapUsd: jest.fn(async () => 94.59),
       getCategories: jest.fn(async () => [{ id: '44', name: 'Consumer Electronics' }]),
     };
     const campaigns = { find: jest.fn(async () => [{ keywords: ['tactical flashlight'] }]) };

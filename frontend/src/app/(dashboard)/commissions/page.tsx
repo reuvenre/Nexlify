@@ -506,7 +506,7 @@ function Hero({ stats, catalog, running, cooling, nextScanAt, onScan }: {
             מוצרים עם עמלה גבוהה, מדורגים לפי מה שבאמת ישתלם לך
           </h1>
           <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.88)' }}>
-            כל המוצרים עם {catalog?.min_rate ?? 12}% עמלה ומעלה, עד 90%. הדירוג לא מסתפק באחוז: הוא שוקל כמה מכירה משלמת, כמה המוצר נמכר והדירוג שלו, כי מוצר ב-15% שאף אחד לא קונה שווה פחות ממוצר ב-12% שנמכר באלפים.
+            כל המוצרים עם {catalog?.min_rate ?? 12}% עמלה ומעלה, עד 90%{catalog?.max_price_ils ? `, במחיר של עד ₪${catalog.max_price_ils}` : ''}. הדירוג לא מסתפק באחוז: הוא שוקל כמה מכירה משלמת, כמה המוצר נמכר והדירוג שלו, כי מוצר ב-15% שאף אחד לא קונה שווה פחות ממוצר ב-12% שנמכר באלפים.
           </p>
           {/* Before the first scan the empty state below carries the one button. */}
           {catalog && <div className="mt-4 flex flex-wrap items-center gap-3">

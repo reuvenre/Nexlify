@@ -43,6 +43,28 @@ describe('ProductsService.scoutProducts', () => {
     expect(res.data).toHaveLength(1);
   });
 
+  it('sends the price cap to the search, and drops what still comes back over it', async () => {
+    const dear = { ...item, product_id: '8', sale_price: '400' };
+    const { svc, calls } = build([{ aliexpress_affiliate_product_query_response: { resp_result: { resp_code: 200, result: { products: { product: [item, dear] } } } } }]);
+    const res = await svc.scoutProducts('u1', { kind: 'search', keyword: 'knife' }, 1, 50, 94.59);
+    expect(String(calls[0].max_sale_price)).toBe('9459'); // USD cents, like the campaign search (signed params are strings)
+    expect(res.data.map((p: any) => p.product_id)).toEqual(['7']);
+  });
+
+  it('filters a promotion list by price on the results, since it takes no price parameter', async () => {
+    const dear = { ...item, product_id: '8', sale_price: '400' };
+    const { svc, calls } = build([{ aliexpress_affiliate_featuredpromo_products_get_response: { resp_result: { resp_code: 200, result: { products: { product: [item, dear] } } } } }]);
+    const res = await svc.scoutProducts('u1', { kind: 'promo', name: 'Hot Product' }, 1, 50, 94.59);
+    expect(calls[0].max_sale_price).toBeUndefined();
+    expect(res.data.map((p: any) => p.product_id)).toEqual(['7']);
+  });
+
+  it('turns a cap in ₪ into USD at the live rate', async () => {
+    const { svc } = build([]);
+    expect(await svc.scoutPriceCapUsd(370)).toBe(100);
+    expect(await svc.scoutPriceCapUsd(0)).toBe(0);
+  });
+
   it('returns the refusal, never products', async () => {
     const { svc } = build([{ error_response: { code: 'ApiCallLimit', msg: 'App Call Limited' } }]);
     const res = await svc.scoutProducts('u1', { kind: 'search', keyword: 'knife' });

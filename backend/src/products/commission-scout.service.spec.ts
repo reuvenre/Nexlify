@@ -14,6 +14,7 @@ describe('CommissionScoutService', () => {
     const products = {
       featuredPromoNames: jest.fn(async () => ['Hot Product']),
       scoutProducts: jest.fn(async (..._a: any[]) => ({ data: [item] }) as any),
+      scoutPriceCapUsd: jest.fn(async () => 94.59),
       getCategories: jest.fn(async () => [{ id: '44', name: 'Tools' }]),
     };
     const campaigns = { find: jest.fn(async () => [{ keywords: ['knife'] }]) };
@@ -103,6 +104,21 @@ describe('CommissionScoutService', () => {
     expect(second.items.length).toBeGreaterThan(first.items.length);
     expect(second.new_count).toBeGreaterThan(0);
     expect(second.items.filter((i: any) => i.is_new).length).toBe(second.new_count);
+  });
+
+  it('passes the price cap to every read, and drops earlier finds over it', async () => {
+    const dearOld = { ...{ product_id: 'gen', title: 'Generator', sale_price: 2000, original_price: 2500, discount_percent: 20,
+      orders_count: 50, rating: 4.6, currency: 'ILS', sale_price_usd: 540, commission_rate: 30, category: 'Tools' },
+    found_by: 'x', origin: 'hot', earn_per_sale_usd: 162, score: 9, posted_recently: false,
+    first_seen_at: new Date().toISOString(), last_seen_at: new Date().toISOString() };
+    const { svc, products, stored } = build({ 'commission_scout_catalog:u1': { scanned_at: new Date().toISOString(), items: [dearOld] } });
+    // the screen hides it at once, before any new scan
+    expect((await svc.catalog('u1')).catalog!.items).toHaveLength(0);
+    await svc.scan('u1');
+    expect(products.scoutProducts.mock.calls.every((c: any[]) => c[4] === 94.59)).toBe(true);
+    const saved = stored['commission_scout_catalog:u1'];
+    expect(saved.items.map((i: any) => i.product_id)).toEqual(['9']);
+    expect(saved.max_price_ils).toBe(350);
   });
 
   it("reads only his own categories once his keywords show them", async () => {

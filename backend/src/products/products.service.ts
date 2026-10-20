@@ -9,7 +9,7 @@ import { AiService } from '../ai/ai.service';
 import { signAliexpress } from '../common/aliexpress-sign';
 import { cacheGet, cacheSet } from '../common/safe-cache';
 import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/untrusted';
-import { parseRate } from './commission-scout';
+import { parseRate, withinPrice } from './commission-scout';
 import { SCOUT_SORTS, ScoutSort } from './scout-learning';
 
 const ALI_API = 'https://api-sg.aliexpress.com/sync';
@@ -397,7 +397,14 @@ export class ProductsService {
    * (`commission_rate`, the higher of the regular and hot rates, in %). Never mock data:
    * a refused or failed call is returned as `error` with no products.
    */
-  async scoutProducts(userId: string, source: ScoutSource, page = 1, limit = 50): Promise<{ data: any[]; error?: string; sorted?: boolean }> {
+  /** The scout's price cap in USD, from a cap in ₪ (0 = none). Uses the live rate, like every price. */
+  async scoutPriceCapUsd(maxIls: number): Promise<number> {
+    if (!(maxIls > 0)) return 0;
+    const usdIls = await this.rates.getRate('USD_ILS');
+    return usdIls > 0 ? +(maxIls / usdIls).toFixed(2) : 0;
+  }
+
+  async scoutProducts(userId: string, source: ScoutSource, page = 1, limit = 50, maxUsd = 0): Promise<{ data: any[]; error?: string; sorted?: boolean }> {
     const creds = await this.credentials.getRaw(userId);
     if (!creds?.aliexpress_app_key) return { data: [], error: 'אין מפתחות AliExpress בהגדרות' };
     const currency = targetCurrency(creds.currency_pair || 'USD_ILS');
@@ -426,6 +433,8 @@ export class ProductsService {
           // The scan rotates the sort day by day (scout-learning.ts rotationSlice); only the known ones are sent.
           sort: source.sort && (SCOUT_SORTS as readonly string[]).includes(source.sort) ? source.sort : 'LAST_VOLUME_DESC',
           category_ids: source.category_id,
+          // The price cap, in USD cents (like the campaign search). Promotion lists take no price filter.
+          max_sale_price: maxUsd > 0 ? Math.round(maxUsd * 100) : undefined,
           ...(source.kind === 'hot'
             ? { method: 'aliexpress.affiliate.hotproduct.query', fields: SCOUT_HOT_FIELDS }
             : { method: 'aliexpress.affiliate.product.query', fields: SCOUT_FIELDS }),
@@ -455,7 +464,8 @@ export class ProductsService {
         data: mapped.map((p, i) => ({
           ...p,
           commission_rate: Math.max(parseRate(items[i]?.commission_rate), parseRate(items[i]?.hot_product_commission_rate)),
-        })),
+        // Enforced here too: the API's filters are not to be trusted, and the promotion lists take none.
+        })).filter((p) => withinPrice(p, maxUsd)),
       };
     } catch (err: any) {
       this.logger.warn(`scout ${source.kind} failed: ${err?.message}`);

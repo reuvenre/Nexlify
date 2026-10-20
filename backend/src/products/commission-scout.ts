@@ -26,6 +26,26 @@ import { Learning, OFF_NICHE_FACTOR, PaidBasis, learnedFor } from './scout-learn
 
 /** The bar the owner set: 12 % and up. COMMISSION_SCOUT_MIN overrides it. */
 export const MIN_COMMISSION_PCT = 12;
+/**
+ * The most a product may cost, in ₪. The owner sells to channels where nobody buys a ₪2,000
+ * item, and the price-descending slice the rotation reads brought tractors and generators
+ * up. Sent to the API (`max_sale_price`) and enforced on what comes back, since the API's
+ * filters are not to be trusted. COMMISSION_SCOUT_MAX_PRICE_ILS overrides it; 0 lifts it.
+ */
+export const DEFAULT_MAX_PRICE_ILS = 350;
+
+export function maxPriceIls(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = String(env.COMMISSION_SCOUT_MAX_PRICE_ILS ?? '').trim();
+  if (raw === '') return DEFAULT_MAX_PRICE_ILS;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MAX_PRICE_ILS;
+}
+
+/** Within the price cap (in USD; 0 = no cap). A product with no USD price is judged by the API alone. */
+export function withinPrice(c: { sale_price_usd?: number }, maxUsd: number): boolean {
+  return !maxUsd || !(c.sale_price_usd! > 0) || c.sale_price_usd! <= maxUsd * 1.005;
+}
+
 /** Picks per report. COMMISSION_SCOUT_PICKS overrides it (1–20). */
 export const DEFAULT_PICKS = 10;
 /** A product nobody buys is not a recommendation, whatever it pays. */

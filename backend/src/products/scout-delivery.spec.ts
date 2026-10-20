@@ -1,5 +1,5 @@
 import { attemptDue, jerusalemNow, missedReportVerdict } from './scout-delivery';
-import { sourcesLine } from './commission-scout';
+import { maxPriceIls, sourcesLine, withinPrice } from './commission-scout';
 
 describe('the morning commission report', () => {
   it('tries from 08:20 to 11:40, Israel time', () => {
@@ -50,5 +50,20 @@ describe('what each source gave', () => {
     expect(line).toContain('רשימות המבצעים: 40');
     expect(line).toContain('מילות המפתח שלך: 12 (2 חיפושים נכשלו)');
     expect(line).toContain('הקטגוריות: 0 (כל החיפושים נכשלו)');
+  });
+});
+
+describe('the price cap', () => {
+  it('is ₪350 unless set, and 0 lifts it', () => {
+    expect(maxPriceIls({})).toBe(350);
+    expect(maxPriceIls({ COMMISSION_SCOUT_MAX_PRICE_ILS: '200' })).toBe(200);
+    expect(maxPriceIls({ COMMISSION_SCOUT_MAX_PRICE_ILS: '0' })).toBe(0);
+    expect(maxPriceIls({ COMMISSION_SCOUT_MAX_PRICE_ILS: 'abc' })).toBe(350);
+  });
+
+  it('keeps what is under it, and everything when there is none', () => {
+    expect(withinPrice({ sale_price_usd: 90 }, 94.59)).toBe(true);
+    expect(withinPrice({ sale_price_usd: 140 }, 94.59)).toBe(false);
+    expect(withinPrice({ sale_price_usd: 140 }, 0)).toBe(true);
   });
 });

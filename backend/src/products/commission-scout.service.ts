@@ -10,7 +10,7 @@ import { PersistentValueStore } from '../common/persistent-value.store';
 import {
   CatalogItem, HOT_CATEGORY_PAGES, HOT_PAGES, KEYWORD_PAGES, MAX_FAILS_IN_A_ROW, MAX_SCAN_PROMOS, PROMO_PAGES,
   PickFunnel, SEEN_TTL_MS, ScoutCandidate, ScoutOrigin, ScoutPick, SourceGroup, SourceStat,
-  carryOver, dedupe, maxScanCalls, minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks, stampSeen, worthNextPage,
+  carryOver, dedupe, maxPriceIls, maxScanCalls, minCommissionPct, withinPrice, picksPerReport, rankCatalog, scanKeywords, selectPicks, stampSeen, worthNextPage,
 } from './commission-scout';
 import {
   CATEGORY_PAID_TTL_MS, CategoryPaid, KeywordStats, Learning, SCOUT_SORTS, SoldStats,
@@ -54,6 +54,8 @@ export interface ScoutCatalog {
   budget_hit?: boolean;
   /** Products this scan found for the first time (the list keeps earlier scans' finds for a week). */
   new_count?: number;
+  /** The price cap the scan applied, in ₪ (0 = none). */
+  max_price_ils?: number;
   /** What each kind of source gave (the screen's «מה הסריקה מצאה»). */
   sources?: SourceStat[];
   /** Where products fell out of the daily report (daily scan only). */
@@ -120,7 +122,9 @@ export class CommissionScoutService {
 
   async scan(userId: string): Promise<ScoutReport> {
     const minRate = minCommissionPct();
-    const reader = this.makeReader(userId, minRate, maxScanCalls());
+    const priceIls = maxPriceIls();
+    const maxUsd = await this.priceCapUsd(priceIls);
+    const reader = this.makeReader(userId, minRate, maxScanCalls(), maxUsd);
     const { readPages, candidates, errors } = reader;
     const out = reader.out;
 
@@ -184,12 +188,14 @@ export class CommissionScoutService {
       // The list grows: what earlier scans found this week stays, and this scan's finds are «חדש».
       const previous = await this.memory.load<ScoutCatalog>(`commission_scout_catalog:${userId}`);
       const nowIso = new Date().toISOString();
-      const ranked = rankCatalog(carryOver(candidates, previous?.items), { minRate, posted: postedSet.ids, published: postedSet.set, learning });
+      // Earlier finds over today's price cap go: the cap applies to the whole list, not only to new finds.
+      const kept = (previous?.items || []).filter((p) => withinPrice(p, maxUsd));
+      const ranked = rankCatalog(carryOver(candidates, kept), { minRate, posted: postedSet.ids, published: postedSet.set, learning });
       const items = stampSeen(ranked, new Set(candidates.map((c) => String(c.product_id))), previous, nowIso);
       const catalog: ScoutCatalog = {
         scanned_at: nowIso,
         scanned, min_rate: minRate, errors: errors.slice(0, 5),
-        items, new_count: items.filter((i) => i.is_new).length,
+        items, new_count: items.filter((i) => i.is_new).length, max_price_ils: priceIls,
         calls, budget_hit: budgetHit,
         sources: reader.sources(), funnel,
       };
@@ -202,7 +208,7 @@ export class CommissionScoutService {
 
   /** The screen: the last scan, and whether one is running now. */
   async catalog(userId: string): Promise<{ catalog: ScoutCatalog | null; running: boolean; next_scan_at: string | null; last_error: string | null }> {
-    const catalog = await this.memory.load<ScoutCatalog>(`commission_scout_catalog:${userId}`);
+    const catalog = await this.capped(await this.memory.load<ScoutCatalog>(`commission_scout_catalog:${userId}`));
     const lastError = await this.memory.load<string>(`commission_scout_error:${userId}`);
     const last = catalog ? Date.parse(catalog.scanned_at) : 0;
     const next = last && Date.now() - last < SCAN_COOLDOWN_MS ? new Date(last + SCAN_COOLDOWN_MS).toISOString() : null;
@@ -228,7 +234,7 @@ export class CommissionScoutService {
    * Reads scout sources within a budget of API calls, spaced 1.1 s apart, paging on while a full
    * page still has something at or above the bar, and stopping after MAX_FAILS_IN_A_ROW failures.
    */
-  private makeReader(userId: string, minRate: number, budget: number) {
+  private makeReader(userId: string, minRate: number, budget: number, maxUsd = 0) {
     const candidates: ScoutCandidate[] = [];
     const errors: string[] = [];
     let scanned = 0;
@@ -239,7 +245,7 @@ export class CommissionScoutService {
     const read = async (source: ScoutSource, page: number, foundBy: string, origin: ScoutOrigin) => {
       if (out()) return { data: [] as any[], sorted: false };
       calls++;
-      const res = await this.products.scoutProducts(userId, source, page);
+      const res = await this.products.scoutProducts(userId, source, page, 50, maxUsd);
       const group = sourceGroup(source);
       const st = bySource.get(group) || { group, calls: 0, read: 0, at_bar: 0, errors: 0 };
       st.calls++;
@@ -332,7 +338,7 @@ export class CommissionScoutService {
 
   /** A niche's last result, and whether a search of it runs now. */
   async nicheResult(userId: string, id: string): Promise<{ result: NicheCatalog | null; running: boolean; next_scan_at: string | null }> {
-    const result = await this.memory.load<NicheCatalog>(this.nicheKey(userId, id));
+    const result = await this.capped(await this.memory.load<NicheCatalog>(this.nicheKey(userId, id)));
     const last = result ? Date.parse(result.scanned_at) : 0;
     const next = last && Date.now() - last < NICHE_COOLDOWN_MS ? new Date(last + NICHE_COOLDOWN_MS).toISOString() : null;
     return { result, running: this.running.has(`${userId}:${id}`), next_scan_at: next };
@@ -355,7 +361,9 @@ export class CommissionScoutService {
 
   private async scanNiche(userId: string, id: string, label: string, steps: ScanStep[]): Promise<void> {
     const minRate = minCommissionPct();
-    const reader = this.makeReader(userId, minRate, NICHE_MAX_CALLS);
+    const priceIls = maxPriceIls();
+    const maxUsd = await this.priceCapUsd(priceIls);
+    const reader = this.makeReader(userId, minRate, NICHE_MAX_CALLS, maxUsd);
     // A niche searched again reads another (sort, depth) slice, so it adds rather than repeats.
     const step = await this.nextStep(`commission_scout_niche_cursor:${userId}:${id.slice(0, 90)}`);
     for (let i = 0; i < steps.length; i++) {
@@ -370,13 +378,14 @@ export class CommissionScoutService {
     const posted = await this.publishedRecently(userId);
     const previous = await this.memory.load<NicheCatalog>(this.nicheKey(userId, id));
     const nowIso = new Date().toISOString();
-    const ranked = rankCatalog(carryOver(reader.candidates, previous?.items), { minRate, posted: posted.ids, published: posted.set, learning });
+    const kept = (previous?.items || []).filter((p) => withinPrice(p, maxUsd));
+    const ranked = rankCatalog(carryOver(reader.candidates, kept), { minRate, posted: posted.ids, published: posted.set, learning });
     const items = stampSeen(ranked, new Set(reader.candidates.map((c) => String(c.product_id))), previous, nowIso);
     const result: NicheCatalog = {
       niche_id: id, label,
       scanned_at: nowIso,
       scanned, min_rate: minRate, errors: reader.errors.slice(0, 5),
-      items, new_count: items.filter((i) => i.is_new).length,
+      items, new_count: items.filter((i) => i.is_new).length, max_price_ils: priceIls,
       calls, budget_hit: budgetHit, sources: reader.sources(),
     };
     await this.memory.save(this.nicheKey(userId, id), result, NICHE_TTL_MS);
@@ -478,6 +487,26 @@ export class CommissionScoutService {
     const clickedTitles = posts.filter((p) => (Number(p.clicks_count) || 0) > 0 && p.product_title).map((p) => p.product_title);
 
     return { sold, categories, keywords, profile: relevanceProfile(candidates, clickedTitles) };
+  }
+
+  /**
+   * A stored list under today's price cap: a list saved before the cap existed, or before
+   * it was lowered, must not show what the cap now excludes until the next scan rewrites it.
+   */
+  private async capped<T extends ScoutCatalog>(list: T | null): Promise<T | null> {
+    if (!list?.items?.length) return list;
+    const maxUsd = await this.priceCapUsd(maxPriceIls());
+    if (!maxUsd) return list;
+    return { ...list, items: list.items.filter((i) => withinPrice(i, maxUsd)), max_price_ils: maxPriceIls() };
+  }
+
+  /** The price cap in USD for this scan; a rate that cannot be read leaves the cap off rather than failing the scan. */
+  private async priceCapUsd(maxIls: number): Promise<number> {
+    try {
+      return (await this.products.scoutPriceCapUsd(maxIls)) || 0;
+    } catch {
+      return 0;
+    }
   }
 
   /** This scan's rotation step, and the next one saved (a year: it only has to keep moving). */
