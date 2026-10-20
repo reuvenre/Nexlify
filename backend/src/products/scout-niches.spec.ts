@@ -75,7 +75,7 @@ describe('CommissionScoutService — search by niche', () => {
     await svc.startNicheScan('u1', 'cat:44');
     await flush();
     const sources = products.scoutProducts.mock.calls.map((c: any[]) => c[1]);
-    expect(sources).toEqual([{ kind: 'hot', category_id: '44' }, { kind: 'search', category_id: '44' }]);
+    expect(sources).toMatchObject([{ kind: 'hot', category_id: '44' }, { kind: 'search', category_id: '44' }]);
   });
 
   it('keeps a niche search within its own call budget', async () => {

@@ -582,6 +582,10 @@ export interface ScoutItem extends AliProduct {
   paid_basis?: 'product' | 'category';
   /** For his audience: his keywords' categories or his clicked posts' words (backend scout-learning.ts). */
   relevant?: boolean;
+  /** The list grows across scans: when one first and last found it, and whether this scan was the first. */
+  first_seen_at?: string;
+  last_seen_at?: string;
+  is_new?: boolean;
   /** The scout's ranking: money per sale × sales × rating, × his own results (backend scout-learning.ts). */
   score: number;
   /** A campaign keyword or a promotion list's name. */
@@ -627,6 +631,8 @@ export interface ScoutFunnel {
 export interface ScoutCatalogResponse {
   catalog: {
     scanned_at: string; scanned: number; min_rate: number; errors: string[]; items: ScoutItem[]; calls?: number; budget_hit?: boolean;
+    /** Products this scan found for the first time. */
+    new_count?: number;
     /** What each kind of source gave (backend SourceStat). */
     sources?: ScoutSourceStat[];
     /** Where products fell out of the daily Telegram report (daily scan only). */

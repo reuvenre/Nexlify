@@ -39,8 +39,7 @@ export const MIN_RATING = 4.3;
  */
 export const RELAXED_MIN_ORDERS = 3;
 export const RELAXED_MIN_RATING = 4.0;
-/** Products outside his niche fill at most this many of a short report, and say so. */
-export const OFF_NICHE_MAX_PICKS = 3;
+
 /** No more than this many picks from one category, so one category cannot fill the list. */
 export const MAX_PER_CATEGORY = 3;
 /** A product recommended once is not recommended again for this long. */
@@ -76,6 +75,8 @@ export interface ScoutCandidate {
   sale_price_usd: number;
   commission_rate: number;
   category?: string;
+  /** AliExpress's second-level category: the finer relevance test (scout-learning.ts). */
+  subcategory?: string;
   image_url?: string;
   product_url?: string;
   affiliate_url?: string;
@@ -93,8 +94,6 @@ export interface ScoutPick extends ScoutCandidate {
   /** What one sale pays, in USD (commissions are paid in USD), at the effective rate. */
   earn_per_sale_usd: number;
   score: number;
-  /** Filled a short report from outside his niche: the card says so. */
-  off_niche?: boolean;
 }
 
 /** "12.5%" / "12.5" / 12.5 → 12.5; anything unreadable → 0. */
@@ -195,8 +194,9 @@ export interface PickFunnel {
 /**
  * The Telegram report, filled in tiers so it is neither repetitive nor empty:
  *  1. relevant products at the strict floors;
- *  2. relevant products at the relaxed floors (RELAXED_MIN_ORDERS / RELAXED_MIN_RATING);
- *  3. at most OFF_NICHE_MAX_PICKS products outside his niche at the strict floors, marked.
+ *  2. relevant products at the relaxed floors (RELAXED_MIN_ORDERS / RELAXED_MIN_RATING).
+ * Off-niche products never fill it: a short report of his own niche beats a full one with
+ * tractors in it (the first version filled up to three, and the owner asked for none).
  * The bar is the effective rate: a declared 15 % in a category his orders show pays a
  * third of that does not count as 15 %. Nothing posted or recommended in 30 days comes
  * back, under its own id or another store's (`published`), and no two picks are the same
@@ -221,10 +221,9 @@ export function selectPicks(candidates: ScoutCandidate[], opts: {
     pool.push(c);
   }
   const best = ranked(pool);
-  const tiers: Array<{ items: ScoutPick[]; cap: number; offNiche?: boolean }> = [
-    { items: best.filter((p) => p.relevant !== false && meetsFloors(p)), cap: opts.max },
-    { items: best.filter((p) => p.relevant !== false && !meetsFloors(p) && meetsFloors(p, true)), cap: opts.max },
-    { items: best.filter((p) => p.relevant === false && meetsFloors(p)), cap: OFF_NICHE_MAX_PICKS, offNiche: true },
+  const tiers: ScoutPick[][] = [
+    best.filter((p) => p.relevant !== false && meetsFloors(p)),
+    best.filter((p) => p.relevant !== false && !meetsFloors(p) && meetsFloors(p, true)),
   ];
   funnel.off_niche = best.filter((p) => p.relevant === false).length;
   funnel.floors = best.filter((p) => p.relevant !== false && !meetsFloors(p, true)).length;
@@ -233,16 +232,14 @@ export function selectPicks(candidates: ScoutCandidate[], opts: {
   const taken = new PublishedProducts();
   const picks: ScoutPick[] = [];
   for (const tier of tiers) {
-    let fromTier = 0;
-    for (const p of tier.items) {
-      if (picks.length >= opts.max || fromTier >= tier.cap) break;
+    for (const p of tier) {
+      if (picks.length >= opts.max) break;
       const cat = (p.category || '—').toLowerCase();
       const n = perCategory.get(cat) || 0;
       if (n >= MAX_PER_CATEGORY || taken.has(p)) continue;
       perCategory.set(cat, n + 1);
       taken.add(p);
-      picks.push(tier.offNiche ? { ...p, off_niche: true } : p);
-      fromTier++;
+      picks.push(p);
     }
   }
   return { picks, qualified: pool.length, funnel };
@@ -272,6 +269,43 @@ export const CATALOG_MAX = 2000;
 export interface CatalogItem extends ScoutPick {
   /** The account posted it in the last 30 days (by id, photo or title) — shown, marked, never hidden. */
   posted_recently: boolean;
+  /** When a scan first and last found it: the list grows across scans (mergeCatalog). */
+  first_seen_at?: string;
+  last_seen_at?: string;
+  /** First found by this scan: «חדש» on the card. */
+  is_new?: boolean;
+}
+
+/** A product another scan found stays on the screen this long after it was last seen. */
+export const CATALOG_KEEP_MS = 7 * 86_400_000;
+
+/**
+ * The candidates the next ranking reads: this scan's, plus every product an earlier scan
+ * found within CATALOG_KEEP_MS that this one did not. Pressing «סרוק עכשיו» used to replace
+ * the list, so a scan that read a different slice still looked like the same few products;
+ * now it adds. A product found again keeps this scan's price and rate.
+ */
+export function carryOver(fresh: ScoutCandidate[], previous: CatalogItem[] | undefined, now = Date.now()): ScoutCandidate[] {
+  const found = new Set(fresh.map((c) => String(c.product_id)));
+  const kept = (previous || []).filter((p) => p?.product_id && !found.has(String(p.product_id))
+    && now - Date.parse(p.last_seen_at || '') <= CATALOG_KEEP_MS);
+  return [...fresh, ...kept];
+}
+
+/** Stamp first/last seen on a ranked list, from the previous list (`scannedAt` stands in for items saved before the stamps existed). */
+export function stampSeen(items: CatalogItem[], fresh: Set<string>, previous: { items?: CatalogItem[]; scanned_at?: string } | null, nowIso: string): CatalogItem[] {
+  const prev = new Map((previous?.items || []).map((p) => [String(p.product_id), p]));
+  return items.map((it) => {
+    const before = prev.get(String(it.product_id));
+    const first = before?.first_seen_at || (before ? previous?.scanned_at : undefined) || nowIso;
+    const isFresh = fresh.has(String(it.product_id));
+    return {
+      ...it,
+      first_seen_at: first,
+      last_seen_at: isFresh ? nowIso : (before?.last_seen_at || previous?.scanned_at || nowIso),
+      is_new: !before && isFresh,
+    };
+  });
 }
 
 /**
@@ -336,7 +370,6 @@ export function pickLines(p: ScoutPick): string[] {
       : p.origin === 'hot' ? `🔥 מהמוצרים החמים «${p.found_by}»`
         : `🏷️ מרשימת המבצעים «${p.found_by}»`,
   ];
-  if (p.off_niche) lines.push('🌐 מחוץ לנישה של הערוצים שלך: נכנס כי לא היו מספיק מוצרים מהנישה');
   return lines;
 }
 
@@ -364,7 +397,7 @@ export function funnelLine(f: PickFunnel, minRate: number): string {
   const parts = [`${f.at_bar.toLocaleString('en-US')} מעל ${minRate}%`];
   if (f.pays_less) parts.push(`${f.pays_less} משלמים לך בפועל פחות (לפי ההזמנות שלך)`);
   if (f.already) parts.push(`${f.already} כבר פורסמו או הומלצו ב-30 יום`);
-  if (f.off_niche) parts.push(`${f.off_niche} מחוץ לנישה שלך`);
+  if (f.off_niche) parts.push(`${f.off_niche} מחוץ לנישה שלך (לא נכנסים)`);
   if (f.floors) parts.push(`${f.floors} עם מעט מדי מכירות או דירוג נמוך`);
   return `📊 מתוך ${f.unique.toLocaleString('en-US')} מוצרים שונים: ${parts.join(' · ')}.`;
 }

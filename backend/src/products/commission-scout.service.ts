@@ -10,7 +10,7 @@ import { PersistentValueStore } from '../common/persistent-value.store';
 import {
   CatalogItem, HOT_CATEGORY_PAGES, HOT_PAGES, KEYWORD_PAGES, MAX_FAILS_IN_A_ROW, MAX_SCAN_PROMOS, PROMO_PAGES,
   PickFunnel, SEEN_TTL_MS, ScoutCandidate, ScoutOrigin, ScoutPick, SourceGroup, SourceStat,
-  dedupe, maxScanCalls, minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks, worthNextPage,
+  carryOver, dedupe, maxScanCalls, minCommissionPct, picksPerReport, rankCatalog, scanKeywords, selectPicks, stampSeen, worthNextPage,
 } from './commission-scout';
 import {
   CATEGORY_PAID_TTL_MS, CategoryPaid, KeywordStats, Learning, SCOUT_SORTS, SoldStats,
@@ -52,6 +52,8 @@ export interface ScoutCatalog {
   /** API calls the scan spent, and whether it stopped at its budget with more left to read. */
   calls?: number;
   budget_hit?: boolean;
+  /** Products this scan found for the first time (the list keeps earlier scans' finds for a week). */
+  new_count?: number;
   /** What each kind of source gave (the screen's «מה הסריקה מצאה»). */
   sources?: SourceStat[];
   /** Where products fell out of the daily report (daily scan only). */
@@ -122,18 +124,23 @@ export class CommissionScoutService {
     const { readPages, candidates, errors } = reader;
     const out = reader.out;
 
-    // 1. AliExpress's own promotion lists, highest commission first.
-    const promos = (await this.products.featuredPromoNames(userId)).slice(0, MAX_SCAN_PROMOS);
-    for (const name of promos) await readPages({ kind: 'promo', name }, PROMO_PAGES, name, 'promo');
+    // Every source reads a different (sort, page) slice on every scan: the API returns a
+    // small fixed slice per query, so a fixed slice meant the same products scan after scan.
+    // The step is per scan, kept across deploys (it used to be per day, so ten «סרוק עכשיו»
+    // in one day read exactly the same pages).
+    const step = await this.nextStep(`commission_scout_cursor:${userId}`);
 
-    // Every keyword and category reads a different (sort, page) slice each day: the API
-    // returns a small fixed slice per query, so the same slice daily meant the same products.
-    const day = Math.floor(Date.now() / 86_400_000);
+    // 1. AliExpress's own promotion lists, highest commission first: a different set of them,
+    //    from a different depth, each scan.
+    const allPromos = await this.products.featuredPromoNames(userId);
+    const promoStart = allPromos.length ? (step * MAX_SCAN_PROMOS) % allPromos.length : 0;
+    const promos = [...allPromos.slice(promoStart), ...allPromos.slice(0, promoStart)].slice(0, MAX_SCAN_PROMOS);
+    for (const name of promos) await readPages({ kind: 'promo', name }, PROMO_PAGES, name, 'promo', 1 + (step % 2) * PROMO_PAGES);
 
     // 2. The hot-products feed, overall: best sellers or the dearest, pages 1–5 or 6–10.
-    const overall = rotationSlice(day, 0, HOT_PAGES);
+    const overall = rotationSlice(step, 0, HOT_PAGES);
     await readPages({ kind: 'hot', sort: overall.sort }, HOT_PAGES, 'כל הקטגוריות', 'hot',
-      1 + (Math.floor(day / SCOUT_SORTS.length) % 2) * HOT_PAGES);
+      1 + (Math.floor(step / SCOUT_SORTS.length) % 2) * HOT_PAGES);
 
     // 3. The owner's niche: every active campaign's keywords, regular and hot search.
     const active = await this.campaigns.find({ where: { user_id: userId, status: 'active' as any } })
@@ -141,17 +148,23 @@ export class CommissionScoutService {
     const keywords = scanKeywords(active.map((c) => c.keywords || []));
     for (let i = 0; i < keywords.length; i++) {
       const kw = keywords[i];
-      const { sort, startPage } = rotationSlice(day, i, KEYWORD_PAGES);
+      const { sort, startPage } = rotationSlice(step, i, KEYWORD_PAGES);
       await readPages({ kind: 'search', keyword: kw, sort }, KEYWORD_PAGES, kw, 'niche', startPage);
       await readPages({ kind: 'hot', keyword: kw, sort }, KEYWORD_PAGES, kw, 'niche', startPage);
     }
 
-    // 4. The hot-products feed per category, from a different category each day.
-    const cats = await this.products.getCategories(userId).catch(() => [] as Array<{ id: string; name: string }>);
+    // 4. Per category: only the categories his own keywords' results landed in, read in both
+    //    the hot feed and the regular search. Reading every AliExpress category spent most of
+    //    the budget on tractors and wigs the screen then had to hide. With no niche to go by
+    //    (no keyword results), every category, from a different one each scan.
+    const allCats = await this.products.getCategories(userId).catch(() => [] as Array<{ id: string; name: string }>);
+    const mine = relevanceProfile(candidates, []).categories;
+    const cats = mine.size ? allCats.filter((c) => mine.has(String(c.name || '').trim().toLowerCase())) : allCats;
     for (let i = 0; i < cats.length && !out(); i++) {
-      const c = cats[(day + i) % cats.length];
-      const { sort, startPage } = rotationSlice(day, i, HOT_CATEGORY_PAGES);
+      const c = cats[(step + i) % cats.length];
+      const { sort, startPage } = rotationSlice(step, i, HOT_CATEGORY_PAGES);
       await readPages({ kind: 'hot', category_id: c.id, sort }, HOT_CATEGORY_PAGES, c.name, 'hot', startPage);
+      if (mine.size) await readPages({ kind: 'search', category_id: c.id, sort }, HOT_CATEGORY_PAGES, c.name, 'hot', startPage);
     }
     const { calls, scanned, budgetHit } = reader.stats();
 
@@ -168,10 +181,15 @@ export class CommissionScoutService {
     await this.memory.save(`commission_scout_error:${userId}`, scanned > 0 ? null
       : (errors[0] || 'לא נמצא מה לסרוק: אין קמפיין פעיל עם מילות מפתח, ואלי אקספרס לא החזירה רשימות מבצעים'), CATALOG_TTL_MS);
     if (scanned > 0) {
+      // The list grows: what earlier scans found this week stays, and this scan's finds are «חדש».
+      const previous = await this.memory.load<ScoutCatalog>(`commission_scout_catalog:${userId}`);
+      const nowIso = new Date().toISOString();
+      const ranked = rankCatalog(carryOver(candidates, previous?.items), { minRate, posted: postedSet.ids, published: postedSet.set, learning });
+      const items = stampSeen(ranked, new Set(candidates.map((c) => String(c.product_id))), previous, nowIso);
       const catalog: ScoutCatalog = {
-        scanned_at: new Date().toISOString(),
+        scanned_at: nowIso,
         scanned, min_rate: minRate, errors: errors.slice(0, 5),
-        items: rankCatalog(candidates, { minRate, posted: postedSet.ids, published: postedSet.set, learning }),
+        items, new_count: items.filter((i) => i.is_new).length,
         calls, budget_hit: budgetHit,
         sources: reader.sources(), funnel,
       };
@@ -338,18 +356,27 @@ export class CommissionScoutService {
   private async scanNiche(userId: string, id: string, label: string, steps: ScanStep[]): Promise<void> {
     const minRate = minCommissionPct();
     const reader = this.makeReader(userId, minRate, NICHE_MAX_CALLS);
-    for (const st of steps) {
+    // A niche searched again reads another (sort, depth) slice, so it adds rather than repeats.
+    const step = await this.nextStep(`commission_scout_niche_cursor:${userId}:${id.slice(0, 90)}`);
+    for (let i = 0; i < steps.length; i++) {
       if (reader.out()) break;
-      await reader.readPages(st.source, st.pages, st.foundBy, st.origin);
+      const st = steps[i];
+      const { sort, startPage } = rotationSlice(step, i, st.pages);
+      const source = st.source.kind === 'promo' ? st.source : { ...st.source, sort };
+      await reader.readPages(source, st.pages, st.foundBy, st.origin, startPage);
     }
     const { calls, scanned, budgetHit } = reader.stats();
     const learning = await this.learning(userId, reader.candidates);
     const posted = await this.publishedRecently(userId);
+    const previous = await this.memory.load<NicheCatalog>(this.nicheKey(userId, id));
+    const nowIso = new Date().toISOString();
+    const ranked = rankCatalog(carryOver(reader.candidates, previous?.items), { minRate, posted: posted.ids, published: posted.set, learning });
+    const items = stampSeen(ranked, new Set(reader.candidates.map((c) => String(c.product_id))), previous, nowIso);
     const result: NicheCatalog = {
       niche_id: id, label,
-      scanned_at: new Date().toISOString(),
+      scanned_at: nowIso,
       scanned, min_rate: minRate, errors: reader.errors.slice(0, 5),
-      items: rankCatalog(reader.candidates, { minRate, posted: posted.ids, published: posted.set, learning }),
+      items, new_count: items.filter((i) => i.is_new).length,
       calls, budget_hit: budgetHit, sources: reader.sources(),
     };
     await this.memory.save(this.nicheKey(userId, id), result, NICHE_TTL_MS);
@@ -451,6 +478,13 @@ export class CommissionScoutService {
     const clickedTitles = posts.filter((p) => (Number(p.clicks_count) || 0) > 0 && p.product_title).map((p) => p.product_title);
 
     return { sold, categories, keywords, profile: relevanceProfile(candidates, clickedTitles) };
+  }
+
+  /** This scan's rotation step, and the next one saved (a year: it only has to keep moving). */
+  private async nextStep(key: string): Promise<number> {
+    const step = Math.max(0, Math.floor(Number(await this.memory.load<number>(key)) || 0));
+    await this.memory.save(key, step + 1, 365 * 86_400_000);
+    return step;
   }
 
   /** A bounded read that never fails the scan: an error (or no repository) is an empty answer. */

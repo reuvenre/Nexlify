@@ -29,8 +29,8 @@ describe('CommissionScoutService', () => {
   it('keeps the whole ranked list for the screen, with what was posted marked', async () => {
     const { svc, stored } = build();
     const report = await svc.scan('u1');
-    // one promo page, the hot feed, the keyword in both searches, one category of the hot feed
-    expect(report.scanned).toBe(5);
+    // one promo page, the hot feed, the keyword in both searches, his one category in both searches
+    expect(report.scanned).toBe(6);
     expect(report.picks).toHaveLength(0); // posted in the last 30 days: not recommended again
     const saved = stored['commission_scout_catalog:u1'];
     expect(saved.items).toHaveLength(1);
@@ -38,7 +38,7 @@ describe('CommissionScoutService', () => {
     expect(saved.min_rate).toBe(12);
     // what each kind of source gave, for the screen's breakdown
     expect(saved.sources.map((x: any) => [x.group, x.calls, x.at_bar])).toEqual([
-      ['promo', 1, 1], ['hot', 1, 1], ['keywords', 2, 2], ['categories', 1, 1],
+      ['promo', 1, 1], ['hot', 1, 1], ['keywords', 2, 2], ['categories', 2, 2],
     ]);
     expect(saved.funnel).toMatchObject({ unique: 1, already: 1 });
   });
@@ -72,18 +72,46 @@ describe('CommissionScoutService', () => {
     release();
   });
 
-  it("reads each keyword at the day's rotated slice, and page 1 when that slice is past the end", async () => {
-    const { svc, products } = build();
-    // day % 6 === 2 → keyword 0 reads the best sellers from page 3 today
-    const now = jest.spyOn(Date, 'now').mockReturnValue((6 * 3000 + 2) * 86_400_000 + 3600_000);
+  it("reads each keyword at this scan's rotated slice, and page 1 when that slice is past the end", async () => {
+    // step 2 → keyword 0 reads the best sellers from page 3
+    const { svc, products, stored } = build({ 'commission_scout_cursor:u1': 2 });
     products.featuredPromoNames.mockResolvedValue([]);
     products.getCategories.mockResolvedValue([]);
-    products.scoutProducts.mockImplementation(async (_u: string, _src: any, page: number) => ({ data: page === 1 ? [] : [] }));
+    products.scoutProducts.mockImplementation(async () => ({ data: [] }));
     await svc.scan('u1');
-    now.mockRestore();
     const search = products.scoutProducts.mock.calls.filter((c: any[]) => c[1].kind === 'search');
     expect(search.map((c: any[]) => c[2])).toEqual([3, 1]);
     expect(search[0][1].sort).toBe('LAST_VOLUME_DESC');
+    expect(stored['commission_scout_cursor:u1']).toBe(3);
+  });
+
+  it('reads a different slice on the next scan the same day, and adds to the list instead of replacing it', async () => {
+    const { svc, products, stored, item } = build();
+    products.featuredPromoNames.mockResolvedValue([]);
+    products.getCategories.mockResolvedValue([]);
+    const slices: string[] = [];
+    products.scoutProducts.mockImplementation(async (_u: string, src: any, page: number) => {
+      if (src.kind === 'search') slices.push(`${src.sort}@${page}`);
+      // each slice holds its own product
+      return { data: [{ ...item, product_id: `${src.kind}-${src.sort}-${page}` }] };
+    });
+    await svc.scan('u1');
+    const first = stored['commission_scout_catalog:u1'];
+    await svc.scan('u1');
+    const second = stored['commission_scout_catalog:u1'];
+    expect(slices[0]).not.toEqual(slices[slices.length - 1]);
+    expect(second.items.length).toBeGreaterThan(first.items.length);
+    expect(second.new_count).toBeGreaterThan(0);
+    expect(second.items.filter((i: any) => i.is_new).length).toBe(second.new_count);
+  });
+
+  it("reads only his own categories once his keywords show them", async () => {
+    const { svc, products } = build();
+    products.featuredPromoNames.mockResolvedValue([]);
+    products.getCategories.mockResolvedValue([{ id: '44', name: 'Tools' }, { id: '99', name: 'Agriculture' }]);
+    await svc.scan('u1');
+    const catIds = products.scoutProducts.mock.calls.map((c: any[]) => c[1].category_id).filter(Boolean);
+    expect(new Set(catIds)).toEqual(new Set(['44'])); // tractors' category never read
   });
 
   it("ranks by what his own orders of a product paid, not by the declared rate", async () => {

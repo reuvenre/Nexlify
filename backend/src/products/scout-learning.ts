@@ -5,16 +5,18 @@
  * have nothing to do with his channels, and too few products. Each has its own cause here:
  *
  *  - **The same products.** The affiliate API returns a small, fixed slice per query, so a
- *    keyword read at the same (sort, page) every day returns the same items forever, and the
+ *    keyword read at the same (sort, page) every time returns the same items forever, and the
  *    30-day "already recommended" memory then empties the report. `rotationSlice` walks each
- *    keyword and category through different (sort, page) slices day by day.
+ *    keyword and category through different (sort, page) slices, one step per scan (the
+ *    first version stepped per day, so ten «סרוק עכשיו» in one day read the same pages).
  *  - **The same product under another id.** AliExpress lists one item once per store. The
  *    scout's "already posted" check was by id, so another store's listing of last week's
  *    product came back as new. The scan now asks `PublishedProducts` (photo / title).
- *  - **Not relevant.** AliExpress's promotion lists and the overall hot feed are for every
- *    audience. `relevanceProfile` reads, from the same scan, which categories the owner's own
- *    keywords land in, plus the words of his clicked posts; a product outside both ranks lower
- *    and fills the Telegram report only when nothing relevant is left, marked as such.
+ *  - **Not relevant.** AliExpress's promotion lists and hot feeds are for every audience: the
+ *    owner found tractors on his screen. `relevanceProfile` reads, from the same scan, which
+ *    sub-categories and categories his own keywords' results land in; a product outside them
+ *    is off-niche. It never reaches the Telegram report, is hidden on the screen unless he
+ *    asks for it, and the category scan reads only his categories.
  *  - **The rate is what the API declares, not what is paid** (category caps, new vs returning
  *    buyer). His own orders say what he was really paid: per product when it sold, per
  *    category otherwise (`learnCategoryPaid`, remembered across scans). The ranking uses that.
@@ -67,6 +69,7 @@ export interface RatedLike {
   product_id: string;
   commission_rate: number;
   category?: string;
+  subcategory?: string;
 }
 
 function catKey(category?: string): string {
@@ -152,8 +155,10 @@ export function keywordBoost(s: KeywordStats | undefined): number {
 // ── Relevant to his channels ──────────────────────────────────────────────────
 
 export interface RelevanceProfile {
-  /** Categories his own keywords' results fall in (at least MIN_NICHE_HITS of them). */
+  /** Top-level categories his own keywords' results fall in (at least MIN_NICHE_HITS of them). */
   categories: Set<string>;
+  /** Second-level categories likewise: the finer test, where the product carries one. */
+  subcategories: Set<string>;
   /** Words that recur in the titles of his clicked posts. */
   words: Set<string>;
   /** Nothing to judge by (no keywords, no clicked posts): everything counts as relevant. */
@@ -166,33 +171,68 @@ export const MIN_NICHE_HITS = 2;
 const MIN_WORD_POSTS = 2;
 /** A product sharing this many of his words is relevant without the category. */
 const MIN_SHARED_WORDS = 2;
+/**
+ * Words every listing in every niche carries. A tractor's "LED work light, waterproof,
+ * rechargeable" shares them with a tactical flashlight, so they say nothing about relevance.
+ */
+const GENERIC_WORDS = new Set([
+  'led', 'light', 'lights', 'lamp', 'waterproof', 'portable', 'mini', 'rechargeable', 'usb', 'outdoor', 'car',
+  'multifunctional', 'multifunction', 'professional', 'universal', 'smart', 'electric', 'wireless', 'bluetooth',
+  'black', 'white', 'large', 'small', 'kit', 'tool', 'tools', 'accessories', 'accessory', 'type', 'size',
+  'power', 'battery', 'adjustable', 'durable', 'stainless', 'steel', 'metal', 'plastic', 'home', 'gift',
+]);
 /** What an off-niche product's score is multiplied by. */
 export const OFF_NICHE_FACTOR = 0.6;
 
+function distinctive(w: string): boolean {
+  return w.length >= 3 && !/^\d+$/.test(w) && !GENERIC_WORDS.has(w);
+}
+
 export function relevanceProfile(
-  candidates: Array<{ category?: string; origin: string }>,
+  candidates: Array<{ category?: string; subcategory?: string; origin: string }>,
   clickedTitles: string[],
 ): RelevanceProfile {
   const hits = new Map<string, number>();
+  const subHits = new Map<string, number>();
   for (const c of candidates) {
     if (c.origin !== 'niche') continue;
     const k = catKey(c.category);
     hits.set(k, (hits.get(k) || 0) + 1);
+    if (c.subcategory) {
+      const sk = catKey(c.subcategory);
+      subHits.set(sk, (subHits.get(sk) || 0) + 1);
+    }
   }
-  const categories = new Set([...hits].filter(([k, n]) => k !== '—' && n >= MIN_NICHE_HITS).map(([k]) => k));
+  const often = (m: Map<string, number>) => new Set([...m].filter(([k, n]) => k !== '—' && n >= MIN_NICHE_HITS).map(([k]) => k));
+  const categories = often(hits);
+  const subcategories = often(subHits);
   const perWord = new Map<string, number>();
-  for (const t of clickedTitles) for (const w of titleTokens(t)) if (w.length >= 3 && !/^\d+$/.test(w)) perWord.set(w, (perWord.get(w) || 0) + 1);
+  for (const t of clickedTitles) for (const w of titleTokens(t)) if (distinctive(w)) perWord.set(w, (perWord.get(w) || 0) + 1);
   const words = new Set([...perWord].filter(([, n]) => n >= MIN_WORD_POSTS).map(([w]) => w));
-  return { categories, words, empty: !categories.size && !words.size };
+  return { categories, subcategories, words, empty: !categories.size && !words.size };
 }
 
-/** Is this product for his audience? His own keyword's result always is. */
-export function isRelevant(c: { title: string; category?: string; origin: string }, p: RelevanceProfile): boolean {
-  if (p.empty || c.origin === 'niche') return true;
-  if (p.categories.has(catKey(c.category))) return true;
+function sharesWords(title: string, words: Set<string>): boolean {
   let shared = 0;
-  for (const w of titleTokens(c.title)) if (p.words.has(w) && ++shared >= MIN_SHARED_WORDS) return true;
+  for (const w of titleTokens(title)) if (words.has(w) && ++shared >= MIN_SHARED_WORDS) return true;
   return false;
+}
+
+/**
+ * Is this product for his audience? His own keyword's result always is. Otherwise, where
+ * his keywords show categories:
+ *  - a product whose sub-category his keywords land in is;
+ *  - one in his top-level category but another sub-category is only when its title shares
+ *    his distinctive words (Lights holds both the flashlights he sells and tractor work lights);
+ *  - one outside his categories is not, whatever its words.
+ * With no categories to go by, his clicked posts' words decide alone.
+ */
+export function isRelevant(c: { title: string; category?: string; subcategory?: string; origin: string }, p: RelevanceProfile): boolean {
+  if (p.empty || c.origin === 'niche') return true;
+  if (!p.categories.size) return sharesWords(c.title, p.words);
+  if (!p.categories.has(catKey(c.category))) return false;
+  if (!c.subcategory || !p.subcategories.size) return true;
+  return p.subcategories.has(catKey(c.subcategory)) || sharesWords(c.title, p.words);
 }
 
 // ── Put together ──────────────────────────────────────────────────────────────
@@ -226,5 +266,5 @@ export function learnedFor(
 }
 
 export function emptyLearning(): Learning {
-  return { sold: new Map(), categories: {}, keywords: new Map(), profile: { categories: new Set(), words: new Set(), empty: true } };
+  return { sold: new Map(), categories: {}, keywords: new Map(), profile: { categories: new Set(), subcategories: new Set(), words: new Set(), empty: true } };
 }

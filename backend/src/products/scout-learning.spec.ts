@@ -1,4 +1,4 @@
-import { OFF_NICHE_MAX_PICKS, ScoutCandidate, pickLines, rankCatalog, selectPicks } from './commission-scout';
+import { CatalogItem, ScoutCandidate, carryOver, pickLines, rankCatalog, selectPicks, stampSeen } from './commission-scout';
 import {
   CATEGORY_PAID_TTL_MS, ROTATION_CYCLE_DAYS, SoldStats, categoryPaidRatio, effectiveRate, emptyLearning, isRelevant,
   keywordBoost, learnCategoryPaid, mergeCategoryPaid, relevanceProfile, rotationSlice,
@@ -92,6 +92,20 @@ describe('scout learning', () => {
       expect(isRelevant({ title: 'Headlamp', category: 'Lights', origin: 'promo' }, p)).toBe(true);
     });
 
+    it('tells a tractor work light from his flashlights inside one category', () => {
+      const p = relevanceProfile([
+        base({ category: 'Lights', subcategory: 'Flashlights' }), base({ category: 'Lights', subcategory: 'Flashlights' }),
+      ], ['Tactical flashlight molle clip', 'Tactical flashlight weapon mount']);
+      // his sub-category
+      expect(isRelevant({ title: 'Headlamp', category: 'Lights', subcategory: 'Flashlights', origin: 'hot' }, p)).toBe(true);
+      // his category, another sub-category, only generic words in common
+      expect(isRelevant({ title: 'LED work light waterproof rechargeable for tractor', category: 'Lights', subcategory: 'Work Lights', origin: 'hot' }, p)).toBe(false);
+      // another sub-category, but his own distinctive words
+      expect(isRelevant({ title: 'Tactical flashlight lantern combo', category: 'Lights', subcategory: 'Lanterns', origin: 'promo' }, p)).toBe(true);
+      // outside his categories, whatever the words
+      expect(isRelevant({ title: 'Tactical flashlight sticker for tractor', category: 'Automobiles', origin: 'hot' }, p)).toBe(false);
+    });
+
     it('also accepts a product sharing the words of his clicked posts', () => {
       const p = relevanceProfile([], ['Molle pouch tactical belt', 'Tactical molle vest', 'Phone case']);
       expect(isRelevant({ title: 'Tactical molle admin pouch', category: 'Bags', origin: 'promo' }, p)).toBe(true);
@@ -110,17 +124,15 @@ describe('scout learning', () => {
       return l;
     };
 
-    it('puts relevant products first and fills with at most a few marked off-niche ones', () => {
+    it('never fills the report with off-niche products, however much they pay', () => {
       const off = Array.from({ length: 6 }, (_, i) => base({
-        product_id: `off${i}`, origin: 'hot', category: `Cat${i}`, commission_rate: 80, title: `Wig ${i}`,
+        product_id: `off${i}`, origin: 'hot', category: `Cat${i}`, commission_rate: 80, title: `Tractor part ${i}`,
       }));
       const { picks, funnel } = selectPicks([base({ product_id: 'mine' }), ...off], {
         minRate: 12, exclude: new Set(), max: 10, learning: learning(),
       });
-      expect(picks[0].product_id).toBe('mine'); // pays far less than the wigs, still first
-      expect(picks.filter((p) => p.off_niche)).toHaveLength(OFF_NICHE_MAX_PICKS);
+      expect(picks.map((p) => p.product_id)).toEqual(['mine']);
       expect(funnel.off_niche).toBe(6);
-      expect(pickLines(picks[1]).join('\n')).toContain('מחוץ לנישה');
     });
 
     it('drops a product that declares the bar but, by his orders, pays under it', () => {
@@ -141,6 +153,26 @@ describe('scout learning', () => {
       });
       expect(picks[0].earn_per_sale_usd).toBe(2); // $10 × 20 %, not × 50 %
       expect(pickLines(picks[0])[0]).toContain('בפועל כ-20%');
+    });
+
+    it('keeps earlier scans\' finds for a week and marks only this scan\'s first finds as new', () => {
+      const now = Date.parse('2026-10-20T10:00:00Z');
+      const nowIso = new Date(now).toISOString();
+      const earlier = '2026-10-19T08:00:00.000Z';
+      const previous: CatalogItem[] = [
+        { ...base({ product_id: 'old' }), earn_per_sale_usd: 1, score: 1, posted_recently: false, first_seen_at: earlier, last_seen_at: earlier },
+        { ...base({ product_id: 'stale' }), earn_per_sale_usd: 1, score: 1, posted_recently: false, first_seen_at: '2026-10-01T00:00:00Z', last_seen_at: '2026-10-01T00:00:00Z' },
+        { ...base({ product_id: 'again', commission_rate: 15 }), earn_per_sale_usd: 1, score: 1, posted_recently: false, first_seen_at: earlier, last_seen_at: earlier },
+      ];
+      const fresh = [base({ product_id: 'again', commission_rate: 30 }), base({ product_id: 'brand-new' })];
+      const merged = carryOver(fresh, previous, now);
+      expect(merged.map((c) => c.product_id).sort()).toEqual(['again', 'brand-new', 'old']); // the stale one aged out
+      const items = stampSeen(rankCatalog(merged, { minRate: 12, posted: new Set() }), new Set(['again', 'brand-new']),
+        { items: previous, scanned_at: earlier }, nowIso);
+      const by = Object.fromEntries(items.map((i) => [i.product_id, i]));
+      expect(by['brand-new']).toMatchObject({ is_new: true, first_seen_at: nowIso });
+      expect(by.again).toMatchObject({ is_new: false, first_seen_at: earlier, last_seen_at: nowIso, commission_rate: 30 });
+      expect(by.old).toMatchObject({ is_new: false, last_seen_at: earlier });
     });
 
     it('shows the screen every product, one card per photo, posted ones marked by photo or title', () => {

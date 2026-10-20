@@ -52,6 +52,8 @@ interface SavedView {
   minRate: number;
   nicheOnly: boolean;
   hidePosted: boolean;
+  newOnly?: boolean;
+  showOffNiche?: boolean;
   query: string;
   nicheId: string;
   nicheActive: boolean;
@@ -71,8 +73,8 @@ function readView(): SavedView | null {
 }
 
 /** The filters a «טען עוד» count belongs to. */
-function filterKey(v: Pick<SavedView, 'category' | 'sort' | 'minRate' | 'nicheOnly' | 'hidePosted' | 'query'>): string {
-  return JSON.stringify([v.category, v.sort, v.minRate, v.nicheOnly, v.hidePosted, v.query]);
+function filterKey(v: Pick<SavedView, 'category' | 'sort' | 'minRate' | 'nicheOnly' | 'hidePosted' | 'query' | 'newOnly' | 'showOffNiche'>): string {
+  return JSON.stringify([v.category, v.sort, v.minRate, v.nicheOnly, v.hidePosted, v.query, !!v.newOnly, !!v.showOffNiche]);
 }
 
 const SYMBOLS: Record<string, string> = { ILS: '₪', USD: '$', EUR: '€', GBP: '£' };
@@ -124,6 +126,9 @@ export default function CommissionsPage() {
   const [minRate, setMinRate] = useState(12);
   const [nicheOnly, setNicheOnly] = useState(false);
   const [hidePosted, setHidePosted] = useState(false);
+  const [newOnly, setNewOnly] = useState(false);
+  /** Products outside his niche (tractors on a tactical channel) stay hidden unless he asks. */
+  const [showOffNiche, setShowOffNiche] = useState(false);
   const [query, setQuery] = useState('');
   const poll = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -216,6 +221,8 @@ export default function CommissionsPage() {
     setMinRate(RATE_STEPS.includes(v.minRate) ? v.minRate : 12);
     setNicheOnly(!!v.nicheOnly);
     setHidePosted(!!v.hidePosted);
+    setNewOnly(!!v.newOnly);
+    setShowOffNiche(!!v.showOffNiche);
     setQuery(String(v.query || ''));
     setShown({ key: filterKey(v), n: Math.max(GRID_PAGE, Number(v.shown) || GRID_PAGE) });
     if (v.nicheId) {
@@ -226,10 +233,14 @@ export default function CommissionsPage() {
 
   const catalog = data?.catalog || null;
   const nicheItems = niche?.result?.items;
-  const all = useMemo(() => {
+  const everything = useMemo(() => {
     const items = nicheActive && nicheItems ? nicheItems : catalog?.items || [];
     return posted.size ? items.map((it) => (posted.has(it.product_id) ? { ...it, posted_recently: true } : it)) : items;
   }, [catalog, nicheActive, nicheItems, posted]);
+  const offNicheCount = useMemo(() => everything.filter((it) => it.relevant === false).length, [everything]);
+  /** What the screen shows: his niche, unless he asked for the rest too. */
+  const all = useMemo(() => (showOffNiche ? everything : everything.filter((it) => it.relevant !== false)), [everything, showOffNiche]);
+  const newCount = useMemo(() => all.filter((it) => it.is_new).length, [all]);
 
   /** Categories by how many products they hold, for the chips and the shelves. */
   const categories = useMemo(() => {
@@ -246,12 +257,12 @@ export default function CommissionsPage() {
     return sortItems(all.filter((it) =>
       it.commission_rate >= minRate
       && (!category || (it.category || 'אחר') === category)
-      // His niche: found by his own keyword, or in the categories and words his channels live on.
-      && (!nicheOnly || it.origin === 'niche' || it.relevant === true)
+      && (!nicheOnly || it.origin === 'niche')
+      && (!newOnly || it.is_new)
       && (!hidePosted || !it.posted_recently)
       && (!q || it.title.toLowerCase().includes(q) || (it.found_by || '').toLowerCase().includes(q)),
     ), sort);
-  }, [all, minRate, category, nicheOnly, hidePosted, query, sort]);
+  }, [all, minRate, category, nicheOnly, newOnly, hidePosted, query, sort]);
 
   const stats = useMemo(() => {
     if (!all.length) return null;
@@ -271,12 +282,12 @@ export default function CommissionsPage() {
   const huge = useMemo(() => sortItems(filtered.filter((it) => it.commission_rate >= HUGE_RATE), 'rate'), [filtered]);
 
   // «טען עוד» counts for one set of filters; any other set starts from the first page again.
-  const currentKey = filterKey({ category, sort, minRate, nicheOnly, hidePosted, query });
+  const currentKey = filterKey({ category, sort, minRate, nicheOnly, hidePosted, query, newOnly, showOffNiche });
   const [shown, setShown] = useState({ key: '', n: GRID_PAGE });
   const shownN = shown.key === currentKey ? shown.n : GRID_PAGE;
 
   // The shelves view (like a storefront) is the default; any filter switches to one grid.
-  const browsing = !category && !query.trim() && !nicheOnly && !hidePosted && minRate === 12 && sort === 'smart';
+  const browsing = !category && !query.trim() && !nicheOnly && !newOnly && !hidePosted && minRate === 12 && sort === 'smart';
 
   // Once the list he left is on screen again: his scroll, then the card he opened, lit briefly.
   useEffect(() => {
@@ -297,7 +308,7 @@ export default function CommissionsPage() {
 
   const createPost = (it: ScoutItem, card: string) => {
     const view: SavedView = {
-      at: Date.now(), category, sort, minRate, nicheOnly, hidePosted, query,
+      at: Date.now(), category, sort, minRate, nicheOnly, hidePosted, query, newOnly, showOffNiche,
       nicheId, nicheActive, shown: shownN, scrollY: Math.round(window.scrollY), card,
     };
     try { sessionStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* storage blocked */ }
@@ -373,6 +384,8 @@ export default function CommissionsPage() {
             minRate={minRate} setMinRate={setMinRate}
             nicheOnly={nicheOnly} setNicheOnly={setNicheOnly}
             hidePosted={hidePosted} setHidePosted={setHidePosted}
+            newOnly={newOnly} setNewOnly={setNewOnly} newCount={newCount}
+            showOffNiche={showOffNiche} setShowOffNiche={setShowOffNiche} offNicheCount={offNicheCount}
             query={query} setQuery={setQuery}
             total={all.length}
           />
@@ -446,7 +459,7 @@ export default function CommissionsPage() {
 
           <p className="text-xs text-white/50 leading-relaxed">
             אחוז העמלה הוא מה שאלי אקספרס מצהירה ב-API לשותפים. בפועל העמלה יכולה להיות נמוכה יותר (תקרות לפי קטגוריה, לקוח חדש מול חוזר), ולכן כשההזמנות שלך מראות כמה שולם בפועל, הדירוג והרווח למכירה מחושבים לפיהן.
-            הסוכן סורק את רשימות המבצעים של אלי אקספרס, את פיד המוצרים החמים (שם נמצאות עמלות של 50–90%) בכל הקטגוריות ואת מילות המפתח של הקמפיינים הפעילים שלך, 50 מוצרים בכל קריאה. כל בוקר וגם כשתלחץ «סרוק עכשיו».
+            הסוכן סורק את רשימות המבצעים של אלי אקספרס, את פיד המוצרים החמים (שם נמצאות עמלות של 50–90%), את מילות המפתח של הקמפיינים הפעילים שלך ואת הקטגוריות שהן מגיעות אליהן, 50 מוצרים בכל קריאה. כל סריקה קוראת עמודים ומיונים אחרים, והמוצרים החדשים מצטרפים לרשימה (מה שנמצא בשבוע האחרון נשאר). מוצרים מחוץ לנישה של הערוצים שלך מוסתרים, אלא אם תבחר «הצג גם מחוץ לנישה».
             {!nicheActive && catalog?.budget_hit && ' הסריקה האחרונה עצרה במכסת הקריאות שלה, והבאה תתחיל מקטגוריות אחרות.'}
           </p>
         </>
@@ -509,6 +522,7 @@ function Hero({ stats, catalog, running, cooling, nextScanAt, onScan }: {
             </button>
             <span className="text-xs" style={{ color: 'rgba(255,255,255,0.85)' }}>
               נסרק {ago(catalog.scanned_at)} · {catalog.scanned.toLocaleString('en-US')} מוצרים נבדקו
+              {catalog.new_count ? ` · ${catalog.new_count.toLocaleString('en-US')} חדשים בסריקה הזו` : ''}
             </span>
           </div>}
         </div>
@@ -643,6 +657,8 @@ function Toolbar(p: {
   minRate: number; setMinRate: (n: number) => void;
   nicheOnly: boolean; setNicheOnly: (b: boolean) => void;
   hidePosted: boolean; setHidePosted: (b: boolean) => void;
+  newOnly: boolean; setNewOnly: (b: boolean) => void; newCount: number;
+  showOffNiche: boolean; setShowOffNiche: (b: boolean) => void; offNicheCount: number;
   query: string; setQuery: (q: string) => void;
   total: number;
 }) {
@@ -679,9 +695,20 @@ function Toolbar(p: {
         ))}
         <span className="mx-1 h-4 w-px bg-white/10 hidden sm:block" aria-hidden="true" />
         <Chip active={p.nicheOnly} onClick={() => p.setNicheOnly(!p.nicheOnly)}>
-          <span className="inline-flex items-center gap-1"><Target size={12} aria-hidden="true" /> רק מהנישה שלי</span>
+          <span className="inline-flex items-center gap-1"><Target size={12} aria-hidden="true" /> רק ממילות המפתח שלי</span>
         </Chip>
+        {(p.newCount > 0 || p.newOnly) && (
+          <Chip active={p.newOnly} onClick={() => p.setNewOnly(!p.newOnly)}>
+            <span className="inline-flex items-center gap-1"><Sparkles size={12} aria-hidden="true" /> רק חדשים · {p.newCount}</span>
+          </Chip>
+        )}
         <Chip active={p.hidePosted} onClick={() => p.setHidePosted(!p.hidePosted)}>הסתר מה שכבר פרסמתי</Chip>
+        {p.offNicheCount > 0 && (
+          <Chip active={p.showOffNiche} onClick={() => p.setShowOffNiche(!p.showOffNiche)}
+            label={`${p.showOffNiche ? 'הסתר' : 'הצג גם'} ${p.offNicheCount} מוצרים מחוץ לנישה של הערוצים שלך`}>
+            {p.showOffNiche ? 'הסתר' : 'הצג גם'} מחוץ לנישה · {p.offNicheCount}
+          </Chip>
+        )}
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="קטגוריות">
@@ -809,16 +836,21 @@ function ProductCard({ item: it, rank, onPost }: { item: ScoutItem; rank?: numbe
             {it.discount_percent}%-
           </span>
         )}
-        {(rank !== undefined || it.posted_recently) && (
+        {(rank !== undefined || it.posted_recently || it.is_new) && (
           <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-1 px-2 pb-2 pt-6" style={{ background: 'linear-gradient(to top, rgba(15,17,23,0.72), transparent)' }}>
             {rank !== undefined
               ? <span className="text-[11px] font-bold" style={{ color: '#fff' }}>#{rank} בהמלצות</span>
               : <span />}
-            {it.posted_recently && (
-              <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold inline-flex items-center gap-1" style={{ background: 'rgba(255,255,255,0.92)', color: '#0f1117' }}>
-                <CheckCircle2 size={11} aria-hidden="true" /> פורסם
-              </span>
-            )}
+            <span className="flex items-center gap-1">
+              {it.is_new && (
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: '#7c3aed', color: '#fff' }}>חדש</span>
+              )}
+              {it.posted_recently && (
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold inline-flex items-center gap-1" style={{ background: 'rgba(255,255,255,0.92)', color: '#0f1117' }}>
+                  <CheckCircle2 size={11} aria-hidden="true" /> פורסם
+                </span>
+              )}
+            </span>
           </div>
         )}
       </div>
@@ -968,6 +1000,7 @@ function NichePicker({ list, value, onPick, onSearch, state, active, onBack, onS
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 bg-emerald-500/10" role="status">
           <span className="text-xs text-emerald-300">
             {result.items.length.toLocaleString('en-US')} מוצרים עם עמלה של {result.min_rate}%+ ב«{result.label}» · נסרק {ago(result.scanned_at)}
+            {result.new_count ? ` · ${result.new_count} חדשים` : ''}
             {cooling && ' · אפשר לחפש שוב בעוד כמה דקות'}
           </span>
           {active
