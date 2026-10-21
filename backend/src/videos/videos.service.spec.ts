@@ -158,3 +158,79 @@ describe('VideosService — the AI clip when there is no seller video', () => {
     expect(post.mock.calls.every((c) => !String(c[0]).includes('generativelanguage'))).toBe(true);
   });
 });
+
+describe('VideosService — the Hebrew voiceover', () => {
+  const env = { ...process.env };
+  let post: jest.SpyInstance;
+  afterEach(() => { post.mockRestore(); process.env = { ...env }; });
+
+  function buildVoice() {
+    process.env.BACKEND_URL = 'https://api.example.com';
+    process.env.GITHUB_RENDER_TOKEN = 'ghtok';
+    process.env.REELS_VOICE = '1';
+    let job: any = null;
+    const jobs: any = {
+      create: (x: any) => x,
+      save: async (x: any) => { job = { ...x, id: ID, worker_token: WT, media_token: MT }; return job; },
+      update: async (_w: any, x: any) => { job = { ...job, ...x }; },
+      findOne: async () => job,
+      query: async () => [{ n: 0 }],
+    };
+    const p = { id: 'p1', user_id: 'u1', generated_text: 'ידית אחיזה טקטית למסילת פיקטיני\nאחיזה יציבה לשטח הפתוח', price_ils: 89,
+      product_image: 'https://a/kf/S1.jpg', product_title: 'Tactical Grip', product_video: 'https://v/1.mp4' };
+    const svc = new VideosService(jobs, { findOne: async () => p } as any, {} as any, { getName: async () => null } as any,
+      { getRaw: async () => ({ gemini_api_key: 'gkey' }), getTelegramToken: async () => null } as any);
+    post = jest.spyOn(axios, 'post');
+    return { svc, current: () => job };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 30));
+  const speech = () => {
+    const s = new Int16Array(24000 * 2).map((_, i) => (i % 2 ? 6000 : -6000));
+    return { data: { output_audio: { data: Buffer.from(s.buffer).toString('base64'), mime_type: 'audio/L16;rate=24000' } } };
+  };
+
+  it('speaks each scene, stretches the timing to fit, serves the WAV, then renders', async () => {
+    const { svc, current } = buildVoice();
+    const spoken: string[] = [];
+    post.mockImplementation(async (url: string, body: any) => {
+      if (url.includes('generativelanguage')) { spoken.push(body.input[0].content[0].text); return speech(); }
+      return { status: 204 };
+    });
+    await svc.requestReel('p1', 'owner');
+    await flush();
+    expect(spoken).toEqual(['ידית אחיזה טקטית למסילת פיקטיני', 'אחיזה יציבה לשטח הפתוח', 'רק 89 שקלים', 'הלינק בביו']);
+    const job = current();
+    expect(job.status).toBe('rendering');
+    expect(job.spec.voice).toBe(`https://api.example.com/videos/jobs/${ID}/voice.wav?t=${WT}`);
+    expect(job.spec.video).toBe('https://v/1.mp4'); // the seller's video stays
+    expect(job.spec.timing).toHaveLength(5);
+    expect(job.spec.timing[1]).toBeGreaterThan(2.5); // 2 s of speech + lead + tail
+    expect(job.spec.words.headline).toHaveLength(5);
+    expect(job.voice.toString('latin1', 0, 4)).toBe('RIFF');
+    expect(post.mock.calls.at(-1)[0]).toBe('https://api.github.com/repos/reuvenre/Nexlify/dispatches');
+  });
+
+  it('a voice that fails leaves a silent Reel with a note, never no Reel', async () => {
+    const { svc, current } = buildVoice();
+    post.mockImplementation(async (url: string) => {
+      if (url.includes('generativelanguage')) return { data: { status: 'failed', error: { message: 'language not supported' } } };
+      return { status: 204 };
+    });
+    await svc.requestReel('p1', 'auto');
+    await flush();
+    expect(current().status).toBe('rendering');
+    expect(current().spec.voice).toBeUndefined();
+    expect(current().error).toMatch(/הקריינות לא נוצרה \(status failed: language not supported\)/);
+  });
+
+  it('records whether the finished Reel carries the voice', async () => {
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 32]), Buffer.from('ftypisom'), Buffer.alloc(300)]);
+    const updates: any[] = [];
+    const job = { id: ID, status: 'rendering', worker_token: WT, media_token: MT, spec: {} };
+    const jobs: any = { update: async (_w: any, x: any) => { updates.push(x); }, findOne: async () => job };
+    const svc = new VideosService(jobs, {} as any, {} as any, {} as any, {} as any);
+    jest.spyOn(svc, 'publish').mockResolvedValue();
+    await svc.acceptResult(ID, WT, mp4, 'seller', '1');
+    expect(updates[0]).toMatchObject({ status: 'ready', has_voice: true, voice: null });
+  });
+});

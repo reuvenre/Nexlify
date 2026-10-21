@@ -23,7 +23,7 @@ export class VideosController {
   /** The finished MP4, as the raw request body (Content-Type: video/mp4). */
   @Post('jobs/:id/result')
   @HttpCode(200)
-  async result(@Param('id') id: string, @Query('t') t: string, @Query('clip') clip: string, @Req() req: Request) {
+  async result(@Param('id') id: string, @Query('t') t: string, @Query('clip') clip: string, @Query('voice') voice: string, @Req() req: Request) {
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of req as any) {
@@ -31,7 +31,7 @@ export class VideosController {
       if (size > MAX_VIDEO_BYTES) throw new NotFoundException();
       chunks.push(chunk);
     }
-    const error = await this.videos.acceptResult(id, t, Buffer.concat(chunks), clip);
+    const error = await this.videos.acceptResult(id, t, Buffer.concat(chunks), clip, voice);
     if (error) throw new NotFoundException(error);
     return { ok: true };
   }
@@ -42,6 +42,16 @@ export class VideosController {
     const buf = await this.videos.clipFor(id, t);
     if (!buf) { res.status(404).send('not found'); return; }
     res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
+  }
+
+  /** The Hebrew voiceover WAV, for the renderer. */
+  @Get('jobs/:id/voice.wav')
+  async voice(@Param('id') id: string, @Query('t') t: string, @Res() res: Response) {
+    const buf = await this.videos.voiceFor(id, t);
+    if (!buf) { res.status(404).send('not found'); return; }
+    res.setHeader('Content-Type', 'audio/wav');
     res.setHeader('Content-Length', String(buf.length));
     res.end(buf);
   }

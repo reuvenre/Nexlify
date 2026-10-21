@@ -21,6 +21,12 @@ export interface ReelSpec {
   video?: string;
   /** The clip is AI-generated — labelled on screen and in the caption. */
   ai?: boolean;
+  /** The Hebrew voiceover (reel-voice.ts), for the renderer to lay under the video. */
+  voice?: string;
+  /** With the voice: scene starts plus the end, [0, s1, s2, s3, end] — scenes fit their lines. */
+  timing?: number[];
+  /** With the voice: each on-screen word's [start, end], per scene, for the captions. */
+  words?: Partial<Record<'headline' | 'reason' | 'price' | 'cta', number[][]>>;
 }
 
 export interface ReelPostLike {

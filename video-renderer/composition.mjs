@@ -11,9 +11,13 @@
  * labelled on screen as AI. The clip is a top-level timed element in a non-timed wrapper —
  * HyperFrames does not allow a video nested inside a timed div.
  *
+ * With `spec.timing` (the backend's voiceover, reel-voice.ts) each scene is as long as its
+ * spoken line, and `spec.words` lights each on-screen word up as it is said. The audio itself
+ * is muxed in by render.mjs after the render. Without them, the fixed 12 s above, silent.
+ *
  * Every text value is the backend's (spec.json), escaped here. Hebrew: dir="rtl" sits on the
  * root div and the text blocks, never on <html> (a known silent blank-render failure).
- * No sound: music has licensing of its own, and Reels autoplay muted anyway.
+ * No music: it has licensing of its own.
  */
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -22,12 +26,49 @@ const num = (s) => `<bdi dir="ltr">${esc(s)}</bdi>`;
 
 export const DURATION = 12;
 const SCENES = [0, 3.2, 6.4, 9.6];
-/** How much of the clip is shown: the hook and the reason, before the price. */
-export const CLIP_END = 6.4;
+
+/**
+ * The scene starts and the end. The voice's timing when it is sound (five rising numbers, a
+ * sane length), else the fixed silent Reel. The clip shows the hook and the reason: it ends
+ * where the price scene starts (`clipEnd`).
+ */
+export function sceneTimes(spec) {
+  const t = spec?.timing;
+  const ok = Array.isArray(t) && t.length === 5 && t[0] === 0 && t.every((x, i) => Number.isFinite(x) && (i === 0 || x > t[i - 1])) && t[4] <= 40;
+  const starts = ok ? t.slice(0, 4) : SCENES;
+  const end = ok ? t[4] : DURATION;
+  return { starts, end, clipEnd: starts[2] };
+}
+
+/**
+ * A caption's words, each in its own span, when the voice timed exactly these words; else
+ * the plain text. `id` prefixes each word's span, for the timeline below.
+ */
+function spoken(text, times, id) {
+  const words = String(text ?? '').split(/\s+/).filter(Boolean);
+  if (!Array.isArray(times) || times.length !== words.length) return esc(text);
+  return words.map((w, i) => `<span class="w" id="${id}${i}">${esc(w)}</span>`).join(' ');
+}
+
+/** Light each word as it is spoken (the words stay lit: a caption read along with the voice). */
+function wordTweens(spec) {
+  const out = [];
+  const add = (key, ids, color) => {
+    const times = spec.words?.[key];
+    if (!Array.isArray(times)) return;
+    for (const id of ids) {
+      times.forEach(([s], i) => out.push(`if (has("#${id}${i}")) tl.to("#${id}${i}", { color: "${color}", duration: 0.12, ease: "none" }, ${Number(s) || 0});`));
+    }
+  };
+  add('headline', ['hw', 'vhw'], '#ffd400');
+  add('reason', ['rw', 'vrw'], '#ffd400');
+  add('cta', ['cw'], '#ffffff');
+  return out.join('\n      ');
+}
 
 /** @param {{headline:string, reason?:string, price:string, was?:string, discount?:number, rating?:number, orders?:string, cta:string, brand?:string, images:string[], video?:string, ai?:boolean}} spec — images and video are local asset paths */
 /** The clip's opening: blurred photo behind, the clip, then the text above it. */
-function clipScenes(spec, poster) {
+function clipScenes(spec, poster, CLIP_END) {
   const ai = !!spec.ai;
   return `
       <div id="vbg" class="clip vbg" data-start="0" data-duration="${CLIP_END}" data-track-index="10">
@@ -37,19 +78,20 @@ function clipScenes(spec, poster) {
         <video id="clipv" src="${esc(spec.video)}" data-start="0" data-duration="${CLIP_END}" data-track-index="11" muted playsinline></video>
       </div>
       <div id="vtxt" class="clip vtxt" data-start="0" data-duration="${CLIP_END}" data-track-index="12">
-        <div class="top" dir="rtl">${spec.brand ? `<div class="chip" id="vchip">${esc(spec.brand)}</div>` : ''}<div class="headline" id="vh">${esc(spec.headline)}</div></div>
-        ${spec.reason ? `<div class="reason" id="vr" dir="rtl">${esc(spec.reason)}</div>` : ''}
+        <div class="top" dir="rtl">${spec.brand ? `<div class="chip" id="vchip">${esc(spec.brand)}</div>` : ''}<div class="headline" id="vh">${spoken(spec.headline, spec.words?.headline, 'vhw')}</div></div>
+        ${spec.reason ? `<div class="reason" id="vr" dir="rtl">${spoken(spec.reason, spec.words?.reason, 'vrw')}</div>` : ''}
         ${ai ? '<div class="ailabel" id="ail" dir="rtl">🤖 הדגמה שנוצרה ב-AI</div>' : ''}
       </div>`;
 }
 
 export function buildComposition(spec) {
+  const { starts: S, end: DURATION, clipEnd: CLIP_END } = sceneTimes(spec);
   const clip = spec.video ? CLIP_END : 0;
   const imgs = spec.images.length ? spec.images : [''];
   const img = (i) => imgs[i % imgs.length];
   const scene = (i, inner) => {
-    const start = SCENES[i];
-    const dur = (SCENES[i + 1] ?? DURATION) - start;
+    const start = S[i];
+    const dur = Math.round(((S[i + 1] ?? DURATION) - start) * 100) / 100;
     return `<div id="s${i}" class="clip scene" data-start="${start}" data-duration="${dur}" data-track-index="${i}">${inner}</div>`;
   };
   const photo = (i, n) => `
@@ -109,10 +151,10 @@ export function buildComposition(spec) {
   </head>
   <body>
     <div id="root" dir="rtl" data-composition-id="main" data-start="0" data-duration="${DURATION}" data-width="1080" data-height="1920" data-fps="30">
-      ${clip ? clipScenes(spec, img(0)) : `${scene(0, `${photo(0, 0)}
-        <div class="top" dir="rtl">${spec.brand ? `<div class="chip" id="chip0">${esc(spec.brand)}</div>` : ''}<div class="headline" id="h0">${esc(spec.headline)}</div></div>`)}
+      ${clip ? clipScenes(spec, img(0), CLIP_END) : `${scene(0, `${photo(0, 0)}
+        <div class="top" dir="rtl">${spec.brand ? `<div class="chip" id="chip0">${esc(spec.brand)}</div>` : ''}<div class="headline" id="h0">${spoken(spec.headline, spec.words?.headline, 'hw')}</div></div>`)}
       ${scene(1, `${photo(1, 1)}
-        <div class="reason" id="r1" dir="rtl">${esc(spec.reason || spec.headline)}</div>`)}`}
+        <div class="reason" id="r1" dir="rtl">${spec.reason ? spoken(spec.reason, spec.words?.reason, 'rw') : esc(spec.headline)}</div>`)}`}
       ${scene(2, `${photo(2, 2)}
         <div class="deal" dir="rtl">
           ${spec.discount ? `<div class="off" id="off2">${num(`${spec.discount}%`)} הנחה</div>` : ''}
@@ -123,13 +165,13 @@ export function buildComposition(spec) {
       ${scene(3, `<div class="bg" style="background-image:url('${esc(img(0))}')"></div><div class="shade"></div>
         <div class="end" dir="rtl">
           <div class="thumb" id="t3"><img src="${esc(img(0))}" alt=""></div>
-          <div class="cta" id="c3">${esc(spec.cta)}</div>
+          <div class="cta" id="c3">${spoken(spec.cta, spec.words?.cta, 'cw')}</div>
           ${spec.brand ? `<div class="brand" id="b3">${esc(spec.brand)}</div>` : ''}
         </div>`)}
     </div>
     <script>
       const tl = gsap.timeline({ paused: true });
-      const S = ${JSON.stringify(SCENES)};
+      const S = ${JSON.stringify(S)};
       const has = (sel) => !!document.querySelector(sel);
       // Scene transitions: each scene fades in over the one below; the photo card drifts.
       for (let i = 1; i < S.length; i++) if (has("#s" + i)) tl.from("#s" + i, { opacity: 0, duration: 0.45, ease: "power2.out" }, S[i]);
@@ -157,6 +199,7 @@ export function buildComposition(spec) {
       tl.from("#t3", { scale: 0.7, opacity: 0, duration: 0.6, ease: "back.out(1.6)" }, S[3] + 0.2);
       tl.from("#c3", { y: 50, opacity: 0, duration: 0.55, ease: "expo.out" }, S[3] + 0.45);
       if (has("#b3")) tl.from("#b3", { opacity: 0, duration: 0.5, ease: "sine.out" }, S[3] + 0.75);
+      ${wordTweens(spec)}
       tl.to("#root", { opacity: 0, duration: 0.4, ease: "power1.in" }, ${DURATION} - 0.45);
       window.__timelines["main"] = tl;
       tl.seek(0);

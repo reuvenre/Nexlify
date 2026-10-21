@@ -6,13 +6,15 @@
  *   RESULT_URL  the backend's /videos/jobs/<id>/result?t=… (POST the MP4 there)
  *
  * The photos are downloaded first and referenced as local assets, so the render never
- * depends on a CDN answering mid-capture. Any failure is reported to …/failed, so the owner
- * hears about it instead of waiting for a timeout.
+ * depends on a CDN answering mid-capture. With `spec.voice` (the backend's Hebrew voiceover)
+ * the WAV is fetched first too, rendered against its timing, and muxed in afterwards; a voice
+ * that cannot be fetched or muxed means the silent 12 s Reel. Any failure is reported to
+ * …/failed, so the owner hears about it instead of waiting for a timeout.
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { CLIP_END, buildComposition } from './composition.mjs';
+import { buildComposition, sceneTimes } from './composition.mjs';
 
 const { SPEC_URL, RESULT_URL } = process.env;
 const WORK = path.resolve(process.env.WORK_DIR || 'work');
@@ -33,18 +35,34 @@ async function download(url, file) {
   return `assets/${name}`;
 }
 
+/** The voiceover WAV, or null: then the Reel is the silent one, on the fixed timing. */
+async function fetchVoice(url) {
+  try {
+    const res = await fetchOk(url);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 1000 || buf.toString('latin1', 0, 4) !== 'RIFF') throw new Error(`not a WAV (${buf.length} bytes)`);
+    const file = path.join(WORK, 'voice.wav');
+    await fs.writeFile(file, buf);
+    return file;
+  } catch (e) {
+    console.warn(`voice skipped, silent Reel: ${e.message}`);
+    return null;
+  }
+}
+
 /**
  * The opening clip (the seller's video, or the backend's AI clip): downloaded, cut to the
  * part the Reel shows, scaled, silent, H.264 — so the render never seeks a 60 s seller video
  * or chokes on an odd codec. Any failure means a photo-only Reel, never no Reel.
  */
-async function prepareClip(url) {
+async function prepareClip(url, clipEnd) {
   try {
     const res = await fetchOk(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Nexlify reel renderer)' } });
     const raw = path.join(WORK, 'clip-source');
     await fs.writeFile(raw, Buffer.from(await res.arrayBuffer()));
-    await run('ffmpeg', ['-v', 'error', '-y', '-i', raw, '-t', String(CLIP_END + 0.3), '-an',
-      '-vf', "scale='min(1080,iw)':-2", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
+    // A clip shorter than its scenes (the voice can stretch them) holds its last frame.
+    await run('ffmpeg', ['-v', 'error', '-y', '-i', raw, '-t', String(clipEnd + 0.3), '-an',
+      '-vf', `tpad=stop_mode=clone:stop_duration=${Math.ceil(clipEnd)},scale='min(1080,iw)':-2`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
       path.join(WORK, 'assets', 'clip.mp4')]);
     await fs.rm(raw, { force: true });
     return 'assets/clip.mp4';
@@ -70,18 +88,36 @@ async function main() {
     try { images.push(await download(url, `p${i + 1}`)); } catch (e) { console.warn(`image ${i + 1} skipped: ${e.message}`); }
   }
   if (!images.length) throw new Error('none of the product photos could be downloaded');
-  const video = spec.video ? await prepareClip(spec.video) : null;
-  await fs.writeFile(path.join(WORK, 'index.html'), buildComposition({ ...spec, images, video: video || undefined, ai: !!(video && spec.ai) }));
+  const voice = spec.voice ? await fetchVoice(spec.voice) : null;
+  // No voice, no stretched timing and no word captions: the scenes would wait for silence.
+  const timed = voice ? spec : { ...spec, timing: undefined, words: undefined };
+  const { clipEnd } = sceneTimes(timed);
+  const video = spec.video ? await prepareClip(spec.video, clipEnd) : null;
+  await fs.writeFile(path.join(WORK, 'index.html'), buildComposition({ ...timed, images, video: video || undefined, ai: !!(video && spec.ai) }));
   await fs.writeFile(path.join(WORK, 'hyperframes.json'), JSON.stringify({ paths: { assets: 'assets' } }));
   await run('npx', ['--no-install', 'hyperframes', 'render', '--output', 'out.mp4', '--quality', 'looks', '--crf', '23'], {
     cwd: WORK, env: { ...process.env, HYPERFRAMES_SKIP_SKILLS: '1', DO_NOT_TRACK: '1' },
   });
-  const out = await fs.readFile(path.join(WORK, 'out.mp4'));
-  console.log(`rendered ${(out.length / 1048576).toFixed(1)} MB${video ? ' with the clip' : ''} — sending back`);
+  let file = path.join(WORK, 'out.mp4');
+  let voiced = false;
+  if (voice) {
+    // The video stream is copied as rendered; the voice is padded with silence to its length.
+    try {
+      const muxed = path.join(WORK, 'voiced.mp4');
+      await run('ffmpeg', ['-v', 'error', '-y', '-i', file, '-i', voice, '-map', '0:v:0', '-map', '1:a:0',
+        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-af', 'apad', '-shortest', '-movflags', '+faststart', muxed]);
+      file = muxed;
+      voiced = true;
+    } catch (e) {
+      console.warn(`voice not muxed, silent Reel: ${e.message}`);
+    }
+  }
+  const out = await fs.readFile(file);
+  console.log(`rendered ${(out.length / 1048576).toFixed(1)} MB${video ? ' with the clip' : ''}${voiced ? ' with the voice' : ''} — sending back`);
   // The backend must know whether the clip made it: an AI label in the caption for a Reel
   // that fell back to photos would be a false statement.
   const sep = RESULT_URL.includes('?') ? '&' : '?';
-  await fetchOk(`${RESULT_URL}${sep}clip=${video ? (spec.ai ? 'ai' : 'seller') : 'none'}`, {
+  await fetchOk(`${RESULT_URL}${sep}clip=${video ? (spec.ai ? 'ai' : 'seller') : 'none'}&voice=${voiced ? 1 : 0}`, {
     method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: out,
   });
   console.log('delivered');

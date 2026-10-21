@@ -11,11 +11,13 @@ import { ChannelsService } from '../channels/channels.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { buildReelSpec } from './reel-spec';
 import { AI_CLIP_MODEL_DEFAULT, DEFAULT_AI_CLIPS_PER_DAY, aiClipRequest, readInteractionVideo } from './ai-clip';
+import { VOICE_MODEL_DEFAULT, VOICE_NAME_DEFAULT, buildVoiceTrack, readSpeech, speechRequest, voiceLines } from './reel-voice';
 
 /** Largest MP4 accepted from the renderer — a 12 s 1080×1920 Reel is about 3 MB. */
 export const MAX_VIDEO_BYTES = 40 * 1024 * 1024;
 /** A render that has not come back in this long is reported failed. */
 const RENDER_TIMEOUT_MIN = 40;
+const GEMINI_INTERACTIONS = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 /** The repository whose Actions render videos, and a token allowed to dispatch to it. */
 function renderTarget(): { repo: string; token: string | null } {
@@ -83,11 +85,14 @@ export class VideosService {
       user_id: post.user_id, post_id: post.id, origin, spec,
       worker_token: randomBytes(24).toString('hex'), media_token: randomBytes(24).toString('hex'),
     }));
-    // No seller video: an AI clip, when switched on and affordable today. It takes minutes,
-    // so it runs in the background and dispatches the render itself when done.
-    if (!spec.video && await this.aiClipAllowed(post.user_id)) {
+    // No seller video: an AI clip, when switched on and affordable today. The voice, when
+    // switched on. Both take a while, so they run in the background and dispatch the render
+    // themselves when done.
+    const clip = !spec.video && await this.aiClipAllowed(post.user_id);
+    const voice = await this.voiceAllowed(post.user_id);
+    if (clip || voice) {
       await this.jobs.update({ id: job.id }, { status: 'generating' });
-      setImmediate(() => { void this.generateClipThenRender(job.id, post.product_title, spec.images[0]); });
+      setImmediate(() => { void this.prepareThenRender(job.id, { clip, voice }, post.product_title, spec.images[0]); });
       return { job };
     }
     // 'rendering' BEFORE the dispatch: the runner may ask for the spec as soon as it starts.
@@ -114,21 +119,50 @@ export class VideosService {
     return n < cap;
   }
 
+  /** REELS_VOICE=1 and a Gemini key on the account (the TTS goes through the same key). */
+  private async voiceAllowed(userId: string): Promise<boolean> {
+    if (process.env.REELS_VOICE !== '1') return false;
+    const creds = await this.credentials.getRaw(userId).catch(() => null);
+    return !!creds?.gemini_api_key;
+  }
+
   /**
-   * Gemini Omni Flash: the product photo + the unboxing prompt → a vertical clip. Whatever
-   * happens, the render is dispatched — a failed clip means a photo Reel, never no Reel.
+   * The slow parts before a render — the AI clip, the voice — then the dispatch. Whatever
+   * happens, the render is dispatched: a failed clip means a photo Reel, a failed voice a
+   * silent one, never no Reel.
    */
-  private async generateClipThenRender(id: string, title: string | null | undefined, imageUrl: string): Promise<void> {
+  private async prepareThenRender(id: string, want: { clip: boolean; voice: boolean }, title: string | null | undefined, imageUrl: string): Promise<void> {
     const job = await this.jobs.findOne({ where: { id } });
     if (!job) return;
-    let note: string | null = null;
+    const notes: string[] = [];
+    if (want.clip) {
+      const note = await this.generateClip(job, title, imageUrl);
+      if (note) notes.push(note);
+    }
+    if (want.voice) {
+      const note = await this.generateVoice(id);
+      if (note) notes.push(note);
+    }
+    const fresh = await this.jobs.findOne({ where: { id } });
+    if (!fresh) return;
+    await this.jobs.update({ id }, { status: 'rendering', error: notes.join(' · ') || null });
+    const error = await this.dispatch(fresh);
+    if (error) {
+      await this.jobs.update({ id }, { status: 'failed', error });
+      await this.notifyOwner(fresh.user_id, `🎬 ${error}`);
+    }
+  }
+
+  /** Gemini Omni Flash: the product photo + the unboxing prompt → a vertical clip. Null, or why it failed. */
+  private async generateClip(job: VideoJob, title: string | null | undefined, imageUrl: string): Promise<string | null> {
+    const id = job.id;
     try {
       const creds = await this.credentials.getRaw(job.user_id);
       const img = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 20_000, maxContentLength: 8 * 1024 * 1024 });
       const mime = String(img.headers['content-type'] || 'image/jpeg').split(';')[0];
       const model = (process.env.REELS_AI_MODEL || AI_CLIP_MODEL_DEFAULT).trim();
       const res = await axios.post(
-        'https://generativelanguage.googleapis.com/v1beta/interactions',
+        GEMINI_INTERACTIONS,
         aiClipRequest(model, Buffer.from(img.data).toString('base64'), mime, title),
         {
           headers: { 'x-goog-api-key': creds!.gemini_api_key!, 'Content-Type': 'application/json' },
@@ -142,20 +176,60 @@ export class VideosService {
         spec: { ...job.spec, video: `${backendBase()}/videos/jobs/${id}/clip.mp4?t=${job.worker_token}`, ai: true },
       });
       this.logger.log(`video ${id}: AI clip ${(video.length / 1048576).toFixed(1)} MB`);
+      return null;
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err?.response?.data?.error?.message || err?.message;
-      note = `קליפ ה-AI לא נוצר (${status ? `${status} ` : ''}${String(msg).slice(0, 160)}) — הסרטון ייצא מהתמונות`;
+      const note = `קליפ ה-AI לא נוצר (${status ? `${status} ` : ''}${String(msg).slice(0, 160)}) — הסרטון ייצא מהתמונות`;
       this.logger.warn(`video ${id}: ${note}`);
+      return note;
     }
-    const fresh = await this.jobs.findOne({ where: { id } });
-    if (!fresh) return;
-    await this.jobs.update({ id }, { status: 'rendering', error: note });
-    const error = await this.dispatch(fresh);
-    if (error) {
-      await this.jobs.update({ id }, { status: 'failed', error });
-      await this.notifyOwner(fresh.user_id, `🎬 ${error}`);
+  }
+
+  /**
+   * The Hebrew voiceover: each scene's line spoken on its own (Gemini TTS), laid on the Reel's
+   * timeline, the scenes stretched to fit (reel-voice.ts). Null, or why the Reel stays silent.
+   */
+  private async generateVoice(id: string): Promise<string | null> {
+    const job = await this.jobs.findOne({ where: { id } });
+    if (!job) return null;
+    try {
+      const creds = await this.credentials.getRaw(job.user_id);
+      const model = (process.env.REELS_VOICE_MODEL || VOICE_MODEL_DEFAULT).trim();
+      const voice = (process.env.REELS_VOICE_NAME || VOICE_NAME_DEFAULT).trim();
+      const spoken = [];
+      for (const line of voiceLines(job.spec)) {
+        const res = await axios.post(GEMINI_INTERACTIONS, speechRequest(model, voice, line.text), {
+          headers: { 'x-goog-api-key': creds!.gemini_api_key!, 'Content-Type': 'application/json' },
+          timeout: 90_000, maxContentLength: 30 * 1024 * 1024,
+        });
+        const { pcm, reason } = readSpeech(res.data);
+        if (!pcm) throw new Error(reason || 'no audio');
+        spoken.push({ line, pcm });
+      }
+      const track = buildVoiceTrack(spoken);
+      if (!track) throw new Error('no line to speak');
+      await this.jobs.update({ id }, {
+        voice: track.wav,
+        spec: { ...job.spec, voice: `${backendBase()}/videos/jobs/${id}/voice.wav?t=${job.worker_token}`, timing: track.timing, words: track.words },
+      });
+      this.logger.log(`video ${id}: voice ${track.timing.at(-1)} s, ${(track.wav.length / 1024).toFixed(0)} KB`);
+      return null;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const msg = err?.response?.data?.error?.message || err?.message;
+      const note = `הקריינות לא נוצרה (${status ? `${status} ` : ''}${String(msg).slice(0, 160)}) — הסרטון ייצא בלי קול`;
+      this.logger.warn(`video ${id}: ${note}`);
+      return note;
     }
+  }
+
+  /** The voiceover WAV, for the renderer (worker token). */
+  async voiceFor(id: string, token: string): Promise<Buffer | null> {
+    const job = await this.jobFor(id, token, 'worker_token');
+    if (!job || job.status !== 'rendering') return null;
+    const row = await this.jobs.createQueryBuilder('j').addSelect('j.voice').where('j.id = :id', { id }).getOne();
+    return row?.voice || null;
   }
 
   /** The AI clip, for the renderer (worker token). */
@@ -208,7 +282,7 @@ export class VideosService {
   }
 
   /** The renderer's MP4. Accepted once; publishing starts in the background. */
-  async acceptResult(id: string, token: string, video: Buffer, clipSource?: string): Promise<string | null> {
+  async acceptResult(id: string, token: string, video: Buffer, clipSource?: string, voiced?: string): Promise<string | null> {
     const job = await this.jobFor(id, token, 'worker_token');
     if (!job || job.status !== 'rendering') return 'unknown job';
     if (!looksLikeMp4(video) || video.length > MAX_VIDEO_BYTES) {
@@ -216,7 +290,10 @@ export class VideosService {
       return 'not an mp4';
     }
     const source = ['seller', 'ai', 'none'].includes(String(clipSource)) ? String(clipSource) : null;
-    await this.jobs.update({ id }, { status: 'ready', video, video_size: video.length, rendered_at: new Date(), clip_source: source, clip: null });
+    await this.jobs.update({ id }, {
+      status: 'ready', video, video_size: video.length, rendered_at: new Date(), clip_source: source, clip: null,
+      voice: null, has_voice: voiced === undefined ? null : voiced === '1',
+    });
     setImmediate(() => { void this.publish(id); });
     return null;
   }
@@ -253,9 +330,10 @@ export class VideosService {
       });
       const opened = job.clip_source === 'seller' ? '🎥 עם סרטון המוכר'
         : job.clip_source === 'ai' ? '🤖 עם קליפ AI (מסומן ככזה)' : '📸 מתמונות המוצר';
+      const voiced = job.has_voice ? ' · 🔊 עם קריינות בעברית' : '';
       await this.notifyOwner(job.user_id, [
         landed.length ? `🎬 Reel פורסם ב${landed.join(' וב')}: «${job.spec?.headline || ''}»` : `🎬 ה-Reel לא פורסם: «${job.spec?.headline || ''}»`,
-        opened,
+        `${opened}${voiced}`,
         ...(job.error ? [`ℹ️ ${job.error}`] : []),
         ...res.errors.map((e) => `⚠️ ${e}`),
       ].join('\n'));
@@ -297,8 +375,8 @@ export class VideosService {
     ).then((r: any) => (Array.isArray(r?.[0]) ? r[0] : r)).catch(() => []);
     for (const j of stuck || []) await this.notifyOwner(j.user_id, `🎬 ${j.error}. כדאי לבדוק את הריצה בלשונית Actions של הריפו.`);
     await this.jobs.query(
-      `UPDATE video_jobs SET video = NULL, clip = NULL
-       WHERE (video IS NOT NULL OR clip IS NOT NULL) AND status IN ('published', 'failed') AND created_at < now() - interval '3 days'`,
+      `UPDATE video_jobs SET video = NULL, clip = NULL, voice = NULL
+       WHERE (video IS NOT NULL OR clip IS NOT NULL OR voice IS NOT NULL) AND status IN ('published', 'failed') AND created_at < now() - interval '3 days'`,
     ).catch(() => {});
   }
 

@@ -21,7 +21,7 @@ export class VideoJob {
   @Column({ type: 'uuid' })
   post_id: string;
 
-  /** queued → (generating: the AI clip) → rendering → ready → published | failed */
+  /** queued → (generating: the AI clip and/or the voice) → rendering → ready → published | failed */
   @Column({ type: 'varchar', length: 16, default: 'queued' })
   status: string;
 
@@ -47,6 +47,14 @@ export class VideoJob {
   /** The AI opening clip (ai-clip.ts), held until the renderer has fetched it. */
   @Column({ type: 'bytea', nullable: true, select: false })
   clip: Buffer | null;
+
+  /** The Hebrew voiceover (reel-voice.ts), one WAV, held until the renderer has fetched it. */
+  @Column({ type: 'bytea', nullable: true, select: false })
+  voice: Buffer | null;
+
+  /** Whether the finished Reel carries the voice, as the renderer reports it. */
+  @Column({ type: 'boolean', nullable: true })
+  has_voice: boolean | null;
 
   /** What the Reel opened with, as the renderer reports it: seller | ai | none. */
   @Column({ type: 'varchar', length: 16, nullable: true })
