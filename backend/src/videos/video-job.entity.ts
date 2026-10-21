@@ -76,6 +76,10 @@ export class VideoJob {
   @Column({ type: 'varchar', length: 64, nullable: true })
   facebook_video_id: string | null;
 
+  /** The English Reel's Pinterest video pin. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  pinterest_pin_id: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

@@ -10,7 +10,9 @@ import { Post } from '../posts/post.entity';
 import { PostsService } from '../posts/posts.service';
 import { ChannelsService } from '../channels/channels.service';
 import { CredentialsService } from '../credentials/credentials.service';
-import { buildReelSpec } from './reel-spec';
+import { buildReelSpec, buildReelSpecEn } from './reel-spec';
+import { isHebrewAudience } from '../storefront/pin-destination';
+import { currencySymbol } from '../coupons/coupons.service';
 import { AI_CLIP_MODEL_DEFAULT, DEFAULT_AI_CLIPS_PER_DAY, aiClipRequest, readInteractionVideo } from './ai-clip';
 import {
   CLIP_PROVIDER_LABEL, ClipProvider, FAL_CLIP_ENDPOINT, FAL_QUEUE, falClipRequest, falJobLinks, falStatus, falVideoUrl, pickClipProvider,
@@ -31,6 +33,9 @@ function renderTarget(): { repo: string; token: string | null } {
     token: (process.env.GITHUB_RENDER_TOKEN || process.env.GITHUB_WATCHDOG_TOKEN || '').trim() || null,
   };
 }
+
+/** A campaign language the store and the groups read as Hebrew (pin-destination.ts), in SQL. */
+const HEBREW_SQL = `(c.language IS NULL OR btrim(c.language) = '' OR lower(c.language) IN ('he', 'iw', 'hebrew', 'עברית') OR lower(c.language) LIKE 'he-%')`;
 
 function backendBase(): string {
   return (process.env.BACKEND_URL || '').replace(/\/$/, '');
@@ -67,9 +72,9 @@ export class VideosService {
   /** The post a Reel should be made of now: the most-clicked sent post of the last two days without one. */
   async bestRecentPost(userId?: string): Promise<{ id: string; user_id: string } | null> {
     const rows = await this.postsRepo.query(
-      `SELECT p.id, p.user_id FROM posts p
+      `SELECT p.id, p.user_id FROM posts p LEFT JOIN campaigns c ON c.id = p.campaign_id
        WHERE p.status = 'sent' AND p.sent_at > now() - interval '48 hours'
-         AND ($1::uuid IS NULL OR p.user_id = $1::uuid)
+         AND ($1::uuid IS NULL OR p.user_id = $1::uuid) AND ${HEBREW_SQL}
          AND p.product_image IS NOT NULL AND coalesce(p.price_ils, 0) > 0
          AND NOT EXISTS (SELECT 1 FROM video_jobs v WHERE v.post_id = p.id AND v.status <> 'failed')
        ORDER BY coalesce(p.clicks_count, 0) DESC, p.sent_at DESC LIMIT 1`,
@@ -78,13 +83,47 @@ export class VideosService {
     return rows[0] || null;
   }
 
+  /**
+   * The English Reel's post: the most-clicked pin of the last week from a campaign that is
+   * not Hebrew (the US Pinterest audience). Pins collect their clicks slowly, through the
+   * Pinterest analytics sync (`pinterest_clicks`), so the window is a week, not two days.
+   */
+  async bestRecentEnglishPost(userId?: string): Promise<{ id: string; user_id: string } | null> {
+    const rows = await this.postsRepo.query(
+      `SELECT p.id, p.user_id FROM posts p JOIN campaigns c ON c.id = p.campaign_id
+       WHERE p.status = 'sent' AND p.sent_at > now() - interval '7 days'
+         AND ($1::uuid IS NULL OR p.user_id = $1::uuid) AND NOT ${HEBREW_SQL}
+         AND p.pinterest_post_id IS NOT NULL
+         AND p.product_image IS NOT NULL AND coalesce(p.price_ils, 0) > 0
+         AND NOT EXISTS (SELECT 1 FROM video_jobs v WHERE v.post_id = p.id AND v.status <> 'failed')
+       ORDER BY coalesce(p.pinterest_clicks, 0) + coalesce(p.clicks_count, 0) DESC, p.sent_at DESC LIMIT 1`,
+      [userId || null],
+    ).catch(() => []);
+    return rows[0] || null;
+  }
+
+  /** The post's campaign language and currency: Hebrew and the account's ₪ when it has none. */
+  private async audienceOf(post: Post): Promise<{ en: boolean; symbol: string }> {
+    const [c] = post.campaign_id
+      ? await this.postsRepo.query(`SELECT language, currency_pair FROM campaigns WHERE id = $1`, [post.campaign_id]).catch(() => [])
+      : [];
+    const en = !!c && !isHebrewAudience(c.language);
+    if (!en) return { en, symbol: '₪' };
+    const pair = c.currency_pair || (await this.credentials.getRaw(post.user_id).catch(() => null))?.currency_pair;
+    return { en, symbol: currencySymbol(pair) };
+  }
+
   /** Describe the Reel for a sent post and hand it to GitHub Actions. */
   async requestReel(postId: string, origin: 'auto' | 'owner'): Promise<{ job?: VideoJob; error?: string }> {
     const post = await this.postsRepo.findOne({ where: { id: postId } });
     if (!post) return { error: 'הפוסט לא נמצא' };
     const target = post.channel_override || undefined;
     const brand = target ? await this.channels.getName(post.user_id, target).catch(() => null) : null;
-    const spec = buildReelSpec(post as any, brand);
+    // A US Pinterest post gets the English Reel (a video pin); everything else the Hebrew one.
+    const audience = await this.audienceOf(post);
+    const spec = audience.en
+      ? buildReelSpecEn(post as any, audience.symbol, brand && !/[֐-׿]/.test(brand) ? brand : null)
+      : buildReelSpec(post as any, brand);
     if (!spec) return { error: 'לפוסט חסרים תמונה, מחיר או טקסט — אי אפשר לבנות ממנו סרטון' };
     const job = await this.jobs.save(this.jobs.create({
       user_id: post.user_id, post_id: post.id, origin, spec,
@@ -217,7 +256,7 @@ export class VideosService {
       const voice = (process.env.REELS_VOICE_NAME || VOICE_NAME_DEFAULT).trim();
       const spoken = [];
       for (const line of voiceLines(job.spec)) {
-        const res = await axios.post(GEMINI_INTERACTIONS, speechRequest(model, voice, line.text), {
+        const res = await axios.post(GEMINI_INTERACTIONS, speechRequest(model, voice, line.text, job.spec?.lang === 'en' ? 'en' : 'he'), {
           headers: { 'x-goog-api-key': creds!.gemini_api_key!, 'Content-Type': 'application/json' },
           timeout: 90_000, maxContentLength: 30 * 1024 * 1024,
         });
@@ -373,25 +412,44 @@ export class VideosService {
     const job = await this.jobs.findOne({ where: { id } });
     if (!job || job.status !== 'ready') return;
     const url = `${backendBase()}/videos/${job.id}.mp4?t=${job.media_token}`;
+    const en = job.spec?.lang === 'en';
     try {
-      const res = await this.posts.publishReel(job.post_id, url, { aiClip: job.clip_source === 'ai' });
-      const landed = [res.instagram ? 'אינסטגרם' : '', res.facebook ? 'פייסבוק' : ''].filter(Boolean);
-      await this.jobs.update({ id }, {
-        status: landed.length ? 'published' : 'failed',
-        instagram_media_id: res.instagram || null, facebook_video_id: res.facebook || null,
-        published_at: landed.length ? new Date() : null,
-        error: res.errors.length ? res.errors.join(' | ').slice(0, 1000) : null,
-      });
+      let landed: string[];
+      let errors: string[];
+      if (en) {
+        // The English Reel is a Pinterest video pin: Instagram and Facebook are the groups'.
+        const row = await this.jobs.createQueryBuilder('j').addSelect('j.video').where('j.id = :id', { id }).getOne();
+        if (!row?.video) throw new Error('הקובץ של הסרטון לא נמצא');
+        const res = await this.posts.publishPinterestVideo(job.post_id, row.video, { aiClip: job.clip_source === 'ai' });
+        landed = res.pin ? ['פינטרסט'] : [];
+        errors = res.errors;
+        await this.jobs.update({ id }, {
+          status: landed.length ? 'published' : 'failed', pinterest_pin_id: res.pin || null,
+          published_at: landed.length ? new Date() : null,
+          error: errors.length ? errors.join(' | ').slice(0, 1000) : null,
+        });
+      } else {
+        const res = await this.posts.publishReel(job.post_id, url, { aiClip: job.clip_source === 'ai' });
+        landed = [res.instagram ? 'אינסטגרם' : '', res.facebook ? 'פייסבוק' : ''].filter(Boolean);
+        errors = res.errors;
+        await this.jobs.update({ id }, {
+          status: landed.length ? 'published' : 'failed',
+          instagram_media_id: res.instagram || null, facebook_video_id: res.facebook || null,
+          published_at: landed.length ? new Date() : null,
+          error: errors.length ? errors.join(' | ').slice(0, 1000) : null,
+        });
+      }
       const opened = job.clip_source === 'seller' ? '🎥 עם סרטון המוכר'
         : job.clip_source === 'ai'
           ? `🤖 עם קליפ AI${job.clip_provider ? ` של ${CLIP_PROVIDER_LABEL[job.clip_provider as ClipProvider] || job.clip_provider}` : ''} (מסומן ככזה)`
           : '📸 מתמונות המוצר';
-      const voiced = job.has_voice ? ' · 🔊 עם קריינות בעברית' : '';
+      const voiced = job.has_voice ? ` · 🔊 עם קריינות ב${en ? 'אנגלית' : 'עברית'}` : '';
+      const what = en ? 'פין וידאו באנגלית' : 'Reel';
       const status = [
-        landed.length ? `🎬 Reel פורסם ב${landed.join(' וב')}: «${job.spec?.headline || ''}»` : `🎬 ה-Reel לא פורסם: «${job.spec?.headline || ''}»`,
+        landed.length ? `🎬 ${what} פורסם ב${landed.join(' וב')}: «${job.spec?.headline || ''}»` : `🎬 ה-${what} לא פורסם: «${job.spec?.headline || ''}»`,
         `${opened}${voiced}`,
         ...(job.error ? [`ℹ️ ${job.error}`] : []),
-        ...res.errors.map((e) => `⚠️ ${e}`),
+        ...errors.map((e) => `⚠️ ${e}`),
       ].join('\n');
       // The file itself, for TikTok and Shorts (reel-share.ts); the plain line when it cannot go.
       if (!await this.sendVideoToOwner(job, status)) await this.notifyOwner(job.user_id, status);
@@ -407,8 +465,7 @@ export class VideosService {
    */
   @Cron('0 42 12 * * *', { timeZone: 'Asia/Jerusalem' })
   async dailyReels(): Promise<number> {
-    if (process.env.REELS_ENABLED !== '1') return 0;
-    const perDay = Math.max(0, Math.min(5, Number(process.env.REELS_PER_DAY) || 1));
+    const perDay = process.env.REELS_ENABLED === '1' ? Math.max(0, Math.min(5, Number(process.env.REELS_PER_DAY) || 1)) : 0;
     let made = 0;
     for (let i = 0; i < perDay; i++) {
       const best = await this.bestRecentPost();
@@ -419,6 +476,20 @@ export class VideosService {
         break;
       }
       made++;
+    }
+    // The English Reel (a Pinterest video pin) of the best US pin of the week: REELS_EN_ENABLED=1.
+    if (process.env.REELS_EN_ENABLED === '1') {
+      const perDayEn = Math.max(0, Math.min(3, Number(process.env.REELS_EN_PER_DAY) || 1));
+      for (let i = 0; i < perDayEn; i++) {
+        const best = await this.bestRecentEnglishPost();
+        if (!best) break;
+        const { error } = await this.requestReel(best.id, 'auto');
+        if (error) {
+          await this.notifyOwner(best.user_id, `🎬 פין הווידאו היומי באנגלית לא נוצר: ${error}`);
+          break;
+        }
+        made++;
+      }
     }
     return made;
   }

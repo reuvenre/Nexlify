@@ -16,6 +16,8 @@ import { ReelSpec } from './reel-spec';
 export const VOICE_MODEL_DEFAULT = 'gemini-3.8-flash-tts';
 export const VOICE_NAME_DEFAULT = 'Kore';
 export const VOICE_STYLE = 'Read aloud in natural Israeli Hebrew, warm and upbeat, like a short social media product ad. Clear and confident, not rushed.';
+/** The English Reel (the US Pinterest audience). */
+export const VOICE_STYLE_EN = 'Read aloud in natural American English, warm and upbeat, like a friend recommending a find in a short product video. Clear and confident, not rushed.';
 
 /** The four scenes, in order (composition.mjs). */
 export const SCENE_KEYS = ['headline', 'reason', 'price', 'cta'] as const;
@@ -41,21 +43,24 @@ const EMOJI = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu;
 const spoken = (s: string) => s.replace(EMOJI, '').replace(/…$/, '').replace(/\s+/g, ' ').trim();
 
 /** The lines a Reel's voice reads, one per scene that has something worth saying. */
-export function voiceLines(spec: Pick<ReelSpec, 'headline' | 'reason' | 'price' | 'was' | 'cta'>): VoiceLine[] {
+export function voiceLines(spec: Pick<ReelSpec, 'headline' | 'reason' | 'price' | 'was' | 'cta' | 'lang'>): VoiceLine[] {
   const lines: VoiceLine[] = [];
+  const en = spec.lang === 'en';
   if (spoken(spec.headline)) lines.push({ scene: 'headline', text: spoken(spec.headline), display: spec.headline });
   if (spec.reason && spoken(spec.reason)) lines.push({ scene: 'reason', text: spoken(spec.reason), display: spec.reason });
   const n = (s?: string) => String(s || '').replace(/[^\d]/g, '');
-  if (n(spec.price)) lines.push({ scene: 'price', text: `רק ${n(spec.price)} שקלים${n(spec.was) ? `, במקום ${n(spec.was)}` : ''}` });
+  if (en && n(spec.price)) lines.push({ scene: 'price', text: `Just ${spec.price}${spec.was ? `, down from ${spec.was}` : ''}.` });
+  else if (n(spec.price)) lines.push({ scene: 'price', text: `רק ${n(spec.price)} שקלים${n(spec.was) ? `, במקום ${n(spec.was)}` : ''}` });
   if (spoken(spec.cta)) lines.push({ scene: 'cta', text: spoken(spec.cta), display: spec.cta });
   return lines;
 }
 
 /** One line to Gemini TTS (Interactions): the text, the delivery, one voice, audio out. */
-export function speechRequest(model: string, voice: string, text: string) {
+export function speechRequest(model: string, voice: string, text: string, lang: 'he' | 'en' = 'he') {
+  const style = lang === 'en' ? VOICE_STYLE_EN : VOICE_STYLE;
   return {
     model,
-    input: [{ type: 'user_input', content: [{ type: 'text', text, annotations: [{ type: 'speech_metadata', style: VOICE_STYLE }] }] }],
+    input: [{ type: 'user_input', content: [{ type: 'text', text, annotations: [{ type: 'speech_metadata', style }] }] }],
     response_format: { type: 'audio' },
     generation_config: { speech_config: [{ voice }] },
   };

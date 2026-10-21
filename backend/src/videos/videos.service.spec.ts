@@ -356,3 +356,53 @@ describe('VideosService — the fal clip', () => {
     expect(current().clip_provider).toBe('fal');
   });
 });
+
+describe('VideosService — the English Reel', () => {
+  const env = { ...process.env };
+  let post: jest.SpyInstance;
+  afterEach(() => { post.mockRestore(); process.env = { ...env }; });
+
+  it('a post from an English campaign becomes the English spec, priced in the campaign currency', async () => {
+    process.env.BACKEND_URL = 'https://api.example.com';
+    process.env.GITHUB_RENDER_TOKEN = 'ghtok';
+    const saved: any[] = [];
+    const jobs: any = {
+      create: (x: any) => x,
+      save: async (x: any) => { const j = { ...x, id: ID, worker_token: WT, media_token: MT }; saved.push(j); return j; },
+      update: async () => {}, findOne: async () => null,
+    };
+    const p = { id: 'p1', user_id: 'u1', campaign_id: 'c1', channel_override: null,
+      generated_text: 'Tactical Picatinny Foregrip for Rifles\n\nA sturdy grip that keeps your hold steady in the field. Just $6.40.\n#tactical #gear',
+      price_ils: 6.4, product_image: 'https://a/kf/S1.jpg' };
+    const postsRepo: any = { findOne: async () => p, query: async () => [{ language: 'en', currency_pair: 'USD_USD' }] };
+    const svc = new VideosService(jobs, postsRepo, {} as any, { getName: async () => null } as any, { getRaw: async () => ({}) } as any);
+    post = jest.spyOn(axios, 'post').mockResolvedValue({ status: 204 });
+    await svc.requestReel('p1', 'owner');
+    expect(saved[0].spec).toMatchObject({ lang: 'en', headline: 'Tactical Picatinny Foregrip for Rifles', price: '$6.40', cta: 'Tap to shop 🛒' });
+  });
+
+  it('publishes the English Reel as a Pinterest video pin, not to Instagram or Facebook', async () => {
+    process.env.WATCHDOG_TELEGRAM_CHAT_ID = '42';
+    process.env.WATCHDOG_TELEGRAM_BOT_TOKEN = 'bot';
+    process.env.REELS_SEND_FILE_DISABLED = '1';
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 32]), Buffer.from('ftypisom'), Buffer.alloc(300)]);
+    const updates: any[] = [];
+    const job: any = { id: ID, user_id: 'u1', post_id: 'p1', status: 'ready', media_token: MT, clip_source: 'none', has_voice: true,
+      spec: { lang: 'en', headline: 'Tactical Foregrip', price: '$6.40', cta: 'Tap to shop 🛒' } };
+    const jobs: any = {
+      findOne: async () => job, update: async (_w: any, x: any) => { updates.push(x); },
+      createQueryBuilder: () => ({ addSelect() { return this; }, where() { return this; }, getOne: async () => ({ video: mp4 }) }),
+    };
+    const posts: any = {
+      publishReel: jest.fn(),
+      publishPinterestVideo: jest.fn(async () => ({ pin: 'pin9', errors: [] })),
+    };
+    const svc = new VideosService(jobs, {} as any, posts, {} as any, {} as any);
+    post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { ok: true } });
+    await svc.publish(ID);
+    expect(posts.publishReel).not.toHaveBeenCalled();
+    expect(posts.publishPinterestVideo).toHaveBeenCalledWith('p1', mp4, { aiClip: false });
+    expect(updates[0]).toMatchObject({ status: 'published', pinterest_pin_id: 'pin9' });
+    expect(post.mock.calls[0][1].text).toMatch(/^🎬 פין וידאו באנגלית פורסם בפינטרסט: «Tactical Foregrip»\n📸 מתמונות המוצר · 🔊 עם קריינות באנגלית/);
+  });
+});

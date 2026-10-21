@@ -9,6 +9,8 @@ import { stripFenceMarks } from '../common/untrusted';
  * is taken from anywhere but our own published copy and the post's own numbers.
  */
 export interface ReelSpec {
+  /** The Reel's language: 'he' (the groups, RTL — the default) or 'en' (the US Pinterest audience). */
+  lang?: 'he' | 'en';
   headline: string;
   reason?: string;
   price: string;
@@ -29,6 +31,8 @@ export interface ReelSpec {
   timing?: number[];
   /** With the voice: each on-screen word's [start, end], per scene, for the captions. */
   words?: Partial<Record<'headline' | 'reason' | 'price' | 'cta', number[][]>>;
+  /** English: the hashtags of the pin copy itself, for the TikTok/Shorts text. */
+  hashtags?: string[];
 }
 
 export interface ReelPostLike {
@@ -44,6 +48,8 @@ export interface ReelPostLike {
 
 /** Instagram and Facebook captions carry no live link — the video sends viewers to the bio. */
 export const REEL_CTA = 'הלינק בביו 🔗';
+/** The English Reel is a Pinterest video pin, and the pin itself is the link. */
+export const REEL_CTA_EN = 'Tap to shop 🛒';
 
 const EMOJI = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu;
 
@@ -102,5 +108,57 @@ export function buildReelSpec(post: ReelPostLike, brand?: string | null): ReelSp
     images,
     // The seller's own video comes first: real footage of the real product.
     video: /^https?:\/\//i.test(String(post.product_video || '')) ? String(post.product_video) : undefined,
+  };
+}
+
+/** An English line worth putting on screen: real words, no link, no price, no call to buy, no hashtags. */
+function isContentLineEn(line: string): boolean {
+  return line.length >= 12
+    && !/(https?:\/\/|www\.|\$|€|£|₪|%|#\w|\btap\b|\bshop now\b|\bclick\b|\blink\b)/i.test(line)
+    && /[a-z]{3}/i.test(line);
+}
+
+/** The first sentence of a paragraph that says something about the product. */
+function firstSentence(paragraph: string): string {
+  const parts = paragraph.split(/(?<=[.!?])\s+/).map((p) => p.trim()).filter(Boolean);
+  return parts.find(isContentLineEn) || '';
+}
+
+function money(symbol: string, amount: number): string {
+  return `${symbol}${amount >= 100 ? Math.round(amount) : amount.toFixed(2)}`;
+}
+
+/**
+ * The English Reel of a US Pinterest post (its copy is the pin's own: the title on line one,
+ * a short paragraph, the hashtags last — pinterestSystemPrompt). Prices in the campaign's
+ * currency (`symbol`), as the pin shows them. Null when the post is not one.
+ */
+export function buildReelSpecEn(post: ReelPostLike, symbol: string, brand?: string | null): ReelSpec | null {
+  const images = reelImages(post);
+  const price = Number(post.price_ils);
+  if (!images.length || !(price > 0)) return null;
+  const raw = String(post.generated_text || '').split('\n').map(plainLine);
+  const lines = raw.filter(Boolean);
+  const title = lines.find((l) => !/^#/.test(l) && !/(https?:\/\/|www\.)/i.test(l)) || plainLine(post.product_title || '');
+  const headline = cut(title, 60);
+  if (!headline || /[֐-׿]/.test(headline)) return null;
+  const body = lines.filter((l) => l !== title && !/^#/.test(l)).join(' ');
+  const reason = firstSentence(body);
+  const hashtags = (lines.filter((l) => /^#/.test(l)).join(' ').match(/#[\p{L}\p{N}_]+/gu) || []).slice(0, 5);
+  const sale = Number(post.sale_price_usd);
+  const orig = Number(post.original_price_usd);
+  const discount = sale > 0 && orig > sale ? Math.round((1 - sale / orig) * 100) : 0;
+  return {
+    lang: 'en',
+    headline,
+    reason: reason ? cut(reason, 80) : undefined,
+    price: money(symbol, price),
+    was: discount >= 5 ? money(symbol, price * (orig / sale)) : undefined,
+    discount: discount >= 5 ? discount : undefined,
+    cta: REEL_CTA_EN,
+    brand: brand ? cut(plainLine(brand), 24) : undefined,
+    images,
+    video: /^https?:\/\//i.test(String(post.product_video || '')) ? String(post.product_video) : undefined,
+    ...(hashtags.length ? { hashtags } : {}),
   };
 }

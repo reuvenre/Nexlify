@@ -288,7 +288,18 @@ A sent post becomes a 12 s vertical video (1080×1920, four scenes: headline, re
   - a Shorts title (hook + `#shorts`, ≤ 100);
   - with an AI clip, the AI line, plus a reminder to switch on each platform's AI label at upload.
   - One 9:16 render fits all three platforms. If the file cannot be sent, the plain status line goes as before. Off with `REELS_SEND_FILE_DISABLED=1`.
-  - **Not Pinterest:** the board is the US audience's, in English, and these Reels are Hebrew. A Pinterest video pin waits for the English version.
+  - **Not Pinterest for the Hebrew Reel:** the board is the US audience's, in English. The English Reel below is the board's.
+- **The English Reel: a Pinterest video pin** (`buildReelSpecEn`, `pinterest-video.ts`). A post from a campaign that is not Hebrew (`isHebrewAudience` on the campaign language; no campaign is Hebrew) gets it.
+  - **The spec reads the pin copy** (`pinterestSystemPrompt`): line one is the headline, the first sentence about the product (no price, link, CTA or hashtag) is the reason, and the last line's hashtags are kept for the TikTok/Shorts text. The price is in the campaign currency (`currencySymbol`, `$6.40`), and the call is «Tap to shop 🛒», because the pin itself is the link.
+  - **The composition** (`lang: 'en'`) runs left to right with English labels («50% OFF», «was $12.80», «🤖 AI-generated demo»).
+  - **The voice** is the same Gemini TTS: `VOICE_STYLE_EN`, «Just $6.40, down from $12.80.».
+  - **Publishing** (`PostsService.publishPinterestVideo`) goes to the account's board, never to Instagram or Facebook:
+    - register `POST /v5/media` (`media_type: video`);
+    - upload the MP4 to the returned `upload_url` with every `upload_parameters` field;
+    - poll `GET /v5/media/<id>` until `succeeded` (≤ 5 min);
+    - `POST /v5/pins` with `media_source: video_id` and the product photo as the cover.
+  - **The pin** takes the post's own pin copy and the destination its photo pin has. With an AI clip it carries `AI_PIN_NOTE`. It is stored in `video_jobs.pinterest_pin_id`. A Trial-tier refusal says so (`TIER_BLOCK_MESSAGE`).
+  - **Which post:** `bestRecentEnglishPost` picks the most-clicked US pin of the last 7 days (`pinterest_clicks + clicks_count`), since pins collect clicks slowly. `/reelen` makes one now, and `REELS_EN_ENABLED=1` adds `REELS_EN_PER_DAY` (default 1, max 3) to the daily 12:42 run. `/reel` and the Hebrew daily pick read Hebrew campaigns only.
 - **When:** `/reel` in the owner's bot makes one now, of the most-clicked post of the last 48 h that has none. With `REELS_ENABLED=1` the same pick runs daily at 12:42 Israel time, `REELS_PER_DAY` (default 1, max 5). The owner hears the outcome on Telegram. A render that has not come back in 40 minutes is failed and reported.
 
 Two guards sit on generated copy, and they do different jobs:

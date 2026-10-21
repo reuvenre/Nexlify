@@ -13,6 +13,8 @@ import { ReelSpec } from './reel-spec';
 
 /** The hashtags every shared Reel carries, unless REELS_HASHTAGS replaces them. */
 export const DEFAULT_HASHTAGS = ['#אליאקספרס', '#דילים', '#מוצרים_מומלצים'];
+/** The English Reel's, when its pin copy carries none of its own. */
+export const DEFAULT_HASHTAGS_EN = ['#aliexpressfinds', '#founditonaliexpress', '#deals'];
 /** Telegram caps a media caption at 1024 characters. */
 export const TELEGRAM_CAPTION_MAX = 1024;
 /** The AI clip must be disclosed on TikTok too — with its own switch at upload. */
@@ -35,12 +37,17 @@ export function hashtagsFrom(env: string | undefined): string[] {
  * where the link is, the hashtags (the group's name first). The Shorts title is the hook
  * plus #shorts, within YouTube's 100 characters.
  */
-export function shareText(spec: Pick<ReelSpec, 'headline' | 'reason' | 'price' | 'was' | 'cta' | 'brand'>, tags: string[], ai = false): { caption: string; shortsTitle: string } {
+export function shareText(spec: Pick<ReelSpec, 'headline' | 'reason' | 'price' | 'was' | 'cta' | 'brand' | 'lang' | 'hashtags'>, tags: string[], ai = false): { caption: string; shortsTitle: string } {
+  const en = spec.lang === 'en';
   const head = spec.headline.replace(/…$/, '').trim();
-  const price = spec.was ? `${spec.price} במקום ${spec.was}` : spec.price;
-  const hashtags = [...new Set([toHashtag(spec.brand), ...tags].filter(Boolean))].join(' ');
-  const body = [head, spec.reason, `💰 ${price}`, spec.cta].filter(Boolean).join('\n');
-  const caption = [body, hashtags, ai ? '🤖 הסרטון נוצר באמצעות AI להמחשה בלבד.' : ''].filter(Boolean).join('\n\n');
+  const price = spec.was ? `${spec.price} ${en ? 'instead of' : 'במקום'} ${spec.was}` : spec.price;
+  // English: the pin copy's own hashtags first; the burned-in «Tap to shop» is the pin's, so
+  // TikTok and Shorts point to the bio instead.
+  const own = en ? (spec.hashtags?.length ? spec.hashtags : DEFAULT_HASHTAGS_EN) : tags;
+  const hashtags = [...new Set([en ? '' : toHashtag(spec.brand), ...own].filter(Boolean))].join(' ');
+  const body = [head, spec.reason, `💰 ${price}`, en ? 'Link in bio 🔗' : spec.cta].filter(Boolean).join('\n');
+  const aiLine = en ? '🤖 Video created with AI for illustration only.' : '🤖 הסרטון נוצר באמצעות AI להמחשה בלבד.';
+  const caption = [body, hashtags, ai ? aiLine : ''].filter(Boolean).join('\n\n');
   const room = 100 - ' #shorts'.length;
   const shortsTitle = `${head.length > room ? `${head.slice(0, room - 1).trim()}…` : head} #shorts`;
   return { caption, shortsTitle };

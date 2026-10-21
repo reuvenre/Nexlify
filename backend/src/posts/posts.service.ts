@@ -14,6 +14,7 @@ import { UNTRUSTED_DATA_RULE, fenceUntrusted, stripFenceMarks } from '../common/
 import { withShopperInvite } from './shopper-invite';
 import { PublishedProducts } from './product-similarity';
 import { AI_CAPTION_NOTE } from '../videos/ai-clip';
+import { mediaState, uploadTarget, videoPinText } from '../videos/pinterest-video';
 import { choosePool } from './pool-tiers';
 import { SEARCH_BOT_UPDATES, webhookVerdict } from '../watchdog/webhook-health';
 import { searchBotToken, searchWebhookUrl } from '../telegram-bot/search-bot';
@@ -5766,6 +5767,65 @@ export class PostsService {
     }
     if (!ig && !pages.size) out.errors.push('לקבוצה של הפוסט אין חשבון אינסטגרם או דף פייסבוק מחוברים');
     return out;
+  }
+
+  /**
+   * The English Reel as a Pinterest video pin on the account's board (videos/pinterest-video.ts):
+   * register the upload, send the file, wait for Pinterest to process it, create the pin with
+   * the post's own pin copy and the same destination its photo pin has.
+   */
+  async publishPinterestVideo(postId: string, video: Buffer, opts: { aiClip?: boolean } = {}): Promise<{ pin?: string; errors: string[] }> {
+    const post = await this.repo.findOne({ where: { id: postId } });
+    if (!post) throw new Error('post not found');
+    const creds = await this.credentials.getRaw(post.user_id);
+    const boardId = creds?.pinterest_board_id;
+    const live = await this.pinterest.publishToken(post.user_id);
+    if (live.blockedReason) return { errors: [`Pinterest: ${live.blockedReason}`] };
+    if (!live.token || !boardId) return { errors: ['Pinterest: אין חיבור לפינטרסט או לוח יעד בהגדרות'] };
+    const api = 'https://api.pinterest.com/v5';
+    const auth = { Authorization: `Bearer ${live.token}` };
+    try {
+      const reg = await axios.post(`${api}/media`, { media_type: 'video' }, { headers: { ...auth, 'Content-Type': 'application/json' }, timeout: 20_000 });
+      const target = uploadTarget(reg.data);
+      if (!target) throw new Error('Pinterest did not register the upload');
+      const form = new FormData();
+      for (const [k, v] of Object.entries(target.fields)) form.append(k, v);
+      form.append('file', video, { filename: 'reel.mp4', contentType: 'video/mp4' });
+      await axios.post(target.url, form, { headers: form.getHeaders(), timeout: 120_000, maxBodyLength: Infinity, maxContentLength: Infinity });
+      const pollMs = Number(process.env.PINTEREST_MEDIA_POLL_MS) || 5000;
+      for (let i = 0; ; i++) {
+        if (i * pollMs > 5 * 60_000) throw new Error('פינטרסט לא סיים לעבד את הסרטון תוך 5 דקות');
+        await new Promise((r) => setTimeout(r, pollMs));
+        const st = await axios.get(`${api}/media/${encodeURIComponent(target.mediaId)}`, { headers: auth, timeout: 15_000 });
+        const state = mediaState(st.data);
+        if (state === 'done') break;
+        if (state !== 'pending') throw new Error(state.failed);
+      }
+      let cover = post.product_image || '';
+      try {
+        const g = post.gallery_json ? JSON.parse(post.gallery_json) : [];
+        if (Array.isArray(g) && g[0]) cover = g[0];
+      } catch { /* the main image */ }
+      const destination = (this.storefront
+        ? await this.storefront.postProductUrl(post.user_id, post).catch(() => null)
+        : null) || post.affiliate_url || undefined;
+      const { title, description } = videoPinText(post.generated_text, post.product_title, opts.aiClip);
+      const res = await axios.post(`${api}/pins`, {
+        board_id: boardId, title, description, link: destination,
+        alt_text: String(post.product_title || title).replace(/\s+/g, ' ').trim().slice(0, 500),
+        media_source: { source_type: 'video_id', media_id: target.mediaId, cover_image_url: cover },
+      }, { headers: { ...auth, 'Content-Type': 'application/json' }, timeout: 30_000, validateStatus: () => true });
+      if (res.status === 403 || /sufficient permissions|scopes/i.test(String(res.data?.message || ''))) {
+        const granted = parseGrantedScopes(creds?.pinterest_scopes);
+        throw new Error(granted.includes(PUBLISH_SCOPE) ? TIER_BLOCK_MESSAGE : describeMissingScopes([PUBLISH_SCOPE], granted));
+      }
+      if (res.status < 200 || res.status >= 300 || !res.data?.id) {
+        throw new Error(res.data?.message || `Pinterest video pin failed (${res.status})`);
+      }
+      return { pin: String(res.data.id), errors: [] };
+    } catch (err: any) {
+      return { errors: [`Pinterest: ${err?.response?.data?.message || err?.message || err}`] };
+    }
   }
 
   /** Instagram Reels: a REELS container from the video URL, wait for processing, publish. */

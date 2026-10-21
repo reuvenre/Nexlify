@@ -537,6 +537,20 @@ export class TelegramBotService implements OnModuleInit {
         : '🎬 מכין Reel מהפוסט הכי נקלק ביומיים האחרונים. הרינדור לוקח כמה דקות — אעדכן כשהוא עולה לאינסטגרם ולפייסבוק.');
       return;
     }
+    // The English Reel — a Pinterest video pin of the best US pin of the week.
+    if (/^\/reelen(@\S+)?$/i.test(text)) {
+      const userId = await this.ownerUserId();
+      const best = userId ? await this.videos.bestRecentEnglishPost(userId) : null;
+      if (!best) {
+        await this.send(chatId, '🎬 אין פין מקמפיין באנגלית מהשבוע האחרון שעוד אין לו סרטון (צריך פין שפורסם, עם תמונה ומחיר).');
+        return;
+      }
+      const { error } = await this.videos.requestReel(best.id, 'owner');
+      await this.send(chatId, error
+        ? `🎬 לא הצלחתי להתחיל את הסרטון: ${error}`
+        : '🎬 מכין סרטון באנגלית מהפין הכי נקלק השבוע. הרינדור לוקח כמה דקות — אעדכן כשהוא עולה לפינטרסט.');
+      return;
+    }
     // The owner tapping the link at the foot of his own post (/start post) sees what his
     // readers see — not his own command list.
     if (/^\/start(@\S+)?(\s|$)/i.test(text)) {
@@ -1953,6 +1967,7 @@ export class TelegramBotService implements OnModuleInit {
         { command: 'searches', description: 'מה הקוראים מחפשים בבוט' },
         { command: 'groups', description: 'בדיקת /find בכל קבוצה' },
         { command: 'reel', description: 'סרטון Reel מהפוסט הכי נקלק' },
+        { command: 'reelen', description: 'פין וידאו באנגלית לפינטרסט' },
         { command: 'status', description: 'מצב המערכת' },
       ],
       scope: { type: 'chat', chat_id: process.env.WATCHDOG_TELEGRAM_CHAT_ID },

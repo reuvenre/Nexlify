@@ -15,6 +15,8 @@
  * spoken line, and `spec.words` lights each on-screen word up as it is said. The audio itself
  * is muxed in by render.mjs after the render. Without them, the fixed 12 s above, silent.
  *
+ * `spec.lang = 'en'` is the US Pinterest audience's Reel: left to right, English labels.
+ *
  * Every text value is the backend's (spec.json), escaped here. Hebrew: dir="rtl" sits on the
  * root div and the text blocks, never on <html> (a known silent blank-render failure).
  * No music: it has licensing of its own.
@@ -25,6 +27,13 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const num = (s) => `<bdi dir="ltr">${esc(s)}</bdi>`;
 
 export const DURATION = 12;
+
+/** The words the composition writes itself, and the direction, per language. */
+function texts(spec) {
+  return spec?.lang === 'en'
+    ? { lang: 'en', dir: 'ltr', off: (d) => `${num(`${d}%`)} OFF`, was: (w) => `was ${num(w)}`, orders: (o) => `${num(o)} orders`, ai: '🤖 AI-generated demo' }
+    : { lang: 'he', dir: 'rtl', off: (d) => `${num(`${d}%`)} הנחה`, was: (w) => `במקום ${num(w)}`, orders: (o) => `${num(o)} הזמנות`, ai: '🤖 הדגמה שנוצרה ב-AI' };
+}
 const SCENES = [0, 3.2, 6.4, 9.6];
 
 /**
@@ -69,6 +78,7 @@ function wordTweens(spec) {
 /** @param {{headline:string, reason?:string, price:string, was?:string, discount?:number, rating?:number, orders?:string, cta:string, brand?:string, images:string[], video?:string, ai?:boolean}} spec — images and video are local asset paths */
 /** The clip's opening: blurred photo behind, the clip, then the text above it. */
 function clipScenes(spec, poster, CLIP_END) {
+  const T = texts(spec);
   const ai = !!spec.ai;
   // Gemini's clip is made 9:16 and fills the frame; a seller's video, or fal's clip in the
   // photo's own shape, sits in the card.
@@ -81,13 +91,14 @@ function clipScenes(spec, poster, CLIP_END) {
         <video id="clipv" src="${esc(spec.video)}" data-start="0" data-duration="${CLIP_END}" data-track-index="11" muted playsinline></video>
       </div>
       <div id="vtxt" class="clip vtxt" data-start="0" data-duration="${CLIP_END}" data-track-index="12">
-        <div class="top" dir="rtl">${spec.brand ? `<div class="chip" id="vchip">${esc(spec.brand)}</div>` : ''}<div class="headline" id="vh">${spoken(spec.headline, spec.words?.headline, 'vhw')}</div></div>
-        ${spec.reason ? `<div class="reason" id="vr" dir="rtl">${spoken(spec.reason, spec.words?.reason, 'vrw')}</div>` : ''}
-        ${ai ? '<div class="ailabel" id="ail" dir="rtl">🤖 הדגמה שנוצרה ב-AI</div>' : ''}
+        <div class="top" dir="${T.dir}">${spec.brand ? `<div class="chip" id="vchip">${esc(spec.brand)}</div>` : ''}<div class="headline" id="vh">${spoken(spec.headline, spec.words?.headline, 'vhw')}</div></div>
+        ${spec.reason ? `<div class="reason" id="vr" dir="${T.dir}">${spoken(spec.reason, spec.words?.reason, 'vrw')}</div>` : ''}
+        ${ai ? `<div class="ailabel" id="ail" dir="${T.dir}">${T.ai}</div>` : ''}
       </div>`;
 }
 
 export function buildComposition(spec) {
+  const T = texts(spec);
   const { starts: S, end: DURATION, clipEnd: CLIP_END } = sceneTimes(spec);
   const clip = spec.video ? CLIP_END : 0;
   const imgs = spec.images.length ? spec.images : [''];
@@ -104,11 +115,11 @@ export function buildComposition(spec) {
 
   const stats = [
     spec.rating ? `★ ${num(spec.rating)}` : '',
-    spec.orders ? `${num(spec.orders)} הזמנות` : '',
+    spec.orders ? T.orders(spec.orders) : '',
   ].filter(Boolean).join(' · ');
 
   return `<!doctype html>
-<html lang="he" data-resolution="portrait">
+<html lang="${T.lang}" data-resolution="portrait">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1080, height=1920" />
@@ -153,20 +164,20 @@ export function buildComposition(spec) {
     </style>
   </head>
   <body>
-    <div id="root" dir="rtl" data-composition-id="main" data-start="0" data-duration="${DURATION}" data-width="1080" data-height="1920" data-fps="30">
+    <div id="root" dir="${T.dir}" data-composition-id="main" data-start="0" data-duration="${DURATION}" data-width="1080" data-height="1920" data-fps="30">
       ${clip ? clipScenes(spec, img(0), CLIP_END) : `${scene(0, `${photo(0, 0)}
-        <div class="top" dir="rtl">${spec.brand ? `<div class="chip" id="chip0">${esc(spec.brand)}</div>` : ''}<div class="headline" id="h0">${spoken(spec.headline, spec.words?.headline, 'hw')}</div></div>`)}
+        <div class="top" dir="${T.dir}">${spec.brand ? `<div class="chip" id="chip0">${esc(spec.brand)}</div>` : ''}<div class="headline" id="h0">${spoken(spec.headline, spec.words?.headline, 'hw')}</div></div>`)}
       ${scene(1, `${photo(1, 1)}
-        <div class="reason" id="r1" dir="rtl">${spec.reason ? spoken(spec.reason, spec.words?.reason, 'rw') : esc(spec.headline)}</div>`)}`}
+        <div class="reason" id="r1" dir="${T.dir}">${spec.reason ? spoken(spec.reason, spec.words?.reason, 'rw') : esc(spec.headline)}</div>`)}`}
       ${scene(2, `${photo(2, 2)}
-        <div class="deal" dir="rtl">
-          ${spec.discount ? `<div class="off" id="off2">${num(`${spec.discount}%`)} הנחה</div>` : ''}
+        <div class="deal" dir="${T.dir}">
+          ${spec.discount ? `<div class="off" id="off2">${T.off(spec.discount)}</div>` : ''}
           <div class="price" id="p2">${num(spec.price)}</div>
-          ${spec.was ? `<div class="was" id="w2">במקום ${num(spec.was)}</div>` : ''}
+          ${spec.was ? `<div class="was" id="w2">${T.was(spec.was)}</div>` : ''}
           ${stats ? `<div class="stats" id="st2">${stats}</div>` : ''}
         </div>`)}
       ${scene(3, `<div class="bg" style="background-image:url('${esc(img(0))}')"></div><div class="shade"></div>
-        <div class="end" dir="rtl">
+        <div class="end" dir="${T.dir}">
           <div class="thumb" id="t3"><img src="${esc(img(0))}" alt=""></div>
           <div class="cta" id="c3">${spoken(spec.cta, spec.words?.cta, 'cw')}</div>
           ${spec.brand ? `<div class="brand" id="b3">${esc(spec.brand)}</div>` : ''}
