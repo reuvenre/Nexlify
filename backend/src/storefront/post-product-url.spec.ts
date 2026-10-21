@@ -23,8 +23,15 @@ describe('StorefrontService.postProductUrl', () => {
   };
 
   /** The service with only what this method touches. */
-  function build(store: any = { slug: 'hidden-premium-brands', enabled: true }) {
-    const repo = { findOne: jest.fn(async () => store) } as any;
+  function build(store: any = { slug: 'hidden-premium-brands', enabled: true, link_in_posts: true }, language: any = 'he') {
+    const repo = {
+      findOne: jest.fn(async () => store),
+      // The post's campaign language; a thrown read is a language that cannot be read.
+      query: jest.fn(async () => {
+        if (language instanceof Error) throw language;
+        return language === undefined ? [] : [{ language }];
+      }),
+    } as any;
     return { svc: new StorefrontService(repo, {} as any, {} as any), repo };
   }
 
@@ -82,6 +89,28 @@ describe('StorefrontService.postProductUrl', () => {
         await expect(svc.postProductUrl(USER, post)).resolves.toBeNull();
       });
     }
+  });
+
+  it("keeps the affiliate link when the owner switched off «הוסף קישור לחנות בפוסטים»", async () => {
+    // The owner turned the switch off and pins kept landing on the store: this method read
+    // only `enabled`. The switch is his way of keeping the channels off the store.
+    const { svc } = build({ slug: 'hidden-premium-brands', enabled: true, link_in_posts: false });
+    await expect(svc.postProductUrl(USER, OK)).resolves.toBeNull();
+  });
+
+  it('keeps the affiliate link for an English campaign\'s pin — the store is Hebrew', async () => {
+    const { svc } = build(undefined, 'en');
+    await expect(svc.postProductUrl(USER, OK)).resolves.toBeNull();
+  });
+
+  it('treats a post with no campaign as the Hebrew default', async () => {
+    const { svc } = build(undefined, null);
+    await expect(svc.postProductUrl(USER, OK)).resolves.toContain('/p/p%3Apost-uuid');
+  });
+
+  it('keeps the affiliate link when the language cannot be read', async () => {
+    const { svc } = build(undefined, new Error('db down'));
+    await expect(svc.postProductUrl(USER, OK)).resolves.toBeNull();
   });
 
   it('refuses a relative base — a crawler cannot follow it', async () => {

@@ -1,4 +1,7 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { PIN_VISIT_HEADER } from '@/lib/pin-visit';
 
 /**
  * What a crawler reads for one product page — Pinterest above all.
@@ -20,6 +23,8 @@ interface ProductForMeta {
   gallery?: string[];
   price: number;
   currency: string;
+  /** Set when a pin should never have led here (the owner's link switch is off, or the post is not for the Hebrew store). */
+  pin_redirect?: string;
 }
 
 async function readProduct(slug: string, id: string): Promise<ProductForMeta | null> {
@@ -93,6 +98,12 @@ export default async function ProductLayout(
 ) {
   const { slug, id } = await params;
   const product = await readProduct(slug, decodeURIComponent(id));
+  // A pin that should not have led to the store (switch off, or an English campaign's pin
+  // landing on the Hebrew store) goes on to the product, through the tracked link. This is
+  // what fixes the pins already published; new ones no longer point here.
+  if (product?.pin_redirect && (await headers()).get(PIN_VISIT_HEADER) === '1') {
+    redirect(product.pin_redirect);
+  }
   const image = product ? crawlableImage(product.image || product.gallery?.[0]) : null;
   // schema.org Product: the other format Pinterest (and Google) read for a product page.
   const jsonLd = product ? {

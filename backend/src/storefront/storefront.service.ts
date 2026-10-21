@@ -8,6 +8,7 @@ import { nextFreeSlug, slugError } from './store-slug';
 import { storeTexts } from './store-defaults';
 import { brandDisplayName, storeCardName } from './product-name';
 import { priceBounds, sorter } from './store-sort';
+import { pinBuyUrl, pinMayUseStore } from './pin-destination';
 
 /** One product as the public store shows it. */
 export interface StoreProduct {
@@ -138,6 +139,10 @@ export class StorefrontService {
    * Returns null rather than a guess. The page renders a post only when it satisfies the
    * catalog query, so the same conditions are checked here: a pin aimed at a page that will
    * never render is worse than the redirect it replaced.
+   *
+   * Null too when the pin must not go to the store at all (pin-destination.ts): the owner's
+   * «הוסף קישור לחנות בפוסטים» is off, or the post's campaign is not Hebrew. Both were
+   * ignored once, and US pins landed on the Hebrew store with the switch off.
    */
   async postProductUrl(userId: string, post: {
     id?: string | null;
@@ -155,6 +160,10 @@ export class StorefrontService {
       .findOne({ where: { user_id: userId, enabled: true } })
       .catch(() => null);
     if (!store) return null;
+    // The post's audience decides too. A language that cannot be read sends the pin to
+    // the affiliate link: the store is the enhancement, never the guess.
+    const language = await this.postLanguage(post.id, userId);
+    if (language === undefined || !pinMayUseStore(store, language)) return null;
 
     const base = this.storeUrl(store.slug);
     // FRONTEND_URL unset yields "/s/slug" — a relative path is not a destination a crawler
@@ -261,8 +270,15 @@ export class StorefrontService {
     };
   }
 
-  /** One product page, with the buy link already turned into a tracked one. */
-  async publicProduct(slug: string, id: string): Promise<StoreProduct & { buy_url: string }> {
+  /**
+   * One product page, with the buy link already turned into a tracked one.
+   *
+   * `pin_redirect` is set on a post's page when a pin should never have led here (the
+   * owner's link switch is off, or the post is not for the store's Hebrew audience). The
+   * page's server layout sends a Pinterest visit straight to it, which is how the pins
+   * already published stop landing people on the store.
+   */
+  async publicProduct(slug: string, id: string): Promise<StoreProduct & { buy_url: string; pin_redirect?: string }> {
     const store = await this.bySlug(slug);
     const [kind, realId] = String(id || '').split(':');
 
@@ -271,7 +287,28 @@ export class StorefrontService {
       : (await this.supplierProducts(store, realId))[0];
     if (!product) throw new NotFoundException('המוצר לא נמצא');
 
-    return { ...product, buy_url: await this.buyUrl(store, kind, realId) };
+    const buy_url = await this.buyUrl(store, kind, realId);
+    if (kind === 'p') {
+      const language = await this.postLanguage(realId, store.user_id);
+      if (!pinMayUseStore(store, language)) return { ...product, buy_url, pin_redirect: pinBuyUrl(buy_url) };
+    }
+    return { ...product, buy_url };
+  }
+
+  /**
+   * The language of a post's campaign: null for a post with no campaign (the account
+   * default, Hebrew), undefined when it cannot be read.
+   */
+  private async postLanguage(postId: string, userId: string): Promise<string | null | undefined> {
+    try {
+      const rows: Array<{ language: string | null }> = await this.repo.query(
+        `SELECT c.language AS language FROM posts p LEFT JOIN campaigns c ON c.id = p.campaign_id
+          WHERE p.id = $1 AND p.user_id = $2`,
+        [postId, userId]);
+      return rows?.length ? rows[0].language ?? null : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
