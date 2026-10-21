@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 import axios from 'axios';
+import FormData = require('form-data');
 import { VideoJob } from './video-job.entity';
 import { Post } from '../posts/post.entity';
 import { PostsService } from '../posts/posts.service';
@@ -11,6 +12,7 @@ import { ChannelsService } from '../channels/channels.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { buildReelSpec } from './reel-spec';
 import { AI_CLIP_MODEL_DEFAULT, DEFAULT_AI_CLIPS_PER_DAY, aiClipRequest, readInteractionVideo } from './ai-clip';
+import { hashtagsFrom, ownerVideoCaption, shareText } from './reel-share';
 import { VOICE_MODEL_DEFAULT, VOICE_NAME_DEFAULT, buildVoiceTrack, readSpeech, speechRequest, voiceLines } from './reel-voice';
 
 /** Largest MP4 accepted from the renderer — a 12 s 1080×1920 Reel is about 3 MB. */
@@ -331,12 +333,14 @@ export class VideosService {
       const opened = job.clip_source === 'seller' ? '🎥 עם סרטון המוכר'
         : job.clip_source === 'ai' ? '🤖 עם קליפ AI (מסומן ככזה)' : '📸 מתמונות המוצר';
       const voiced = job.has_voice ? ' · 🔊 עם קריינות בעברית' : '';
-      await this.notifyOwner(job.user_id, [
+      const status = [
         landed.length ? `🎬 Reel פורסם ב${landed.join(' וב')}: «${job.spec?.headline || ''}»` : `🎬 ה-Reel לא פורסם: «${job.spec?.headline || ''}»`,
         `${opened}${voiced}`,
         ...(job.error ? [`ℹ️ ${job.error}`] : []),
         ...res.errors.map((e) => `⚠️ ${e}`),
-      ].join('\n'));
+      ].join('\n');
+      // The file itself, for TikTok and Shorts (reel-share.ts); the plain line when it cannot go.
+      if (!await this.sendVideoToOwner(job, status)) await this.notifyOwner(job.user_id, status);
     } catch (err: any) {
       await this.jobs.update({ id }, { status: 'failed', error: String(err?.message || err).slice(0, 1000) });
       await this.notifyOwner(job.user_id, `🎬 ה-Reel לא פורסם: ${err?.message || err}`);
@@ -378,6 +382,43 @@ export class VideosService {
       `UPDATE video_jobs SET video = NULL, clip = NULL, voice = NULL
        WHERE (video IS NOT NULL OR clip IS NOT NULL OR voice IS NOT NULL) AND status IN ('published', 'failed') AND created_at < now() - interval '3 days'`,
     ).catch(() => {});
+  }
+
+  /**
+   * The finished MP4 in the owner's chat, captioned with what happened, then the text to paste
+   * on TikTok and Shorts as a message of its own (one long press copies all of it). False when
+   * it could not be sent — the caller falls back to the plain line. Off with
+   * REELS_SEND_FILE_DISABLED=1.
+   */
+  private async sendVideoToOwner(job: VideoJob, status: string): Promise<boolean> {
+    if (process.env.REELS_SEND_FILE_DISABLED === '1') return false;
+    const chatId = process.env.WATCHDOG_TELEGRAM_CHAT_ID;
+    const token = process.env.WATCHDOG_TELEGRAM_BOT_TOKEN
+      || await this.credentials.getTelegramToken(job.user_id).catch(() => null);
+    if (!chatId || !token || !job.spec?.headline) return false;
+    const row = await this.jobs.createQueryBuilder('j').addSelect('j.video').where('j.id = :id', { id: job.id }).getOne().catch(() => null);
+    if (!row?.video) return false;
+    const ai = job.clip_source === 'ai';
+    try {
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('caption', ownerVideoCaption(status, ai));
+      form.append('supports_streaming', 'true');
+      form.append('width', '1080');
+      form.append('height', '1920');
+      form.append('video', row.video, { filename: 'reel.mp4', contentType: 'video/mp4' });
+      await axios.post(`https://api.telegram.org/bot${token}/sendVideo`, form, {
+        headers: form.getHeaders(), timeout: 120_000, maxBodyLength: Infinity, maxContentLength: Infinity,
+      });
+    } catch (err: any) {
+      this.logger.warn(`video ${job.id}: sending the file to the owner failed: ${err?.response?.data?.description || err?.message}`);
+      return false;
+    }
+    const { caption, shortsTitle } = shareText(job.spec, hashtagsFrom(process.env.REELS_HASHTAGS), ai);
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId, text: `${caption}\n\n▶️ כותרת ל-Shorts:\n${shortsTitle}`,
+    }, { timeout: 10_000 }).catch((err) => this.logger.warn(`video ${job.id}: share text not sent: ${err?.message}`));
+    return true;
   }
 
   /** A short line to the owner's Telegram chat. Best-effort. */

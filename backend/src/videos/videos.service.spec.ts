@@ -234,3 +234,53 @@ describe('VideosService — the Hebrew voiceover', () => {
     expect(updates[0]).toMatchObject({ status: 'ready', has_voice: true, voice: null });
   });
 });
+
+describe('VideosService — the file for TikTok and Shorts', () => {
+  const env = { ...process.env };
+  let post: jest.SpyInstance;
+  afterEach(() => { post.mockRestore(); process.env = { ...env }; });
+
+  function buildShare(opts: { video?: Buffer | null } = {}) {
+    process.env.BACKEND_URL = 'https://api.example.com';
+    process.env.WATCHDOG_TELEGRAM_CHAT_ID = '42';
+    process.env.WATCHDOG_TELEGRAM_BOT_TOKEN = 'bot';
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 32]), Buffer.from('ftypisom'), Buffer.alloc(300)]);
+    const job: any = { id: ID, user_id: 'u1', post_id: 'p1', status: 'ready', media_token: MT, clip_source: 'none', has_voice: true,
+      spec: { headline: 'ידית אחיזה טקטית', price: '₪89', cta: 'הלינק בביו 🔗', brand: 'טקטי בקליק' } };
+    const jobs: any = {
+      findOne: async () => job, update: async () => {},
+      createQueryBuilder: () => ({ addSelect() { return this; }, where() { return this; }, getOne: async () => ({ video: opts.video === undefined ? mp4 : opts.video }) }),
+    };
+    const posts: any = { publishReel: async () => ({ instagram: 'ig1', errors: [] }) };
+    const svc = new VideosService(jobs, {} as any, posts, {} as any, {} as any);
+    post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { ok: true } });
+    return svc;
+  }
+
+  it('sends the MP4 with the outcome as its caption, then the paste-ready text', async () => {
+    await buildShare().publish(ID);
+    const urls = post.mock.calls.map((c) => c[0]);
+    expect(urls).toEqual(['https://api.telegram.org/botbot/sendVideo', 'https://api.telegram.org/botbot/sendMessage']);
+    const text = post.mock.calls[1][1].text;
+    expect(text).toMatch(/^ידית אחיזה טקטית\n💰 ₪89\nהלינק בביו 🔗\n\n#טקטי_בקליק #אליאקספרס/);
+    expect(text).toMatch(/כותרת ל-Shorts:\nידית אחיזה טקטית #shorts$/);
+  });
+
+  it('no file to send: the plain line, as before', async () => {
+    await buildShare({ video: null }).publish(ID);
+    expect(post.mock.calls.map((c) => c[0])).toEqual(['https://api.telegram.org/botbot/sendMessage']);
+    expect(post.mock.calls[0][1].text).toMatch(/🎬 Reel פורסם באינסטגרם/);
+    expect(post.mock.calls[0][1].text).toMatch(/🔊 עם קריינות בעברית/);
+  });
+
+  it('a refused upload falls back to the plain line', async () => {
+    const svc = buildShare();
+    post.mockImplementation(async (url: string) => {
+      if (url.endsWith('/sendVideo')) throw Object.assign(new Error('413'), { response: { data: { description: 'Request Entity Too Large' } } });
+      return { data: { ok: true } };
+    });
+    await svc.publish(ID);
+    expect(post.mock.calls.map((c) => c[0])).toEqual(['https://api.telegram.org/botbot/sendVideo', 'https://api.telegram.org/botbot/sendMessage']);
+    expect(post.mock.calls[1][1].text).toMatch(/^🎬 Reel פורסם/);
+  });
+});

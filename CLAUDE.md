@@ -276,6 +276,13 @@ A sent post becomes a 12 s vertical video (1080×1920, four scenes: headline, re
   - **Captions.** The on-screen headline, reason and call light up word by word as they are spoken. TTS gives no word timestamps, so each line's speech span (silence trimmed) is shared out by letters.
   - **The renderer.** The backend stores one WAV the Reel's length in `video_jobs.voice` (`/videos/jobs/<id>/voice.wav?t=`). The renderer renders against `timing` and muxes the WAV in with FFmpeg (video copied, AAC). A clip shorter than its stretched scenes holds its last frame (`tpad`). It reports `?voice=1|0` → `has_voice`, and the owner's message says «🔊 עם קריינות בעברית».
   - **A failure is a silent Reel:** a TTS error, an unreadable WAV or a failed mux gives the fixed 12 s with no audio, never no Reel. The voice is still no music.
+- **TikTok and YouTube Shorts get the file, not an API** (`reel-share.ts`). TikTok's posting API needs an audited app, and YouTube keeps an unverified app's uploads private. So once a Reel is published, the MP4 goes to the owner's chat (`sendVideo`, captioned with the outcome and how to reuse it), followed by a message with the text to paste:
+  - the hook, the reason, the price and «הלינק בביו»;
+  - the hashtags, the group's name first, then `REELS_HASHTAGS` or `DEFAULT_HASHTAGS`;
+  - a Shorts title (hook + `#shorts`, ≤ 100);
+  - with an AI clip, the AI line, plus a reminder to switch on each platform's AI label at upload.
+  - One 9:16 render fits all three platforms. If the file cannot be sent, the plain status line goes as before. Off with `REELS_SEND_FILE_DISABLED=1`.
+  - **Not Pinterest:** the board is the US audience's, in English, and these Reels are Hebrew. A Pinterest video pin waits for the English version.
 - **When:** `/reel` in the owner's bot makes one now, of the most-clicked post of the last 48 h that has none. With `REELS_ENABLED=1` the same pick runs daily at 12:42 Israel time, `REELS_PER_DAY` (default 1, max 5). The owner hears the outcome on Telegram. A render that has not come back in 40 minutes is failed and reported.
 
 Two guards sit on generated copy, and they do different jobs:
