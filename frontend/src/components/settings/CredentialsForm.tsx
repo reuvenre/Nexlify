@@ -24,6 +24,7 @@ export function CredentialsForm() {
     gemini_model: 'gemini-2.5-flash',
     ai_monthly_token_budget: null,
     apify_api_token: '',
+    fal_api_key: '',
     amazon_access_key: '',
     amazon_secret_key: '',
     amazon_partner_tag: '',
@@ -63,6 +64,7 @@ export function CredentialsForm() {
           anthropic_api_key: '',
           gemini_api_key: '',
           apify_api_token: '',
+          fal_api_key: '',
         }));
       })
       .catch(() => {});
@@ -297,6 +299,17 @@ export function CredentialsForm() {
         </h3>
         <div className="grid grid-cols-1 gap-4">
           <Field label="Apify API Token" field="apify_api_token" secret placeholder="apify_api_..." hint="מפעיל סורק AliExpress בעמוד 'גילוי מוצרים'" />
+        </div>
+      </section>
+
+      {/* fal.ai — the Reels' opening clip from the product photo */}
+      <section className="bg-surface-secondary border border-edge rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <span className="text-lg">🎬</span> fal.ai — סרטוני מוצר ל-Reels
+          {verifyStatus && <VerifyIcon ok={verifyStatus.fal} />}
+        </h3>
+        <div className="grid grid-cols-1 gap-4">
+          <Field label="fal API Key" field="fal_api_key" secret placeholder="xxxxxxxx-xxxx-...:xxxx" hint="מ-fal.ai/dashboard/keys. הופך את תמונת המוצר לקליפ פתיחה ל-Reel (בתשלום, לפי הצריכה)" />
         </div>
       </section>
 

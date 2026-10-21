@@ -119,6 +119,11 @@ export class CredentialSetDto {
   @IsString()
   apify_api_token?: string;
 
+  // ── Reels: fal.ai image-to-video ──
+  @IsOptional()
+  @IsString()
+  fal_api_key?: string;
+
   // ── Scaffolded integrations (stored; activation pending external accounts) ──
   @IsOptional() @IsString() whatsapp_phone_number_id?: string;
   @IsOptional() @IsString() whatsapp_access_token?: string;

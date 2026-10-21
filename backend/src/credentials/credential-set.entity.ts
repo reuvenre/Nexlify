@@ -152,6 +152,10 @@ export class CredentialSet {
   @Column({ nullable: true })
   apify_api_token_enc: string;
 
+  /** fal.ai — the image-to-video opening clip of the Reels (videos/fal-clip.ts). */
+  @Column({ nullable: true })
+  fal_api_key_enc: string;
+
   /* ── Scaffolded integrations (credentials stored; activation pending the
    *    user's external account / API approval — no publish path wired yet) ── */
 

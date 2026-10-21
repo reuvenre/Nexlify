@@ -21,6 +21,8 @@ export interface ReelSpec {
   video?: string;
   /** The clip is AI-generated — labelled on screen and in the caption. */
   ai?: boolean;
+  /** How the clip sits: 'full' frame (Gemini's 9:16) or in the 'card' (the seller's video, fal's photo-shaped clip). */
+  fit?: 'full' | 'card';
   /** The Hebrew voiceover (reel-voice.ts), for the renderer to lay under the video. */
   voice?: string;
   /** With the voice: scene starts plus the end, [0, s1, s2, s3, end] — scenes fit their lines. */

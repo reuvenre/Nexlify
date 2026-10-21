@@ -74,6 +74,8 @@ export interface DecryptedCredentials {
   facebook_min_interval_minutes?: number;
   // Discovery
   apify_api_token?: string;
+  // Reels: fal.ai image-to-video
+  fal_api_key?: string;
   // Auto-boost
   boost_enabled?: boolean;
   boost_roas_threshold?: number;
@@ -376,6 +378,9 @@ export class CredentialsService {
     if (dto.apify_api_token?.trim()) {
       cred.apify_api_token_enc = encrypt(dto.apify_api_token.trim());
     }
+    if (dto.fal_api_key?.trim()) {
+      cred.fal_api_key_enc = encrypt(dto.fal_api_key.trim());
+    }
 
     // Scaffolded integrations — non-secret ids (direct) + secret tokens (encrypted).
     if (dto.whatsapp_phone_number_id?.trim()) cred.whatsapp_phone_number_id = dto.whatsapp_phone_number_id.trim();
@@ -433,10 +438,10 @@ export class CredentialsService {
 
   async verify(userId: string): Promise<{
     aliexpress: boolean; telegram: boolean; openai: boolean;
-    gemini: boolean; anthropic: boolean; facebook: boolean; instagram: boolean; metaAdAccount: boolean; apify: boolean;
+    gemini: boolean; anthropic: boolean; facebook: boolean; instagram: boolean; metaAdAccount: boolean; apify: boolean; fal: boolean;
     errors: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'instagram' | 'metaAdAccount', string>>;
   }> {
-    const empty = { aliexpress: false, telegram: false, openai: false, gemini: false, anthropic: false, facebook: false, instagram: false, metaAdAccount: false, apify: false };
+    const empty = { aliexpress: false, telegram: false, openai: false, gemini: false, anthropic: false, facebook: false, instagram: false, metaAdAccount: false, apify: false, fal: false };
     const cred = await this.repo.findOne({ where: { user_id: userId } });
     if (!cred) return { ...empty, errors: {} };
 
@@ -580,6 +585,8 @@ export class CredentialsService {
 
     // Apify: token presence (full validation requires a paid run)
     results.apify = !!decrypt(cred.apify_api_token_enc);
+    // fal: token presence (a real check would be a paid generation)
+    results.fal = !!decrypt(cred.fal_api_key_enc);
 
     // AliExpress: just check that keys are set
     results.aliexpress = !!(cred.aliexpress_app_key && cred.aliexpress_tracking_id);
@@ -708,6 +715,7 @@ export class CredentialsService {
       prefer_product_video: cred.prefer_product_video,
       facebook_min_interval_minutes: cred.facebook_min_interval_minutes,
       apify_api_token: decrypt(cred.apify_api_token_enc),
+      fal_api_key: decrypt(cred.fal_api_key_enc),
       boost_enabled: cred.boost_enabled,
       boost_roas_threshold: cred.boost_roas_threshold,
       boost_daily_budget: cred.boost_daily_budget,
@@ -923,6 +931,7 @@ export class CredentialsService {
       facebook_min_interval_minutes: cred.facebook_min_interval_minutes ?? 0,
       // Discovery
       apify_api_token: cred.apify_api_token_enc ? mask(decrypt(cred.apify_api_token_enc)) : '',
+      fal_api_key: cred.fal_api_key_enc ? mask(decrypt(cred.fal_api_key_enc)) : '',
       // Scaffolded integrations (ids direct, secrets masked)
       whatsapp_phone_number_id: cred.whatsapp_phone_number_id || '',
       whatsapp_access_token: cred.whatsapp_access_token_enc ? mask(decrypt(cred.whatsapp_access_token_enc)) : '',

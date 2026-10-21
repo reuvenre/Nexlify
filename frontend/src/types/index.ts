@@ -203,6 +203,7 @@ export interface CredentialSet {
   facebook_min_interval_minutes: number;
   // Discovery
   apify_api_token: string;        // masked
+  fal_api_key: string;            // masked
   // Scaffolded integrations (activation pending external accounts)
   whatsapp_phone_number_id: string;
   whatsapp_access_token: string;  // masked
@@ -293,6 +294,7 @@ export interface CredentialSetInput {
   facebook_min_interval_minutes?: number;
   // Discovery
   apify_api_token?: string;
+  fal_api_key?: string;
   // Scaffolded integrations
   whatsapp_phone_number_id?: string;
   whatsapp_access_token?: string;
@@ -352,6 +354,7 @@ export interface VerifyResult {
   instagram: boolean;
   metaAdAccount: boolean;
   apify: boolean;
+  fal: boolean;
   errors?: Partial<Record<'telegram' | 'openai' | 'gemini' | 'anthropic' | 'facebook' | 'instagram' | 'metaAdAccount', string>>;
 }
 

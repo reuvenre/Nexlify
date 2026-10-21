@@ -56,6 +56,10 @@ export class VideoJob {
   @Column({ type: 'boolean', nullable: true })
   has_voice: boolean | null;
 
+  /** Which engine made the AI clip: gemini | fal (fal-clip.ts) — the two alternate, to be compared. */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  clip_provider: string | null;
+
   /** What the Reel opened with, as the renderer reports it: seller | ai | none. */
   @Column({ type: 'varchar', length: 16, nullable: true })
   clip_source: string | null;

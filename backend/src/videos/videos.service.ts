@@ -12,6 +12,9 @@ import { ChannelsService } from '../channels/channels.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { buildReelSpec } from './reel-spec';
 import { AI_CLIP_MODEL_DEFAULT, DEFAULT_AI_CLIPS_PER_DAY, aiClipRequest, readInteractionVideo } from './ai-clip';
+import {
+  CLIP_PROVIDER_LABEL, ClipProvider, FAL_CLIP_ENDPOINT, FAL_QUEUE, falClipRequest, falJobLinks, falStatus, falVideoUrl, pickClipProvider,
+} from './fal-clip';
 import { hashtagsFrom, ownerVideoCaption, shareText } from './reel-share';
 import { VOICE_MODEL_DEFAULT, VOICE_NAME_DEFAULT, buildVoiceTrack, readSpeech, speechRequest, voiceLines } from './reel-voice';
 
@@ -90,7 +93,7 @@ export class VideosService {
     // No seller video: an AI clip, when switched on and affordable today. The voice, when
     // switched on. Both take a while, so they run in the background and dispatch the render
     // themselves when done.
-    const clip = !spec.video && await this.aiClipAllowed(post.user_id);
+    const clip = spec.video ? null : await this.aiClipProvider(post.user_id);
     const voice = await this.voiceAllowed(post.user_id);
     if (clip || voice) {
       await this.jobs.update({ id: job.id }, { status: 'generating' });
@@ -107,18 +110,28 @@ export class VideosService {
     return { job };
   }
 
-  /** REELS_AI_VIDEO=1, a Gemini key on the account, and under today's cap. */
-  private async aiClipAllowed(userId: string): Promise<boolean> {
-    if (process.env.REELS_AI_VIDEO !== '1') return false;
+  /**
+   * The engine for this Reel's AI clip, or null: REELS_AI_VIDEO=1, a Gemini or fal key on the
+   * account, and under today's cap. With both keys the engines alternate (fal-clip.ts).
+   */
+  private async aiClipProvider(userId: string): Promise<ClipProvider | null> {
+    if (process.env.REELS_AI_VIDEO !== '1') return null;
     const creds = await this.credentials.getRaw(userId).catch(() => null);
-    if (!creds?.gemini_api_key) return false;
+    const last = await this.jobs.query(
+      `SELECT clip_provider FROM video_jobs WHERE user_id = $1 AND clip_provider IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+      [userId],
+    ).then((r: any[]) => r?.[0]?.clip_provider ?? null).catch(() => null);
+    const provider = pickClipProvider({
+      setting: process.env.REELS_AI_PROVIDER, hasGemini: !!creds?.gemini_api_key, hasFal: !!creds?.fal_api_key, last,
+    });
+    if (!provider) return null;
     const cap = Number(process.env.REELS_AI_PER_DAY) || DEFAULT_AI_CLIPS_PER_DAY;
     const [{ n }] = await this.jobs.query(
       `SELECT count(*)::int AS n FROM video_jobs
        WHERE user_id = $1 AND created_at > now() - interval '1 day' AND (status = 'generating' OR clip_source = 'ai' OR clip IS NOT NULL)`,
       [userId],
     ).catch(() => [{ n: cap }]);
-    return n < cap;
+    return n < cap ? provider : null;
   }
 
   /** REELS_VOICE=1 and a Gemini key on the account (the TTS goes through the same key). */
@@ -133,12 +146,12 @@ export class VideosService {
    * happens, the render is dispatched: a failed clip means a photo Reel, a failed voice a
    * silent one, never no Reel.
    */
-  private async prepareThenRender(id: string, want: { clip: boolean; voice: boolean }, title: string | null | undefined, imageUrl: string): Promise<void> {
+  private async prepareThenRender(id: string, want: { clip: ClipProvider | null; voice: boolean }, title: string | null | undefined, imageUrl: string): Promise<void> {
     const job = await this.jobs.findOne({ where: { id } });
     if (!job) return;
     const notes: string[] = [];
     if (want.clip) {
-      const note = await this.generateClip(job, title, imageUrl);
+      const note = await this.generateClip(job, want.clip, title, imageUrl);
       if (note) notes.push(note);
     }
     if (want.voice) {
@@ -155,34 +168,37 @@ export class VideosService {
     }
   }
 
-  /** Gemini Omni Flash: the product photo + the unboxing prompt → a vertical clip. Null, or why it failed. */
-  private async generateClip(job: VideoJob, title: string | null | undefined, imageUrl: string): Promise<string | null> {
+  /**
+   * The AI opening clip from the product photo: Gemini Omni Flash (an unboxing, 9:16, full
+   * frame) or Wan 3.0 on fal (the photo brought to life, its own shape, in the card). Null, or
+   * why it failed.
+   */
+  private async generateClip(job: VideoJob, provider: ClipProvider, title: string | null | undefined, imageUrl: string): Promise<string | null> {
     const id = job.id;
     try {
       const creds = await this.credentials.getRaw(job.user_id);
       const img = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 20_000, maxContentLength: 8 * 1024 * 1024 });
       const mime = String(img.headers['content-type'] || 'image/jpeg').split(';')[0];
-      const model = (process.env.REELS_AI_MODEL || AI_CLIP_MODEL_DEFAULT).trim();
-      const res = await axios.post(
-        GEMINI_INTERACTIONS,
-        aiClipRequest(model, Buffer.from(img.data).toString('base64'), mime, title),
-        {
-          headers: { 'x-goog-api-key': creds!.gemini_api_key!, 'Content-Type': 'application/json' },
-          timeout: 8 * 60_000, maxContentLength: 120 * 1024 * 1024, maxBodyLength: 20 * 1024 * 1024,
-        },
-      );
-      const { video, reason } = readInteractionVideo(res.data);
-      if (!video || !looksLikeMp4(video)) throw new Error(reason || 'not an mp4');
+      const b64 = Buffer.from(img.data).toString('base64');
+      const video = provider === 'fal'
+        ? await this.falClip(creds!.fal_api_key!, `data:${mime};base64,${b64}`, title)
+        : await this.geminiClip(creds!.gemini_api_key!, b64, mime, title);
+      if (!looksLikeMp4(video)) throw new Error('not an mp4');
       await this.jobs.update({ id }, {
         clip: video,
-        spec: { ...job.spec, video: `${backendBase()}/videos/jobs/${id}/clip.mp4?t=${job.worker_token}`, ai: true },
+        clip_provider: provider,
+        spec: {
+          ...job.spec, video: `${backendBase()}/videos/jobs/${id}/clip.mp4?t=${job.worker_token}`, ai: true,
+          fit: provider === 'fal' ? 'card' : 'full',
+        },
       });
-      this.logger.log(`video ${id}: AI clip ${(video.length / 1048576).toFixed(1)} MB`);
+      this.logger.log(`video ${id}: AI clip (${provider}) ${(video.length / 1048576).toFixed(1)} MB`);
       return null;
     } catch (err: any) {
       const status = err?.response?.status;
-      const msg = err?.response?.data?.error?.message || err?.message;
-      const note = `קליפ ה-AI לא נוצר (${status ? `${status} ` : ''}${String(msg).slice(0, 160)}) — הסרטון ייצא מהתמונות`;
+      const data = err?.response?.data;
+      const msg = data?.error?.message || (typeof data?.detail === 'string' ? data.detail : data?.detail?.[0]?.msg) || err?.message;
+      const note = `קליפ ה-AI (${CLIP_PROVIDER_LABEL[provider]}) לא נוצר (${status ? `${status} ` : ''}${String(msg).slice(0, 160)}) — הסרטון ייצא מהתמונות`;
       this.logger.warn(`video ${id}: ${note}`);
       return note;
     }
@@ -224,6 +240,42 @@ export class VideosService {
       this.logger.warn(`video ${id}: ${note}`);
       return note;
     }
+  }
+
+  /** Gemini Omni Flash, one Interactions call. */
+  private async geminiClip(key: string, b64: string, mime: string, title: string | null | undefined): Promise<Buffer> {
+    const model = (process.env.REELS_AI_MODEL || AI_CLIP_MODEL_DEFAULT).trim();
+    const res = await axios.post(GEMINI_INTERACTIONS, aiClipRequest(model, b64, mime, title), {
+      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+      timeout: 8 * 60_000, maxContentLength: 120 * 1024 * 1024, maxBodyLength: 20 * 1024 * 1024,
+    });
+    const { video, reason } = readInteractionVideo(res.data);
+    if (!video) throw new Error(reason || 'no video');
+    return video;
+  }
+
+  /** Wan 3.0 on fal's queue: submit, poll the status (≤ 10 min), read the result, download it. */
+  private async falClip(key: string, imageDataUri: string, title: string | null | undefined): Promise<Buffer> {
+    const headers = { Authorization: `Key ${key}`, 'Content-Type': 'application/json' };
+    const submit = await axios.post(`${FAL_QUEUE}/${FAL_CLIP_ENDPOINT}`, falClipRequest(imageDataUri, title), {
+      headers, timeout: 60_000, maxBodyLength: 20 * 1024 * 1024,
+    });
+    const links = falJobLinks(submit.data);
+    if (!links) throw new Error('fal did not return a queue job');
+    const pollMs = Number(process.env.REELS_FAL_POLL_MS) || 5000;
+    for (let i = 0; ; i++) {
+      if (i * pollMs > 10 * 60_000) throw new Error('fal did not finish within 10 minutes');
+      await new Promise((r) => setTimeout(r, pollMs));
+      const st = await axios.get(links.status, { headers, timeout: 20_000 });
+      const state = falStatus(st.data);
+      if (state === 'done') break;
+      if (state !== 'pending') throw new Error(state.failed);
+    }
+    const result = await axios.get(links.response, { headers, timeout: 30_000 });
+    const url = falVideoUrl(result.data);
+    if (!url) throw new Error('no video in the result');
+    const file = await axios.get(url, { responseType: 'arraybuffer', timeout: 120_000, maxContentLength: 120 * 1024 * 1024 });
+    return Buffer.from(file.data);
   }
 
   /** The voiceover WAV, for the renderer (worker token). */
@@ -331,7 +383,9 @@ export class VideosService {
         error: res.errors.length ? res.errors.join(' | ').slice(0, 1000) : null,
       });
       const opened = job.clip_source === 'seller' ? '🎥 עם סרטון המוכר'
-        : job.clip_source === 'ai' ? '🤖 עם קליפ AI (מסומן ככזה)' : '📸 מתמונות המוצר';
+        : job.clip_source === 'ai'
+          ? `🤖 עם קליפ AI${job.clip_provider ? ` של ${CLIP_PROVIDER_LABEL[job.clip_provider as ClipProvider] || job.clip_provider}` : ''} (מסומן ככזה)`
+          : '📸 מתמונות המוצר';
       const voiced = job.has_voice ? ' · 🔊 עם קריינות בעברית' : '';
       const status = [
         landed.length ? `🎬 Reel פורסם ב${landed.join(' וב')}: «${job.spec?.headline || ''}»` : `🎬 ה-Reel לא פורסם: «${job.spec?.headline || ''}»`,

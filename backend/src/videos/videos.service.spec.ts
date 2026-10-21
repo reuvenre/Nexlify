@@ -147,7 +147,7 @@ describe('VideosService — the AI clip when there is no seller video', () => {
     await flush();
     expect(current().spec.video).toBeUndefined();
     expect(current().status).toBe('rendering');
-    expect(current().error).toMatch(/קליפ ה-AI לא נוצר \(400 blocked\)/);
+    expect(current().error).toMatch(/קליפ ה-AI \(Gemini\) לא נוצר \(400 blocked\)/);
   });
 
   it("a seller video skips the AI entirely — real footage first", async () => {
@@ -282,5 +282,77 @@ describe('VideosService — the file for TikTok and Shorts', () => {
     await svc.publish(ID);
     expect(post.mock.calls.map((c) => c[0])).toEqual(['https://api.telegram.org/botbot/sendVideo', 'https://api.telegram.org/botbot/sendMessage']);
     expect(post.mock.calls[1][1].text).toMatch(/^🎬 Reel פורסם/);
+  });
+});
+
+describe('VideosService — the fal clip', () => {
+  const env = { ...process.env };
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 32]), Buffer.from('ftypisom'), Buffer.alloc(300)]);
+  let post: jest.SpyInstance;
+  let get: jest.SpyInstance;
+  afterEach(() => { post.mockRestore(); get.mockRestore(); process.env = { ...env }; });
+
+  function buildFal(last: string | null, keys: Record<string, string>) {
+    process.env.BACKEND_URL = 'https://api.example.com';
+    process.env.GITHUB_RENDER_TOKEN = 'ghtok';
+    process.env.REELS_AI_VIDEO = '1';
+    process.env.REELS_FAL_POLL_MS = '1';
+    let job: any = null;
+    const jobs: any = {
+      create: (x: any) => x,
+      save: async (x: any) => { job = { ...x, id: ID, worker_token: WT, media_token: MT }; return job; },
+      update: async (_w: any, x: any) => { job = { ...job, ...x }; },
+      findOne: async () => job,
+      query: async (sql: string) => (sql.includes('clip_provider') ? (last ? [{ clip_provider: last }] : []) : [{ n: 0 }]),
+    };
+    const p = { id: 'p1', user_id: 'u1', generated_text: 'ידית אחיזה טקטית למסילת פיקטיני', price_ils: 89,
+      product_image: 'https://a/kf/S1.jpg', product_title: 'Tactical Grip', product_video: null };
+    const svc = new VideosService(jobs, { findOne: async () => p } as any, {} as any, { getName: async () => null } as any,
+      { getRaw: async () => keys, getTelegramToken: async () => null } as any);
+    let polls = 0;
+    get = jest.spyOn(axios, 'get').mockImplementation(async (url: string) => {
+      if (url.endsWith('/status')) return { data: { status: ++polls < 2 ? 'IN_PROGRESS' : 'COMPLETED' } };
+      if (url === 'https://queue.fal.run/alibaba/wan-3.0/requests/r1') return { data: { video: { url: 'https://v3.fal.media/files/c.mp4' } } };
+      if (url === 'https://v3.fal.media/files/c.mp4') return { data: mp4 };
+      return { data: Buffer.from('jpeg'), headers: { 'content-type': 'image/jpeg' } };
+    });
+    post = jest.spyOn(axios, 'post').mockImplementation(async (url: string, body: any, cfg: any) => {
+      if (url.startsWith('https://queue.fal.run/')) {
+        expect(cfg.headers.Authorization).toBe('Key fkey');
+        expect(body.start_image_url).toBe(`data:image/jpeg;base64,${Buffer.from('jpeg').toString('base64')}`);
+        return { data: { request_id: 'r1', status_url: 'https://queue.fal.run/alibaba/wan-3.0/requests/r1/status', response_url: 'https://queue.fal.run/alibaba/wan-3.0/requests/r1' } };
+      }
+      if (url.includes('generativelanguage')) {
+        return { data: { status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'video', data: mp4.toString('base64') }] }] } };
+      }
+      return { status: 204 };
+    });
+    return { svc, current: () => job };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 50));
+
+  it('after a Gemini clip, the next Reel opens with fal: the photo brought to life, in the card', async () => {
+    const { svc, current } = buildFal('gemini', { gemini_api_key: 'gkey', fal_api_key: 'fkey' });
+    await svc.requestReel('p1', 'owner');
+    await flush();
+    expect(post.mock.calls[0][0]).toBe('https://queue.fal.run/alibaba/wan-3.0/image-to-video');
+    expect(current()).toMatchObject({ status: 'rendering', clip_provider: 'fal', clip: mp4 });
+    expect(current().spec).toMatchObject({ ai: true, fit: 'card', video: `https://api.example.com/videos/jobs/${ID}/clip.mp4?t=${WT}` });
+  });
+
+  it('after a fal clip, Gemini — the two alternate', async () => {
+    const { svc, current } = buildFal('fal', { gemini_api_key: 'gkey', fal_api_key: 'fkey' });
+    await svc.requestReel('p1', 'owner');
+    await flush();
+    expect(post.mock.calls[0][0]).toContain('generativelanguage');
+    expect(current()).toMatchObject({ clip_provider: 'gemini' });
+    expect(current().spec.fit).toBe('full');
+  });
+
+  it('fal only: fal every time', async () => {
+    const { svc, current } = buildFal('fal', { fal_api_key: 'fkey' });
+    await svc.requestReel('p1', 'auto');
+    await flush();
+    expect(current().clip_provider).toBe('fal');
   });
 });

@@ -70,11 +70,14 @@ function wordTweens(spec) {
 /** The clip's opening: blurred photo behind, the clip, then the text above it. */
 function clipScenes(spec, poster, CLIP_END) {
   const ai = !!spec.ai;
+  // Gemini's clip is made 9:16 and fills the frame; a seller's video, or fal's clip in the
+  // photo's own shape, sits in the card.
+  const full = spec.fit ? spec.fit === 'full' : ai;
   return `
       <div id="vbg" class="clip vbg" data-start="0" data-duration="${CLIP_END}" data-track-index="10">
         <div class="bg" style="background-image:url('${esc(poster)}')"></div><div class="shade"></div>
       </div>
-      <div class="vwrap ${ai ? 'full' : 'card'}" id="vwrap">
+      <div class="vwrap ${full ? 'full' : 'card'}" id="vwrap">
         <video id="clipv" src="${esc(spec.video)}" data-start="0" data-duration="${CLIP_END}" data-track-index="11" muted playsinline></video>
       </div>
       <div id="vtxt" class="clip vtxt" data-start="0" data-duration="${CLIP_END}" data-track-index="12">
