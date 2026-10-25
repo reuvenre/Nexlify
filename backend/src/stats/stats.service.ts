@@ -8,7 +8,7 @@ import { Post } from '../posts/post.entity';
 import { RatesService } from '../rates/rates.service';
 import { Campaign } from '../campaigns/campaign.entity';
 import {
-  COMMISSION_DAY_START_HOUR, COMMISSION_DAY_TZ, commissionDayNow,
+  COMMISSION_DAY_TZ, commissionDayNow,
   dayKeys, deltaPct, densify, localNowString, monthKeys, monthWindows,
 } from './stats.util';
 
@@ -45,15 +45,15 @@ const MAX_MONTHS = 24;
 /**
  * Everything on the dashboard that moves during the day, in one cheap round trip — the
  * screens poll it (every ~20 s while visible), so it must stay a handful of indexed counts.
- * Clicks and posts are cut on Israel days. Commissions and orders are cut on the owner's
- * commission day, 10:00 to 10:00 Israel time (commissionDayNow), by payment time. That is
- * the portal's day except in the weeks the two countries change DST on different dates,
- * when the portal's starts at 09:00 or 11:00. The owner asked for the Israel clock.
+ * Clicks and posts are cut on Israel days. Commissions and orders are cut on the portal's
+ * own day (commissionDayNow, US Pacific), by payment time: 10:00 to 10:00 Israel time, or
+ * 09:00 / 11:00 in the weeks the two countries change DST on different dates, so the tile
+ * always matches the portal.
  */
 export interface LiveStats {
   /** Server time of this snapshot. */
   at: string;
-  /** commissions_usd and orders are for the current commission day (since 10:00 Israel). */
+  /** commissions_usd and orders are for the current commission day (the portal's today). */
   today: { posts_sent: number; clicks: number; failed: number; commissions_usd: number; orders: number };
   last_hour: { clicks: number };
   queue: { scheduled: number; queued: number; pending: number; next_at: string | null };
@@ -64,7 +64,7 @@ export interface LiveStats {
   last_order_at: string | null;
   /** Israel days, for clicks and posts. */
   days: string[];
-  /** Commission days (10:00–10:00 Israel), for commissions_usd — the same length, ending on today's. */
+  /** Commission days (the portal's Pacific dates), for commissions_usd — the same length, ending on today's. */
   commission_days: string[];
   daily: { clicks: number[]; posts: number[]; commissions_usd: number[] };
 }
@@ -108,11 +108,10 @@ export class StatsService {
     const fromLocal = `${keys[0]} 00:00:00`;
     const clickCol = naiveUtcAsLocal('c.clicked_at', LOCAL_TZ);
     const postCol = naiveUtcAsLocal('p.sent_at', LOCAL_TZ);
-    // Commissions on the commission day — see LiveStats. Shifting the Israel wall clock back
-    // by the start hour makes a plain date cut fall at 10:00.
+    // Commissions on the commission day, the portal's Pacific date — see LiveStats.
     const portalKeys = dayKeys(commissionDayNow(), n);
     const portalFrom = `${portalKeys[0]} 00:00:00`;
-    const commissionCol = `(COALESCE(${tstzAsLocal('e.paid_date', COMMISSION_DAY_TZ)}, ${naiveUtcAsLocal('e.order_date', COMMISSION_DAY_TZ)}) - interval '${COMMISSION_DAY_START_HOUR} hours')`;
+    const commissionCol = `COALESCE(${tstzAsLocal('e.paid_date', COMMISSION_DAY_TZ)}, ${naiveUtcAsLocal('e.order_date', COMMISSION_DAY_TZ)})`;
     const day = (col: string) => `to_char(${col}, 'YYYY-MM-DD')`;
     const hourAgo = new Date(Date.now() - 3600_000);
 

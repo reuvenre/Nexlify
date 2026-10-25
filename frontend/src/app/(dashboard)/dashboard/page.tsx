@@ -241,7 +241,7 @@ export default function DashboardPage() {
         <StatTile
           label="עמלות היום" icon={BadgeDollarSign}
           value={L ? L.today.commissions_usd : null} format={usd}
-          sub={L ? `${nf(L.today.orders ?? 0)} הזמנות · מ-10:00 שעון ישראל` : undefined}
+          sub={L ? `${nf(L.today.orders ?? 0)} הזמנות · לפי היום של אלי אקספרס` : undefined}
           spark={L?.daily.commissions_usd} sparkDays={L?.commission_days ?? L?.days} sparkColor={colors.commissions}
         />
         <StatTile

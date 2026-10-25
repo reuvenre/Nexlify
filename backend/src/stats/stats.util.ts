@@ -2,6 +2,7 @@
  * Pure helpers behind the dashboard overview. They live apart from the service so the
  * bucketing and delta rules — the parts that quietly go wrong — are testable without a DB.
  */
+import { PORTAL_TZ, portalToday } from '../earnings/portal-time';
 
 /**
  * "Now" on `tz`'s wall clock, formatted 'YYYY-MM-DD HH:mm:ss' — a NAIVE local timestamp,
@@ -13,22 +14,18 @@ export function localNowString(tz: string, now = new Date()): string {
 }
 
 /**
- * The owner's commission day: 10:00 to 10:00 the next morning, Israel time, named by the
- * date it starts on. That is the portal's day for most of the year, but the portal is on
- * US Pacific time, and in the weeks the two countries change DST on different dates its
- * day starts at 09:00 or 11:00 here. The owner reads the day by the Israel clock, so the
- * boundary is pinned to 10:00 in Jerusalem, never derived from Pacific.
+ * The owner's commission day is the portal's: a US Pacific calendar day, 10:00 to 10:00
+ * Israel time for most of the year. In the weeks the two countries change DST on different
+ * dates it starts at 09:00 or 11:00 here. It used to be pinned to 10:00 in Jerusalem, and
+ * on 25.10.2026 (Israel already on winter time, the US not) an order paid at 09:30 was on
+ * the portal's today and on our yesterday: the portal said 1, the tile said 0. The owner
+ * asked for the portal's day.
  */
-export const COMMISSION_DAY_TZ = 'Asia/Jerusalem';
-export const COMMISSION_DAY_START_HOUR = 10;
+export const COMMISSION_DAY_TZ = PORTAL_TZ;
 
-/** Today's commission day key, 'YYYY-MM-DD' (before 10:00 Israel it is still yesterday). */
+/** Today's commission day key, 'YYYY-MM-DD' — the portal's date right now. */
 export function commissionDayNow(now = new Date()): string {
-  const [date, time] = localNowString(COMMISSION_DAY_TZ, now).split(' ');
-  const hour = Number(time.slice(0, 2));
-  if (hour >= COMMISSION_DAY_START_HOUR) return date;
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  return portalToday(now);
 }
 
 /** `count` consecutive 'YYYY-MM' keys ending with the month containing `localNow`. */

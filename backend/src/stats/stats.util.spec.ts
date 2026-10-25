@@ -8,11 +8,17 @@ describe('stats.util', () => {
       expect(commissionDayNow(new Date('2026-10-18T07:00:00Z'))).toBe('2026-10-18');
     });
 
-    it('stays at 10:00 Israel in the week the US is still on summer time', () => {
-      // 28.10.2026: Israel is already +02, Pacific still −07, so the portal day opens at
-      // 09:00 here. Ours does not move.
-      expect(commissionDayNow(new Date('2026-10-28T07:30:00Z'))).toBe('2026-10-27');
-      expect(commissionDayNow(new Date('2026-10-28T08:00:00Z'))).toBe('2026-10-28');
+    it('opens with the portal at 09:00 Israel in the week the US is still on summer time', () => {
+      // 25.10.2026: Israel is already +02, Pacific still −07, so the portal day opens at
+      // 09:00 here (07:00Z), and ours with it.
+      expect(commissionDayNow(new Date('2026-10-25T06:59:00Z'))).toBe('2026-10-24');
+      expect(commissionDayNow(new Date('2026-10-25T07:30:00Z'))).toBe('2026-10-25');
+    });
+
+    it('back at 10:00 Israel once both are on winter time', () => {
+      // 2.11.2026: Israel +02, Pacific −08 → midnight Pacific is 08:00Z = 10:00 Israel.
+      expect(commissionDayNow(new Date('2026-11-02T07:59:00Z'))).toBe('2026-11-01');
+      expect(commissionDayNow(new Date('2026-11-02T08:00:00Z'))).toBe('2026-11-02');
     });
 
     it('steps back across a month boundary before 10:00', () => {
