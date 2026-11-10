@@ -14,6 +14,38 @@ function toLocalInput(iso?: string | null, plusHours = 0): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
+/**
+ * Midnight on the AliExpress portal's clock (US Pacific) — the moment a big sale's codes
+ * start and stop working. 11.11 opens at 10:00 Israel, not at midnight; a batch dated
+ * 00:00 rides posts for ten hours with codes that are rejected at checkout.
+ */
+function pacificMidnight(y: number, m: number, d: number): Date {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', hourCycle: 'h23',
+  });
+  const day = new Date(Date.UTC(y, m - 1, d));
+  for (const h of [7, 8]) { // PDT, PST
+    const t = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h));
+    const p = Object.fromEntries(fmt.formatToParts(t).map((x) => [x.type, x.value]));
+    if (Number(p.hour) === 0 && Number(p.day) === day.getUTCDate()) return t;
+  }
+  return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 8));
+}
+
+/** The big sales' code windows (same calendar as the backend's sale-calendar.ts). */
+function salePresets(now = new Date()): { label: string; from: Date; to: Date }[] {
+  const forYear = (y: number) => {
+    const firstDow = new Date(Date.UTC(y, 10, 1)).getUTCDay();
+    const bf = 1 + ((4 - firstDow + 7) % 7) + 22; // the day after the fourth Thursday
+    return [
+      { label: `11.11`, from: pacificMidnight(y, 11, 11), to: pacificMidnight(y, 11, 12) },
+      { label: 'בלאק פריידיי + סייבר מאנדיי', from: pacificMidnight(y, 11, bf), to: pacificMidnight(y, 11, bf + 4) },
+    ];
+  };
+  const y = now.getFullYear();
+  return forYear(y).map((p, i) => (p.to.getTime() > now.getTime() ? p : forYear(y + 1)[i]));
+}
+
 type Status = 'active' | 'expired' | 'scheduled' | 'off';
 function statusOf(c: Coupon): Status {
   if (!c.is_active) return 'off';
@@ -267,6 +299,16 @@ export default function CouponsPage() {
             <input aria-label="בתוקף עד" type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)}
               className="w-full bg-white/5 border border-edge-hover rounded-lg px-3 py-2 text-sm text-white/80 outline-none focus:border-pink-500/50" />
           </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap mt-2">
+          <span className="text-2xs text-white/40">תאריכי מבצע מדויקים (לפי השעון של אלי אקספרס):</span>
+          {salePresets().map((p) => (
+            <button key={p.label} type="button"
+              onClick={() => { setStartsAt(toLocalInput(p.from.toISOString())); setEndsAt(toLocalInput(p.to.toISOString())); }}
+              className="text-2xs px-2.5 py-1 rounded-full border border-pink-500/30 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20">
+              🛒 {p.label} · {p.from.toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' })}
+            </button>
+          ))}
         </div>
         <p className="text-2xs text-white/30 mt-1.5">
           אחרי תאריך הסיום המערכת תפסיק לצרף את הקודים אוטומטית — גם לפוסטים שכבר ממתינים בתור.

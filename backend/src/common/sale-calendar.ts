@@ -120,6 +120,14 @@ export function israelTime(d: Date): { date: string; time: string } {
   return { date: `${Number(get('day'))}.${Number(get('month'))}`, time: `${get('hour')}:${get('minute')}` };
 }
 
+/**
+ * The last stretch of a one-day sale (11.11, Cyber Monday) gets last-call copy. A deadline
+ * moves the readers a promise never did, and 14 h before the 10:00 close is 20:00 Israel
+ * the evening before: the group's prime time, not a 04:00 nobody reads. Black Friday's
+ * own end flows into Cyber Monday, so it has no last call of its own.
+ */
+export const LAST_CALL_MS = 14 * 3600_000;
+
 const NEVER_INVENT_HE = 'אל תמציא אחוזי הנחה ואל תבטיח שהמחיר ירד.';
 const NEVER_INVENT_EN = 'Never invent discount numbers or promise a price drop.';
 
@@ -136,6 +144,15 @@ export function saleCopyHint(language: string, now: Date = new Date()): string |
   const en = language === 'en';
   const cm = saleWindows(w.liveFrom.getUTCFullYear()).find((x) => x.key === 'cyber_monday')!;
   const cmDay = israelTime(cm.liveFrom).date;
+  // The close as a date, never "tomorrow": after midnight Israel, "until tomorrow 10:00"
+  // names a day too late.
+  const until = `עד ${end.date} ב-${end.time} שעון ישראל`;
+
+  if (phase === 'live' && w.key !== 'black_friday' && w.liveTo.getTime() - now.getTime() <= LAST_CALL_MS) {
+    return en
+      ? `Context: these are the last hours of ${w.key === '1111' ? 'the 11.11 sale' : 'Cyber Monday, the end of the Black Friday sales'}. Write it as a last chance: whoever put it off, now is the moment. ${NEVER_INVENT_EN}`
+      : `הקשר: השעות האחרונות של ${w.key === '1111' ? 'מבצעי 11.11' : 'סייבר מאנדיי, סוף מבצעי בלאק פריידיי'}, ${until}. כתוב כהזדמנות אחרונה: מי שדחה את הקנייה, זה הרגע. ${NEVER_INVENT_HE}`;
+  }
 
   if (w.key === '1111') {
     return phase === 'warmup'
@@ -144,7 +161,7 @@ export function saleCopyHint(language: string, now: Date = new Date()): string |
         : `הקשר: מבצעי 11.11 של אלי אקספרס, הגדולים של השנה, נפתחים ב-11.11 ב-${start.time} שעון ישראל. כשזה מתאים, הצע לשמור את המוצר בעגלה או ברשימת המשאלות כדי לתפוס אותו ביום המבצע. ${NEVER_INVENT_HE}`)
       : (en
         ? `Context: today is 11.11, AliExpress's biggest sale day of the year. Frame the deal as today's catch. ${NEVER_INVENT_EN}`
-        : `הקשר: היום 11.11, יום השיא של המבצעים באלי אקספרס, עד מחר ב-${end.time} שעון ישראל. מסגר את הדיל כהזדמנות של היום. ${NEVER_INVENT_HE}`);
+        : `הקשר: היום 11.11, יום השיא של המבצעים באלי אקספרס, ${until}. מסגר את הדיל כהזדמנות של היום. ${NEVER_INVENT_HE}`);
   }
   if (w.key === 'black_friday') {
     return phase === 'warmup'
@@ -157,7 +174,7 @@ export function saleCopyHint(language: string, now: Date = new Date()): string |
   }
   return en
     ? `Context: today is Cyber Monday, the last day of the Black Friday sales. Frame the deal as a last chance. ${NEVER_INVENT_EN}`
-    : `הקשר: היום סייבר מאנדיי, היום האחרון של מבצעי בלאק פריידיי, עד מחר ב-${end.time} שעון ישראל. מסגר את הדיל כהזדמנות אחרונה. ${NEVER_INVENT_HE}`;
+    : `הקשר: היום סייבר מאנדיי, היום האחרון של מבצעי בלאק פריידיי, ${until}. מסגר את הדיל כהזדמנות אחרונה. ${NEVER_INVENT_HE}`;
 }
 
 /** Days from `now` to a window's live start, on Israel calendar days (0 = today). */
