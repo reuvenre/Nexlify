@@ -13,6 +13,11 @@ describe('PostsService.nextGroupSlot', () => {
   const SIBLING = 'f0000000-0000-4000-8000-000000000000';
   const MIN = 60_000;
 
+  // These cases read the real clock, and a live sale day halves the group interval
+  // (sale-calendar.ts). Run on 11.11 they saw 30 minutes where they expect 60.
+  beforeAll(() => { process.env.SALE_PEAK_BOOST_DISABLED = '1'; });
+  afterAll(() => { delete process.env.SALE_PEAK_BOOST_DISABLED; });
+
   /** Build a service with only the collaborators nextGroupSlot actually touches. */
   function serviceWith(rows: any[], intervalMin = 60) {
     const qb: any = new Proxy({}, {

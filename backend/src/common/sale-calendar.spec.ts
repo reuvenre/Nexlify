@@ -34,29 +34,33 @@ describe('sale calendar', () => {
     expect(before).toContain('בעגלה');
     expect(before).toContain('10:00');
     const during = saleCopyHint('he', new Date('2026-11-11T12:00:00Z'))!;
-    expect(during).toContain('היום 11.11');
+    expect(during).toContain('מבצע 11.11');
     expect(during).toContain('אל תמציא');
     expect(saleCopyHint('he', new Date('2026-11-28T12:00:00Z'))).toContain('30.11');
     expect(saleCopyHint('en', new Date('2026-11-30T20:00:00Z'))).toContain('Cyber Monday');
     expect(saleCopyHint('he', new Date('2026-10-01T12:00:00Z'))).toBeNull();
   });
 
-  it('names the close by date, never "tomorrow"', () => {
-    // 01:00 Israel on 12.11: the sale still runs to 10:00 the same day.
-    const lateNight = saleCopyHint('he', new Date('2026-11-11T23:00:00Z'))!;
-    expect(lateNight).toContain('עד 12.11 ב-10:00');
-    expect(lateNight).not.toContain('מחר');
+  it('stresses the 11.11 sale and never calls it a last chance, all day', () => {
+    for (const t of ['2026-11-11T09:00:00Z', '2026-11-11T18:00:00Z', '2026-11-12T05:00:00Z']) {
+      for (const lang of ['he', 'en']) {
+        const hint = saleCopyHint(lang, new Date(t))!;
+        expect(hint).toContain('11.11');
+        // The prompt forbids "last chance"; it must never ask for it.
+        expect(hint).not.toMatch(/כתוב כהזדמנות אחרונה|השעות האחרונות|Write it as a last chance|last hours/);
+      }
+      expect(saleCopyHint('he', new Date(t))).toContain('אל תכתוב שזו הזדמנות אחרונה');
+      expect(saleCopyHint('he', new Date(t))).not.toContain('מחר');
+    }
   });
 
-  it('turns to last-call copy in the final 14 hours of a one-day sale', () => {
-    // 19:59 Israel on 11.11: still the day's ordinary framing.
-    expect(saleCopyHint('he', new Date('2026-11-11T17:59:00Z'))).toContain('היום 11.11');
-    // 20:00 Israel: the last evening.
-    const last = saleCopyHint('he', new Date('2026-11-11T18:00:00Z'))!;
-    expect(last).toContain('השעות האחרונות של מבצעי 11.11');
-    expect(last).toContain('עד 12.11 ב-10:00');
+  it('turns to last-call copy in the final 14 hours of Cyber Monday only', () => {
+    // 19:59 Israel on 30.11: still the day's framing.
+    expect(saleCopyHint('he', new Date('2026-11-30T17:59:00Z'))).toContain('היום סייבר מאנדיי');
+    const last = saleCopyHint('he', new Date('2026-11-30T20:00:00Z'))!;
+    expect(last).toContain('השעות האחרונות של סייבר מאנדיי');
+    expect(last).toContain('עד 1.12 ב-10:00');
     expect(last).toContain('אל תמציא');
-    expect(saleCopyHint('he', new Date('2026-11-30T20:00:00Z'))).toContain('השעות האחרונות של סייבר מאנדיי');
     // Black Friday's end runs into Cyber Monday: no last call there.
     expect(saleCopyHint('he', new Date('2026-11-29T20:00:00Z'))).toContain('סוף השבוע של בלאק פריידיי');
   });

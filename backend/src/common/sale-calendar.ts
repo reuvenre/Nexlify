@@ -121,15 +121,17 @@ export function israelTime(d: Date): { date: string; time: string } {
 }
 
 /**
- * The last stretch of a one-day sale (11.11, Cyber Monday) gets last-call copy. A deadline
- * moves the readers a promise never did, and 14 h before the 10:00 close is 20:00 Israel
- * the evening before: the group's prime time, not a 04:00 nobody reads. Black Friday's
- * own end flows into Cyber Monday, so it has no last call of its own.
+ * Cyber Monday's last stretch gets last-call copy: it really is the end of the Black Friday
+ * sales. 14 h before the 10:00 close is 20:00 Israel the evening before, the group's prime
+ * time. 11.11 never does: the owner asked that its posts stress the 11.11 sale and never
+ * call it a last chance, since AliExpress's deals do not end with the day.
  */
 export const LAST_CALL_MS = 14 * 3600_000;
 
 const NEVER_INVENT_HE = 'אל תמציא אחוזי הנחה ואל תבטיח שהמחיר ירד.';
 const NEVER_INVENT_EN = 'Never invent discount numbers or promise a price drop.';
+const NOT_LAST_CHANCE_HE = 'אל תכתוב שזו הזדמנות אחרונה, שהמבצע נגמר או שהזמן אוזל.';
+const NOT_LAST_CHANCE_EN = 'Never call it a last chance or say the sale is ending.';
 
 /**
  * The copy context for the phase `now` is in, or null outside every window. A fact about the
@@ -148,10 +150,10 @@ export function saleCopyHint(language: string, now: Date = new Date()): string |
   // names a day too late.
   const until = `עד ${end.date} ב-${end.time} שעון ישראל`;
 
-  if (phase === 'live' && w.key !== 'black_friday' && w.liveTo.getTime() - now.getTime() <= LAST_CALL_MS) {
+  if (phase === 'live' && w.key === 'cyber_monday' && w.liveTo.getTime() - now.getTime() <= LAST_CALL_MS) {
     return en
-      ? `Context: these are the last hours of ${w.key === '1111' ? 'the 11.11 sale' : 'Cyber Monday, the end of the Black Friday sales'}. Write it as a last chance: whoever put it off, now is the moment. ${NEVER_INVENT_EN}`
-      : `הקשר: השעות האחרונות של ${w.key === '1111' ? 'מבצעי 11.11' : 'סייבר מאנדיי, סוף מבצעי בלאק פריידיי'}, ${until}. כתוב כהזדמנות אחרונה: מי שדחה את הקנייה, זה הרגע. ${NEVER_INVENT_HE}`;
+      ? `Context: these are the last hours of Cyber Monday, the end of the Black Friday sales. Write it as a last chance: whoever put it off, now is the moment. ${NEVER_INVENT_EN}`
+      : `הקשר: השעות האחרונות של סייבר מאנדיי, סוף מבצעי בלאק פריידיי, ${until}. כתוב כהזדמנות אחרונה: מי שדחה את הקנייה, זה הרגע. ${NEVER_INVENT_HE}`;
   }
 
   if (w.key === '1111') {
@@ -160,8 +162,8 @@ export function saleCopyHint(language: string, now: Date = new Date()): string |
         ? `Context: AliExpress 11.11, its biggest sale of the year, is coming on November 11. When it fits, suggest saving the item to the cart or wishlist to catch it on the day. ${NEVER_INVENT_EN}`
         : `הקשר: מבצעי 11.11 של אלי אקספרס, הגדולים של השנה, נפתחים ב-11.11 ב-${start.time} שעון ישראל. כשזה מתאים, הצע לשמור את המוצר בעגלה או ברשימת המשאלות כדי לתפוס אותו ביום המבצע. ${NEVER_INVENT_HE}`)
       : (en
-        ? `Context: today is 11.11, AliExpress's biggest sale day of the year. Frame the deal as today's catch. ${NEVER_INVENT_EN}`
-        : `הקשר: היום 11.11, יום השיא של המבצעים באלי אקספרס, ${until}. מסגר את הדיל כהזדמנות של היום. ${NEVER_INVENT_HE}`);
+        ? `Context: AliExpress's 11.11 sale, its biggest of the year, is on now. Make the 11.11 sale stand out in the post. ${NOT_LAST_CHANCE_EN} ${NEVER_INVENT_EN}`
+        : `הקשר: מבצע 11.11 של אלי אקספרס, הגדול של השנה, פעיל עכשיו. הדגש בפוסט שזה מבצע 11.11. ${NOT_LAST_CHANCE_HE} ${NEVER_INVENT_HE}`);
   }
   if (w.key === 'black_friday') {
     return phase === 'warmup'

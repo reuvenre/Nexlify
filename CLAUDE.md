@@ -189,8 +189,8 @@ To see what the season actually did, don't read one run. The run note carries `ð
 11.11, Black Friday and Cyber Monday are the year's money. Each has a **warm-up** and a **live** phase, every boundary a Pacific midnight (the portal's clock: 11.11 opens at 10:00 Israel time). Black Friday is computed per year (the day after the fourth Thursday of November). Its live phase runs to Cyber Monday, which is live for one day.
 - **Copy by phase** (`saleCopyHint`, through `seasonalCopyHints`' sale line):
   - Before a sale: "save it to the cart, catch it on the day".
-  - On the day: "it is on now, until 12.11 at 10:00" (the close as a date, never "tomorrow", which is a day off after midnight).
-  - The last 14 h of 11.11 and Cyber Monday (`LAST_CALL_MS`, from 20:00 Israel the evening before) turn to last-call copy. Black Friday's end flows into Cyber Monday and has none.
+  - On 11.11: stress that it is the 11.11 sale, and never call it a last chance or say it is ending (`NOT_LAST_CHANCE_HE`). The owner asked for this on 12.11.2026, when the last-call copy below was still being written for 11.11.
+  - The last 14 h of Cyber Monday only (`LAST_CALL_MS`, from 20:00 Israel the evening before) turn to last-call copy, with the close as a date ("until 1.12 at 10:00", never "tomorrow"). Black Friday's end flows into Cyber Monday and has none.
   - The coupons screen has one-tap presets that set a batch's window to the sale's exact portal times (11.11: 10:00 â†’ 10:00 next day). A batch dated 00:00 rode posts for ten hours with codes the checkout still refused.
   - Every hint ends with: never invent a discount or promise a price drop.
   - It needs the account's seasonal switch on, like every seasonal line.
