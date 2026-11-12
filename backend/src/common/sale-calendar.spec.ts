@@ -1,5 +1,5 @@
 import {
-  blackFridayDay, israelDaysUntil, israelTime, saleCopyHint, saleIntervalMinutes, salePeakNow,
+  blackFridayDay, israelDaysUntil, israelTime, saleBannerLine, saleCopyHint, saleIntervalMinutes, salePeakNow,
   salePhase, salePostsPerRun, saleWindows,
 } from './sale-calendar';
 
@@ -63,6 +63,36 @@ describe('sale calendar', () => {
     expect(last).toContain('אל תמציא');
     // Black Friday's end runs into Cyber Monday: no last call there.
     expect(saleCopyHint('he', new Date('2026-11-29T20:00:00Z'))).toContain('סוף השבוע של בלאק פריידיי');
+  });
+
+  it('keeps 11.11 on through 18.11, without the peak boost', () => {
+    // 12.11 noon Israel: the peak day is over, the festival is not.
+    const d12 = new Date('2026-11-12T10:00:00Z');
+    expect(salePhase(d12)).toMatchObject({ window: { key: '1111' }, phase: 'festival' });
+    expect(salePeakNow(d12)).toBe(false);
+    const hint = saleCopyHint('he', d12)!;
+    expect(hint).toContain('מבצע 11.11');
+    expect(hint).toContain('אל תכתוב שזו הזדמנות אחרונה');
+    expect(saleCopyHint('en', d12)).toContain('11.11');
+    // 18.11 late evening Israel is still the festival (Pacific day 18.11).
+    expect(salePhase(new Date('2026-11-18T20:00:00Z'))?.phase).toBe('festival');
+    // From 19.11 10:00 Israel, Black Friday's warm-up.
+    expect(salePhase(new Date('2026-11-19T08:00:00Z'))).toMatchObject({ window: { key: 'black_friday' }, phase: 'warmup' });
+  });
+
+  it('opens a post with the sale name while it is on, once', () => {
+    const d12 = new Date('2026-11-12T10:00:00Z');
+    expect(saleBannerLine('פנס טקטי חזק', true, d12)).toBe('🛒 מבצע 11.11 של אלי אקספרס');
+    expect(saleBannerLine('Tactical flashlight', false, d12)).toBe('🛒 AliExpress 11.11 Sale');
+    expect(saleBannerLine('במבצע 11.11: פנס טקטי', true, d12)).toBeNull();
+    expect(saleBannerLine('פנס', true, new Date('2026-11-11T12:00:00Z'))).toContain('11.11');
+    // Not in a warm-up, nor outside every sale.
+    expect(saleBannerLine('פנס', true, new Date('2026-11-05T12:00:00Z'))).toBeNull();
+    expect(saleBannerLine('פנס', true, new Date('2026-11-20T12:00:00Z'))).toBeNull();
+    expect(saleBannerLine('פנס', true, new Date('2026-10-01T12:00:00Z'))).toBeNull();
+    expect(saleBannerLine('פנס', true, new Date('2026-11-28T12:00:00Z'))).toContain('בלאק פריידיי');
+    expect(saleBannerLine('Black Friday pick', false, new Date('2026-11-28T12:00:00Z'))).toBeNull();
+    expect(saleBannerLine('פנס', true, new Date('2026-11-30T20:00:00Z'))).toContain('סייבר מאנדיי');
   });
 
   it('doubles a run while a sale is live, capped', () => {

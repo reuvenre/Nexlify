@@ -86,7 +86,7 @@ import { signAliexpress } from '../common/aliexpress-sign';
 import { seasonalKeywords, seasonalCopyHints, activeSeasonalEvents } from '../common/seasonal';
 import { SeasonalStatus, seasonalRunNote } from './seasonal-status';
 import { seasonalPostsPerRun } from './seasonal-boost';
-import { saleIntervalMinutes, salePeakNow, salePhase, salePostsPerRun } from '../common/sale-calendar';
+import { saleBannerLine, saleIntervalMinutes, salePeakNow, salePhase, salePostsPerRun } from '../common/sale-calendar';
 import { normalizeTelegramChatId } from '../common/crypto';
 import { assertSafeOutboundUrl } from '../common/ssrf';
 import {
@@ -4210,7 +4210,32 @@ export class PostsService {
     // Hebrew bodies: pin every line right (emoji/price/link-opening lines otherwise render
     // LTR — each line's direction follows its first strong character) and collapse the
     // blank-line runs the copy model produces. English bodies pass through untouched.
-    return tidyRtlBody(mdBoldToHtml(body));
+    const final = tidyRtlBody(mdBoldToHtml(body));
+    return this.withSaleBanner(post, creds, body, final, platform);
+  }
+
+  /**
+   * While a sale is on (11.11 through 18.11, Black Friday, Cyber Monday), an AliExpress post
+   * opens with the sale's name, built in code. The copy hint only asks the model, and on
+   * 12.11.2026 the owner saw no post naming 11.11. Hand-written custom posts are left as he
+   * wrote them, FLYLINK is not AliExpress's sale, and a Telegram caption the line would push
+   * over the limit goes without it rather than split into two messages.
+   */
+  private async withSaleBanner(
+    post: Post, creds: DecryptedCredentials, body: string, final: string, platform?: PostPlatform,
+  ): Promise<string> {
+    if (!/aliexpress/i.test(post.affiliate_url || '')) return final;
+    if (String(post.product_id || '').startsWith('custom-')) return final;
+    if (creds?.seasonal_enabled === false) return final;
+    const banner = saleBannerLine(body, /[֐-׿]/.test(body));
+    if (!banner) return final;
+    const allowed = this.subscription
+      ? await this.subscription.allows(post.user_id, 'seasonal_calendar').catch(() => true)
+      : true;
+    if (!allowed) return final;
+    const withBanner = tidyRtlBody(mdBoldToHtml(`${banner}\n\n${body}`));
+    if (platform === 'telegram' && withBanner.length > TG_CAPTION_LIMIT && final.length <= TG_CAPTION_LIMIT) return final;
+    return withBanner;
   }
 
   /**

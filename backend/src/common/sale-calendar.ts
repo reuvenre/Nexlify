@@ -15,7 +15,13 @@ import { PORTAL_TZ, portalWallToDate } from '../earnings/portal-time';
  */
 
 export type SaleKey = '1111' | 'black_friday' | 'cyber_monday';
-export type SalePhase = 'warmup' | 'live';
+/**
+ * `live` is the peak day (or weekend), the only phase that doubles the cadence. `festival`
+ * is the rest of a sale that runs on after its peak: AliExpress's 11.11 festival ran
+ * 1–18.11.2026 (its own release of 29.10.2026), and the owner found the posts of 12.11
+ * saying nothing about it once the one-day window had closed.
+ */
+export type SalePhase = 'warmup' | 'live' | 'festival';
 
 export interface SaleWindow {
   key: SaleKey;
@@ -24,8 +30,10 @@ export interface SaleWindow {
   /** Warm-up opens here (= liveFrom when a sale has no warm-up of its own). */
   warmupFrom: Date;
   liveFrom: Date;
-  /** Exclusive end. */
+  /** Exclusive end of the peak. */
   liveTo: Date;
+  /** Exclusive end of the festival after the peak (= liveTo when there is none). */
+  festivalTo: Date;
 }
 
 const DAY_MS = 86_400_000;
@@ -52,33 +60,60 @@ export function saleWindows(year: number): SaleWindow[] {
       warmupFrom: pacificMidnight(year, 10, 28),
       liveFrom: pacificMidnight(year, 11, 11),
       liveTo: pacificMidnight(year, 11, 12),
+      // The festival runs through 18.11 (exclusive end: Pacific midnight of the 19th).
+      festivalTo: pacificMidnight(year, 11, 19),
     },
     {
       key: 'black_friday', name: 'בלאק פריידיי',
       warmupFrom: pacificMidnight(year, 11, bf - 10),
       liveFrom: pacificMidnight(year, 11, bf),
       liveTo: pacificMidnight(year, 11, bf + 3),
+      festivalTo: pacificMidnight(year, 11, bf + 3),
     },
     {
       key: 'cyber_monday', name: 'סייבר מאנדיי',
       warmupFrom: pacificMidnight(year, 11, bf + 3),
       liveFrom: pacificMidnight(year, 11, bf + 3),
       liveTo: pacificMidnight(year, 11, bf + 4),
+      festivalTo: pacificMidnight(year, 11, bf + 4),
     },
   ];
 }
 
 export interface SaleMoment { window: SaleWindow; phase: SalePhase }
 
-/** The sale phase `now` falls in, or null. A live sale wins over another's warm-up. */
+/**
+ * The sale phase `now` falls in, or null. A live sale wins over a running festival, and a
+ * festival over another sale's warm-up (11.11 runs to 18.11, Black Friday warms up from 17.11).
+ */
 export function salePhase(now: Date = new Date()): SaleMoment | null {
   const year = Number(new Intl.DateTimeFormat('en-US', { timeZone: PORTAL_TZ, year: 'numeric' }).format(now));
   const t = now.getTime();
   const windows = saleWindows(year);
   const live = windows.find((w) => t >= w.liveFrom.getTime() && t < w.liveTo.getTime());
   if (live) return { window: live, phase: 'live' };
+  const fest = windows.find((w) => t >= w.liveTo.getTime() && t < w.festivalTo.getTime());
+  if (fest) return { window: fest, phase: 'festival' };
   const warm = windows.find((w) => t >= w.warmupFrom.getTime() && t < w.liveFrom.getTime());
   return warm ? { window: warm, phase: 'warmup' } : null;
+}
+
+/**
+ * The line that opens every AliExpress post while a sale is on (peak or festival), built in
+ * code. The copy hint only asks the model to name the sale, and the owner saw post after
+ * post that did not. Null outside a sale, or when the body already names it.
+ */
+export function saleBannerLine(body: string, hebrew: boolean, now: Date = new Date()): string | null {
+  const m = salePhase(now);
+  if (!m || m.phase === 'warmup') return null;
+  const named: Record<SaleKey, { he: string; en: string; test: RegExp }> = {
+    '1111': { he: '🛒 מבצע 11.11 של אלי אקספרס', en: '🛒 AliExpress 11.11 Sale', test: /11\.11/ },
+    black_friday: { he: '🖤 בלאק פריידיי באלי אקספרס', en: '🖤 AliExpress Black Friday', test: /בלאק\s*פריי?דיי|black\s*friday/i },
+    cyber_monday: { he: '💻 סייבר מאנדיי באלי אקספרס', en: '💻 AliExpress Cyber Monday', test: /סייבר\s*מאנדיי|cyber\s*monday/i },
+  };
+  const n = named[m.window.key];
+  if (n.test.test(body)) return null;
+  return hebrew ? n.he : n.en;
 }
 
 /** Kill switch for the cadence boost (the copy hints stay). */
@@ -156,6 +191,11 @@ export function saleCopyHint(language: string, now: Date = new Date()): string |
       : `הקשר: השעות האחרונות של סייבר מאנדיי, סוף מבצעי בלאק פריידיי, ${until}. כתוב כהזדמנות אחרונה: מי שדחה את הקנייה, זה הרגע. ${NEVER_INVENT_HE}`;
   }
 
+  if (w.key === '1111' && phase === 'festival') {
+    return en
+      ? `Context: AliExpress's 11.11 sale, its biggest of the year, is still on. Make the 11.11 sale stand out in the post. ${NOT_LAST_CHANCE_EN} ${NEVER_INVENT_EN}`
+      : `הקשר: מבצע 11.11 של אלי אקספרס, הגדול של השנה, עדיין פעיל. הדגש בפוסט שזה מבצע 11.11. ${NOT_LAST_CHANCE_HE} ${NEVER_INVENT_HE}`;
+  }
   if (w.key === '1111') {
     return phase === 'warmup'
       ? (en

@@ -187,6 +187,8 @@ To see what the season actually did, don't read one run. The run note carries `�
 
 ### The big sale days (`common/sale-calendar.ts`, `coupons/sale-readiness.ts`)
 11.11, Black Friday and Cyber Monday are the year's money. Each has a **warm-up** and a **live** phase, every boundary a Pacific midnight (the portal's clock: 11.11 opens at 10:00 Israel time). Black Friday is computed per year (the day after the fourth Thursday of November). Its live phase runs to Cyber Monday, which is live for one day.
+- **11.11 is a festival, not a day.** AliExpress ran it 1–18.11 in 2026. After the live day comes the `festival` phase (`festivalTo`, to Pacific midnight of 19.11). It gets the 11.11 copy and banner, and no cadence boost (`salePeakNow` is `live` only). A festival wins over Black Friday's warm-up. On 12.11.2026 the owner saw no post naming 11.11, because the sale had been one day long here.
+- **The banner** (`saleBannerLine`, prepended in `buildPostBody` → `withSaleBanner`): while a sale is live or in its festival, an AliExpress post opens with «🛒 מבצע 11.11 של אלי אקספרס» (or «🖤 בלאק פריידיי…» / «💻 סייבר מאנדיי…», English for an English body). It is built in code, because the copy hint only asks the model. It is skipped for FLYLINK, `custom-` posts, a body that already names the sale, the seasonal switch or plan being off, and a Telegram caption it would push past 1024.
 - **Copy by phase** (`saleCopyHint`, through `seasonalCopyHints`' sale line):
   - Before a sale: "save it to the cart, catch it on the day".
   - On 11.11: stress that it is the 11.11 sale, and never call it a last chance or say it is ending (`NOT_LAST_CHANCE_HE`). The owner asked for this on 12.11.2026, when the last-call copy below was still being written for 11.11.
