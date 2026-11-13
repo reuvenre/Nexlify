@@ -117,6 +117,8 @@ Three suppression memories decide whether the owner hears something twice, all h
 
 A finding is remembered **when the alert actually goes out**, not when it is composed — one dropped by the throttle must stay reportable later.
 
+**The links, from the outside** (check 14, `link-health.ts`). Every other check looks from inside the backend. On 13.11.2026 the Vercel project was paused, and every short link in every post, the store and the dashboard answered 402 for hours while everything was green. Now each scan opens the newest sent post's real short link (`SHORT_LINK_BASE` or `FRONTEND_URL` + `/r/<code>`) with a bot user agent, so `isBotAgent` keeps it out of the clicks, and with `maxRedirects: 0`. Healthy means a redirect that does not lead to the frontend's home page. A failure is retried once after 10 s. The kinds are `paused` (402 / `DEPLOYMENT_PAUSED`, which carries the owner action: resume in Vercel), `down` and `not_redirecting`. It re-alerts hourly (`throttleMs`), not every 6 h.
+
 An alert resolved by a business *decision* rather than a code fix sets its own `throttleMs` (the seasonal gap uses 3 days). The 6 h default would otherwise file an issue every six hours for as long as the window stays open — hundreds for one known condition.
 
 ### Why a campaign keyword comes back empty

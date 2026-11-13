@@ -46,6 +46,7 @@ import {
   searchConstraints, seasonalGapKey, seasonalGapLine, seasonalGaps, unreportedGaps,
 } from './seasonal-gap';
 import { OWNER_BOT_REGISTERED_UPDATES, WebhookVerdict, webhookVerdict } from './webhook-health';
+import { LinkProbe, LinkVerdict, linkVerdict } from './link-health';
 import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
 
 /** The window a campaign is judged on, and the stretch of its own past it is judged against.
@@ -1271,7 +1272,70 @@ export class WatchdogService implements OnModuleInit {
       });
     }
 
+    // 14. The links in the published posts, opened from the outside like a shopper does.
+    //     On 13.11.2026 the frontend (Vercel) was paused and every link answered 402 for
+    //     hours, while every check above was green: they all look from the inside.
+    const links = await this.linkHealth().catch(() => null);
+    if (links) {
+      out.push({
+        key: `post_links:${links.verdict.kind}`,
+        title: links.verdict.title,
+        body: [
+          `**בדיקה:** פתיחת קישור קצר אמיתי מפוסט שנשלח (${links.url}) מבחוץ, עם user-agent של בוט כדי שהקליק לא ייספר.`,
+          `**ממצא:** ${links.verdict.detail}`,
+          '',
+          'כיווני חקירה: מצב הפרויקט ב-Vercel, frontend/src/app/r/[code]/route.ts, LinksController.resolve, SHORT_LINK_BASE / FRONTEND_URL.',
+        ].join('\n'),
+        details: [links.verdict.detail],
+        // Every 15 minutes the links are dead is money lost: remind every hour, not every six.
+        throttleMs: 3600_000,
+        ...(links.verdict.action ? { action: links.verdict.action } : {}),
+      });
+    }
+
     return out;
+  }
+
+  /**
+   * A real post's short link, opened from outside. Null when it works or nothing can be
+   * probed. A failure is confirmed by a second try, so one slow answer is not an alert.
+   */
+  private async linkHealth(): Promise<{ url: string; verdict: LinkVerdict } | null> {
+    const frontend = (process.env.FRONTEND_URL || '').split(',')[0].trim().replace(/\/$/, '');
+    const base = (process.env.SHORT_LINK_BASE || frontend).split(',')[0].trim().replace(/\/$/, '');
+    if (!base || /localhost|127\.0\.0\.1/.test(base)) return null;
+    const row: Array<{ short_code: string }> = await this.posts.query(
+      `SELECT short_code FROM posts
+       WHERE status = 'sent' AND short_code IS NOT NULL AND affiliate_url IS NOT NULL
+       ORDER BY sent_at DESC NULLS LAST LIMIT 1`,
+    ).catch(() => []);
+    const code = row[0]?.short_code;
+    if (!code) return null;
+    const url = `${base}/r/${encodeURIComponent(code)}`;
+    const probe = async (): Promise<LinkProbe> => {
+      try {
+        const res = await axios.get(url, {
+          maxRedirects: 0,
+          validateStatus: () => true,
+          timeout: 20000,
+          responseType: 'text',
+          // isBotAgent matches 'bot' and 'monitor': the probe is never counted as a click.
+          headers: { 'User-Agent': 'NexlifyWatchdog/1.0 (link monitor bot)' },
+        });
+        return {
+          status: res.status,
+          location: String(res.headers?.location || ''),
+          body: String(res.data || '').slice(0, 4000),
+        };
+      } catch (err: any) {
+        return { status: 0, error: err?.code || err?.message || String(err) };
+      }
+    };
+    const first = linkVerdict(await probe(), url, frontend || base);
+    if (!first) return null;
+    await new Promise((r) => setTimeout(r, 10_000));
+    const second = linkVerdict(await probe(), url, frontend || base);
+    return second ? { url, verdict: second } : null;
   }
 
   /** Telegram's own view of our webhook — null when it is healthy or cannot be read. */
