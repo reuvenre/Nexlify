@@ -447,7 +447,13 @@ Both screens keep themselves current while they are on screen. There is no push 
 The owner asked for one font across the whole system. `tailwind.config.js` maps `sans`, `serif` and `mono` all to Arial, `globals.css` sets it on `html, body` and the form controls (they do not inherit it on their own), the storefront's `store.css` uses it too (Heebo and the Georgia wordmark are gone), and `next/font` (Inter) is no longer loaded. The emails already used Arial. Burned-in images keep server fonts on purpose: the pin frame (`pin-frame.ts`, DejaVu Sans first) and the Reels (Heebo), because Arial is not installed on the Linux render hosts and a missing font would fall back silently.
 
 ### Auth flow
-`middleware.ts` only redirects unauthenticated users (no API calls, to avoid ISR cache invalidation). Real session validation happens inside the dashboard layout via the `useAuth` hook.
+`middleware.ts` runs **only on a storefront product page** (`matcher: /s/:slug/p/:path*`), where it marks a Pinterest visit (`x-nx-pin-visit`). Auth is never checked there: session validation happens inside the dashboard layout via the `useAuth` hook.
+
+### Vercel cost: what runs as a function
+On 13.11.2026 the team ran out of the Hobby plan's Fluid Active CPU (4 h a month), and Vercel paused every project. Every post link went with it, until the owner moved to Pro. Almost every page is static. Keep it so:
+- **Short links never run a function.** `/r/:code` is a `beforeFiles` rewrite in `next.config.js` straight to the backend's `LinksController.redirect`, which records the click and redirects. An unknown code goes to `SHORT_LINK_FALLBACK_URL`, else the home page (`unknownCodeTarget`). The route handler that used to sit at `app/r/[code]` cost one function call per click and per preview crawler.
+- **The middleware matcher stays narrow.** With the old catch-all matcher it ran on every page, prefetch and click, and did nothing for any of them.
+- The dynamic routes left are the store (`/s/…`), `/bot` and a few dashboard pages with ids. Check `next build`'s ○/ƒ column before adding another.
 
 ### API client
 `frontend/src/lib/api-client.ts` is the shared Axios instance. It attaches the JWT access token from `localStorage` and handles 401 → token refresh automatically. Always use this instance, never create raw `axios` calls.

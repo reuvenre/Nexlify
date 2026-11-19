@@ -1284,7 +1284,7 @@ export class WatchdogService implements OnModuleInit {
           `**בדיקה:** פתיחת קישור קצר אמיתי מפוסט שנשלח (${links.url}) מבחוץ, עם user-agent של בוט כדי שהקליק לא ייספר.`,
           `**ממצא:** ${links.verdict.detail}`,
           '',
-          'כיווני חקירה: מצב הפרויקט ב-Vercel, frontend/src/app/r/[code]/route.ts, LinksController.resolve, SHORT_LINK_BASE / FRONTEND_URL.',
+          'כיווני חקירה: מצב הפרויקט ב-Vercel, ה-rewrite של /r ב-frontend/next.config.js, LinksController.redirect, SHORT_LINK_BASE / FRONTEND_URL.',
         ].join('\n'),
         details: [links.verdict.detail],
         // Every 15 minutes the links are dead is money lost: remind every hour, not every six.

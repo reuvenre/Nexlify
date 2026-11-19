@@ -15,10 +15,23 @@ const nextConfig = {
   // The Google OAuth flow goes through /api so the callback returns to THIS origin
   // (eliminates cross-domain cookie/fragment/FRONTEND_URL issues). Regular API calls
   // keep going direct to the backend (NEXT_PUBLIC_API_URL) to avoid proxy timeouts.
+  //
+  // /r/<code> — every short link in every post — is proxied the same way, straight to the
+  // backend's own redirect (LinksController.redirect), which records the click. It used to
+  // be a route handler here: one server function per click and per preview crawler, only
+  // to ask the backend where to go. beforeFiles, so it wins over any page. The query
+  // string (?s=tg / ?s=pin, the platform tag) and the browser's Referer and User-Agent
+  // pass through untouched.
   async rewrites() {
-    return [
-      { source: '/api/:path*', destination: 'https://nexus-backend-wb5h.onrender.com/:path*' },
-    ];
+    return {
+      beforeFiles: [
+        { source: '/r/:code', destination: 'https://nexus-backend-wb5h.onrender.com/r/:code' },
+      ],
+      afterFiles: [
+        { source: '/api/:path*', destination: 'https://nexus-backend-wb5h.onrender.com/:path*' },
+      ],
+      fallback: [],
+    };
   },
 };
 
