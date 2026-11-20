@@ -34,3 +34,12 @@ describe('failed post requeue', () => {
     expect(isRetryableNetworkPartial('Telegram: [קבוצה] Bad Gateway · נוסה שוב אוטומטית · נוסה שוב אוטומטית · נוסה שוב אוטומטית')).toBe(false);
   });
 });
+
+describe('send-stage marks', () => {
+  it('are never mistaken for a requeueable failure', () => {
+    const { PREPARING_MARK, SENDING_MARK } = require('./failed-requeue');
+    expect(isRequeueableFailure(PREPARING_MARK)).toBe(false);
+    expect(isRequeueableFailure(SENDING_MARK)).toBe(false);
+    expect(PREPARING_MARK).not.toBe(SENDING_MARK);
+  });
+});

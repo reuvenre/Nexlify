@@ -126,6 +126,11 @@ A post that failed on **every** channel used to stay `failed` for good. Only par
 - **What qualifies** (`isProvablyUnpublished`): the sender's connect-phase tag `[net]`, or Telegram answering 429 «Too Many Requests» or 502 «Bad Gateway». In those cases nothing was published, so a resend cannot duplicate. Every failed channel of the post must qualify.
 - **What never qualifies:** a timeout on an open socket, «server may have restarted during send» (the post may be live), refused tokens, a missing chat, empty credits.
 - **`requeueFailedPosts`** runs on the same 5-minute tick as `retryNetworkPartials`. It covers failures from the last 6 h, and sets the post back to `scheduled` at +5, +15 and +45 min, so group pacing and `claimPacedSend` place it. That is at most `MAX_REQUEUES` (3) times. The count is kept in `persistent_values` `posts:failed_requeues` (24 h, merged), because every send rewrites `error_message`. With no store, nothing is requeued.
+- **«server may have restarted during send»** was most of what the owner saw failed (8 posts between 4.11 and 16.11.2026, in the busy morning hours, with no deploy at those times: the 512 MB instance restarting mid-send). The cleanup (`resetStuckPendingPosts`) could not tell a send that died before any platform call from one that died after. Now the row says where the send stands:
+  - `PREPARING_MARK` is written as `sendToTelegram` starts;
+  - `SENDING_MARK` is written just before the first platform call. Every outcome rewrites `error_message`, so the marks never outlive the send.
+  - A stuck row still on `PREPARING_MARK` lost nothing. It goes back to the queue (+5 min) **once** (`posts:stuck_requeues`, 3 d), so a post whose own media crashes the server cannot do it again.
+  - Anything else stuck is failed as before, for the owner to check.
 - **The partial retry** takes Telegram 429/502 too. It also writes back the earlier `AUTO_RETRY_MARK` stamps, since `retryFailedChannels` rewrites the error text from scratch. Without them the count never passed 1, and a channel that kept failing was retried every tick for six hours.
 
 ### Why a campaign keyword comes back empty

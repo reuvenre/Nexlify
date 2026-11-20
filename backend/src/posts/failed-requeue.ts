@@ -17,6 +17,15 @@
  */
 import { isProvablyUnpublished } from './network-partial';
 
+/**
+ * Where a send stands, written into a `pending` row's error_message (every outcome rewrites
+ * it). PREPARING: the send started and no platform was called yet. SENDING: a platform may
+ * now publish. A server that dies on a PREPARING row lost nothing, so the stuck-post cleanup
+ * sends it again; one that dies on a SENDING row may have published, so that stays failed.
+ */
+export const PREPARING_MARK = '⏳ בהכנה לשליחה';
+export const SENDING_MARK = '⏳ בשליחה';
+
 /** How many times one post goes back to the queue. */
 export const MAX_REQUEUES = 3;
 /** A failure older than this is history; a product posted hours late reads as noise. */

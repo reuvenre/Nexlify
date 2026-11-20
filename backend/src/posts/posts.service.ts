@@ -31,7 +31,7 @@ import { tagShortLinks } from '../links/click-source';
 import { stripInlineLink } from './strip-inline-link';
 import { toWhatsAppText } from './whatsapp-format';
 import { AUTO_RETRY_MARK, NET_SAFE_TAG, autoRetryCount, isRetryableNetworkPartial } from './network-partial';
-import { MAX_REQUEUES, REQUEUE_WINDOW_MS, isRequeueableFailure, requeueAt } from './failed-requeue';
+import { MAX_REQUEUES, PREPARING_MARK, REQUEUE_WINDOW_MS, SENDING_MARK, isRequeueableFailure, requeueAt } from './failed-requeue';
 import { soloCampaignSlot } from './solo-campaign-slot';
 import { manualQueueTurn } from './queue-fairness';
 import { chatCollision, chatGapMinutes, postChats } from './chat-collision';
@@ -3777,9 +3777,46 @@ export class PostsService {
 
   async resetStuckPendingPosts(): Promise<void> {
     const cutoff = new Date(Date.now() - 30 * 60 * 1000); // 30 minutes ago
-    // Key off pending_at (when the send was claimed), falling back to created_at for rows
-    // written before pending_at existed — so a post that merely sat queued a long time
-    // isn't marked "stuck" the moment it starts sending.
+    // A post the server died on WHILE PREPARING (PREPARING_MARK, no platform called yet)
+    // goes back to the queue once. Between 4.11 and 16.11.2026 eight posts were lost as
+    // "server may have restarted" in the busy morning hours, with no deploy at those times:
+    // the 512 MB instance restarting mid-collage. Once only: a post whose own media is
+    // what kills the server must not take it down again and again.
+    if (this.memory) {
+      const prepared: Array<{ id: string; user_id: string }> = await this.repo.query(
+        `SELECT id, user_id FROM posts WHERE status = 'pending' AND error_message = $1
+           AND COALESCE(pending_at, created_at) < $2 LIMIT 20`,
+        [PREPARING_MARK, cutoff],
+      ).catch(() => []);
+      if (prepared.length) {
+        const KEY = 'posts:stuck_requeues';
+        const seen = ((await this.memory.load(KEY)) as Record<string, number> | null) || {};
+        const touched: string[] = [];
+        for (const row of prepared) {
+          if (seen[row.id]) continue;
+          const res = await this.repo.createQueryBuilder().update(Post)
+            .set({
+              status: 'scheduled',
+              scheduled_at: new Date(Date.now() + 5 * 60_000),
+              error_message: 'הוחזר לתור אוטומטית: השרת התאתחל לפני שהפוסט נשלח',
+            })
+            .where('id = :id AND status = :pending AND error_message = :mark', { id: row.id, pending: 'pending', mark: PREPARING_MARK })
+            .execute().catch(() => null);
+          if (!res?.affected) continue;
+          touched.push(row.id);
+          this.logger.log(`stuck post ${row.id}: died before any platform call — back in the queue`);
+        }
+        if (touched.length) {
+          const latest = ((await this.memory.load(KEY)) as Record<string, number> | null) || {};
+          for (const id of touched) latest[id] = 1;
+          await this.memory.save(KEY, latest, 3 * 24 * 3600_000);
+        }
+      }
+    }
+    // Everything else still pending past the cutoff may already be live: failed, for the
+    // owner to check. Key off pending_at (when the send was claimed), falling back to
+    // created_at for rows written before pending_at existed — so a post that merely sat
+    // queued a long time isn't marked "stuck" the moment it starts sending.
     await this.repo.createQueryBuilder()
       .update(Post)
       .set({ status: 'failed', error_message: 'Timed out — server may have restarted during send' })
@@ -4797,6 +4834,13 @@ export class PostsService {
   }
 
   private async sendToTelegram(post: Post, creds: DecryptedCredentials, channelOverride?: string) {
+    // The send has started and nothing is out yet (see SENDING_MARK below, written just
+    // before the first platform call). A row the cleanup finds still carrying this mark
+    // died while preparing, so it can go back to the queue (resetStuckPendingPosts).
+    // Only a row the DB holds as `pending` is marked: the in-memory status can lag a claim.
+    if (post.id) {
+      await this.repo.update({ id: post.id, status: 'pending' }, { error_message: PREPARING_MARK }).catch(() => {});
+    }
     // Guarantee a SHORT affiliate link before anything is published — old queued posts and
     // any pasted link can carry the broken 1065-char /s/ form, which is ugly and blows the
     // Telegram caption limit. This is the single choke point every platform flows through.
@@ -4895,6 +4939,14 @@ export class PostsService {
       ? await this.prepareTelegramMedia(post, creds)
       : undefined;
     if (media) this.registerEnhancedFrame(post.id, media);
+
+    // From here on a platform may publish. Marked in the row, so the stuck-post cleanup can
+    // tell a server that died BEFORE this line (preparing the collage on a 512 MB instance:
+    // nothing went out, safe to send again) from one that died after (may be live).
+    // Every outcome below rewrites error_message, so the mark never outlives the send.
+    if (post.id) {
+      await this.repo.update({ id: post.id, status: 'pending' }, { error_message: SENDING_MARK }).catch(() => {});
+    }
 
     if (wantTelegram) {
       tasks.push((async () => {
