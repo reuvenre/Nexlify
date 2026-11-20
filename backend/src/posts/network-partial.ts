@@ -44,5 +44,19 @@ export function isRetryableNetworkPartial(errorMessage: string | null | undefine
   // and bury the half the owner needs to read.
   const segments = text.split(AUTO_RETRY_MARK)[0].split('|').map((s) => s.trim()).filter(Boolean);
   if (!segments.length) return false;
-  return segments.every((seg) => seg.includes(NET_SAFE_TAG) || LEGACY_META_PHRASE.test(seg));
+  return segments.every((seg) => isProvablyUnpublished(seg) || LEGACY_META_PHRASE.test(seg));
+}
+
+/**
+ * Telegram answered and refused: 429 "Too Many Requests" or 502 "Bad Gateway" (its front
+ * door could not reach the Bot API). Either way nothing was published, so a resend cannot
+ * duplicate. The 19.11.2026 post that lost one group to a 502 had no retry for this.
+ * The label is the optional "[group] " a multi-group post adds.
+ */
+const TELEGRAM_REFUSED = /^Telegram:\s*(?:\[[^\]]*\]\s*)?(?:Too Many Requests|Bad Gateway)\b/i;
+
+/** One failed channel's text, where the platform provably did not publish. */
+export function isProvablyUnpublished(segment: string): boolean {
+  const seg = String(segment || '').trim();
+  return seg.includes(NET_SAFE_TAG) || TELEGRAM_REFUSED.test(seg);
 }

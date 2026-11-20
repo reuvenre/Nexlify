@@ -121,6 +121,13 @@ A finding is remembered **when the alert actually goes out**, not when it is com
 
 An alert resolved by a business *decision* rather than a code fix sets its own `throttleMs` (the seasonal gap uses 3 days). The 6 h default would otherwise file an issue every six hours for as long as the window stays open — hundreds for one known condition.
 
+### A failed post goes back to the queue (`posts/failed-requeue.ts`, `posts/network-partial.ts`)
+A post that failed on **every** channel used to stay `failed` for good. Only partial publishes (`sent` with an error) were retried, so a lone Telegram post that met a 502 lost its product. The owner asked why failed posts never come back for another try (20.11.2026).
+- **What qualifies** (`isProvablyUnpublished`): the sender's connect-phase tag `[net]`, or Telegram answering 429 «Too Many Requests» or 502 «Bad Gateway». In those cases nothing was published, so a resend cannot duplicate. Every failed channel of the post must qualify.
+- **What never qualifies:** a timeout on an open socket, «server may have restarted during send» (the post may be live), refused tokens, a missing chat, empty credits.
+- **`requeueFailedPosts`** runs on the same 5-minute tick as `retryNetworkPartials`. It covers failures from the last 6 h, and sets the post back to `scheduled` at +5, +15 and +45 min, so group pacing and `claimPacedSend` place it. That is at most `MAX_REQUEUES` (3) times. The count is kept in `persistent_values` `posts:failed_requeues` (24 h, merged), because every send rewrites `error_message`. With no store, nothing is requeued.
+- **The partial retry** takes Telegram 429/502 too. It also writes back the earlier `AUTO_RETRY_MARK` stamps, since `retryFailedChannels` rewrites the error text from scratch. Without them the count never passed 1, and a channel that kept failing was retried every tick for six hours.
+
 ### Why a campaign keyword comes back empty
 `runCampaign` builds each keyword's pool in **tiers**, and tiers 3–4 relax `min_rating` and `min_discount` automatically once on-spec stock runs out. So **rating and discount can never silence a keyword** — if the search returned anything, the slot is filled. A slot borrows from another keyword only when the *search itself* is empty, and the filters that can do that are the ones sent **to the API**, which no tier relaxes: `category_id` and `min_price`/`max_price`. Diagnose an empty keyword there, and read the run note's `"<kw>": החיפוש לא החזיר מוצרים כלל` line. Telling the owner to lower rating/discount lowers his quality bar for every keyword and fixes nothing — it has happened once already.
 

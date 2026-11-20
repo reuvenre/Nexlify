@@ -30,7 +30,8 @@ import { AlbumVideo, mergeAlbum, parseAlbumVideos } from './album-videos';
 import { tagShortLinks } from '../links/click-source';
 import { stripInlineLink } from './strip-inline-link';
 import { toWhatsAppText } from './whatsapp-format';
-import { AUTO_RETRY_MARK, NET_SAFE_TAG, isRetryableNetworkPartial } from './network-partial';
+import { AUTO_RETRY_MARK, NET_SAFE_TAG, autoRetryCount, isRetryableNetworkPartial } from './network-partial';
+import { MAX_REQUEUES, REQUEUE_WINDOW_MS, isRequeueableFailure, requeueAt } from './failed-requeue';
 import { soloCampaignSlot } from './solo-campaign-slot';
 import { manualQueueTurn } from './queue-fairness';
 import { chatCollision, chatGapMinutes, postChats } from './chat-collision';
@@ -4270,7 +4271,8 @@ export class PostsService {
       const rows: Array<{ id: string; user_id: string }> = await this.repo.query(
         `SELECT id, user_id FROM posts
          WHERE status = 'sent' AND error_message IS NOT NULL
-           AND (error_message LIKE $1 OR error_message LIKE '%נכשל ברמת הרשת%')
+           AND (error_message LIKE $1 OR error_message LIKE '%נכשל ברמת הרשת%'
+                OR error_message ILIKE '%Bad Gateway%' OR error_message ILIKE '%Too Many Requests%')
            AND sent_at > now() - interval '6 hours'
          ORDER BY sent_at DESC LIMIT $2`,
         [`%${NET_SAFE_TAG}%`, limit],
@@ -4280,6 +4282,7 @@ export class PostsService {
       for (const row of rows) {
         const before = await this.repo.findOne({ where: { id: row.id } });
         if (!isRetryableNetworkPartial(before?.error_message)) continue;
+        const attemptsBefore = autoRetryCount(before?.error_message);
         try {
           await this.retryFailedChannels(row.user_id, row.id);
         } catch (err: any) {
@@ -4288,9 +4291,13 @@ export class PostsService {
         // Stamp AFTER the attempt, on whatever error text the retry left behind — a retry
         // that succeeded clears the message and needs no stamp; one that failed keeps it,
         // and the stamp is what counts this attempt against MAX_AUTO_RETRIES.
+        // retryFailedChannels rewrites error_message from scratch, so the earlier stamps
+        // are written back with this one: with only the new stamp the count never passed
+        // 1, and a channel that kept failing was retried every tick for six hours.
         const after = await this.repo.findOne({ where: { id: row.id } });
         if (after?.error_message) {
-          after.error_message = `${after.error_message}${AUTO_RETRY_MARK}`;
+          const bare = after.error_message.split(AUTO_RETRY_MARK)[0];
+          after.error_message = `${bare}${AUTO_RETRY_MARK.repeat(attemptsBefore + 1)}`;
           await this.repo.save(after);
         } else if (after && !after.error_message) {
           healed++;
@@ -4301,6 +4308,52 @@ export class PostsService {
     } finally {
       this.retryingNetworkPartials = false;
     }
+  }
+
+  /**
+   * Put a FAILED post back in the queue when the platform provably did not publish it
+   * (failed-requeue.ts): a connection that never left, or Telegram refusing with 429/502.
+   * It goes back as `scheduled`, so the group's pacing and the collision guard place it
+   * like any other post. At most MAX_REQUEUES times per post, spaced 5/15/45 minutes.
+   * The count lives in persistent_values, because every send rewrites error_message.
+   * With no store there is no count, so nothing is requeued: a loop is worse than a loss.
+   */
+  async requeueFailedPosts(limit = 10): Promise<number> {
+    if (!this.memory) return 0;
+    const rows: Array<{ id: string; error_message: string }> = await this.repo.query(
+      `SELECT id, error_message FROM posts
+       WHERE status = 'failed' AND error_message IS NOT NULL
+         AND COALESCE(pending_at, scheduled_at, created_at) > now() - ($1 || ' milliseconds')::interval
+       ORDER BY COALESCE(pending_at, scheduled_at, created_at) DESC LIMIT $2`,
+      [String(REQUEUE_WINDOW_MS), limit],
+    ).catch(() => []);
+    const candidates = rows.filter((r) => isRequeueableFailure(r.error_message));
+    if (!candidates.length) return 0;
+    const KEY = 'posts:failed_requeues';
+    const counts = ((await this.memory.load(KEY)) as Record<string, number> | null) || {};
+    let requeued = 0;
+    for (const row of candidates) {
+      const done = Number(counts[row.id]) || 0;
+      const at = requeueAt(done, Date.now());
+      if (!at) continue;
+      const note = `${row.error_message.split(' · הוחזר לתור')[0]} · הוחזר לתור אוטומטית (${done + 1}/${MAX_REQUEUES})`;
+      // Only a row still `failed` moves: an owner who retried or deleted it meanwhile wins.
+      const res = await this.repo.createQueryBuilder().update(Post)
+        .set({ status: 'scheduled', scheduled_at: at, error_message: note.slice(0, 2000) })
+        .where('id = :id AND status = :failed', { id: row.id, failed: 'failed' })
+        .execute().catch(() => null);
+      if (!res?.affected) continue;
+      counts[row.id] = done + 1;
+      requeued++;
+      this.logger.log(`requeued failed post ${row.id} (${done + 1}/${MAX_REQUEUES}) for ${at.toISOString()}`);
+    }
+    if (requeued) {
+      // Merge with what another tick may have written meanwhile, never assign.
+      const latest = ((await this.memory.load(KEY)) as Record<string, number> | null) || {};
+      for (const [id, n] of Object.entries(counts)) latest[id] = Math.max(Number(latest[id]) || 0, n);
+      await this.memory.save(KEY, latest, 24 * 3600_000);
+    }
+    return requeued;
   }
 
   async retryFailedChannels(userId: string, postId: string): Promise<Post> {

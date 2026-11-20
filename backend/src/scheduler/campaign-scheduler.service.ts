@@ -189,6 +189,14 @@ export class CampaignSchedulerService {
     } catch (err: any) {
       this.logger.error(`Network auto-retry tick failed: ${err.message}`);
     }
+    // A post that failed on EVERY channel used to stay failed for good. Put back in the
+    // queue the ones the platform provably never published (failed-requeue.ts).
+    try {
+      const back = await this.posts.requeueFailedPosts();
+      if (back) this.logger.log(`Requeued ${back} failed post(s) for another attempt`);
+    } catch (err: any) {
+      this.logger.error(`Failed-post requeue tick failed: ${err.message}`);
+    }
   }
 
   /** Runs every minute — sends posts that have reached their scheduled_at time */
